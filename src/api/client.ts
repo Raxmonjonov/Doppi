@@ -1,5 +1,9 @@
 const TOKEN_KEY = 'doppi-token-v1'
 
+// Backend bazasi: Netlify'da VITE_API_URL env'idа ko'rsatiladi.
+// Rivojlanishda (vite proxy) va bir xil hostda bo'lganda — bo'sh qoladi.
+const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, '') ?? ''
+
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)
 }
@@ -18,14 +22,21 @@ export async function api<T>(
   if (token) headers.Authorization = `Bearer ${token}`
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
 
-  const res = await fetch(path, {
+  const res = await fetch(`${API_BASE}${path}`, {
     method: options.method ?? 'GET',
     headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   })
 
   const text = await res.text()
-  const data = text ? (JSON.parse(text) as T & { error?: string }) : ({} as T)
+  let data: T & { error?: string } = {} as T & { error?: string }
+  if (text) {
+    // Netlify kabi statik hostda API mavjud bo'lmasa /api -> index.html qaytishi mumkin:
+    if (!res.ok && text.trimStart().startsWith('<!')) {
+      throw new Error('Backend server ulanishi yo\'q. Iltimos API bazasini o\'rnating (VITE_API_URL).')
+    }
+    data = JSON.parse(text) as T & { error?: string }
+  }
 
   if (!res.ok) {
     throw new Error((data as { error?: string }).error || `Xatolik: ${res.status}`)
