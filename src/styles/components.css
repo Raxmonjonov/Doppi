@@ -1057,10 +1057,9 @@
 /* ---------- Profile ---------- */
 .profile-cover {
   position: relative;
-  height: 260px;
+  height: 190px;
   border-radius: var(--fn-radius-card);
   overflow: hidden;
-  margin-bottom: 84px;
   background: linear-gradient(135deg, var(--fn-primary), #7c3aed 55%, #db2777);
 }
 
@@ -1070,32 +1069,27 @@
   object-fit: cover;
 }
 
-.profile-cover .overlay {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.4), transparent);
-}
-
 .profile-meta {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -78px;
+  position: relative;
+  margin-top: -72px;
+  padding: 0 24px 12px;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 18px;
-  padding: 0 24px;
 }
 
 .profile-meta .avatar-wrap {
+  position: relative;
+  z-index: 1;
   border-radius: 50%;
-  box-shadow: 0 0 0 4px var(--fn-primary);
+  box-shadow: 0 0 0 4px var(--fn-surface);
   flex-shrink: 0;
 }
 
 .profile-meta .p-text {
   min-width: 0;
   flex: 1 1 auto;
+  padding-bottom: 4px;
 }
 
 .profile-meta .p-name {
@@ -1104,6 +1098,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-shadow: 0 1px 0 var(--fn-surface);
 }
 
 .profile-meta .p-sub {
@@ -1116,6 +1111,7 @@
   display: flex;
   gap: 10px;
   flex-shrink: 0;
+  padding-bottom: 4px;
 }
 
 .profile-tabs {
@@ -1780,8 +1776,9 @@
 @media (max-width: 767px) {
   .profile-meta {
     flex-wrap: wrap;
-    gap: 12px;
+    gap: 10px;
     padding: 0 12px;
+    margin-top: -60px;
   }
 
   .profile-meta .p-actions {
@@ -1794,8 +1791,7 @@
   }
 
   .profile-cover {
-    height: 190px;
-    margin-bottom: 72px;
+    height: 160px;
   }
 
   .messenger {

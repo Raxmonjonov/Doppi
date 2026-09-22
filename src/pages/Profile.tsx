@@ -39,46 +39,44 @@ export function Profile() {
 
   return (
     <div className="fade-in">
-      <div className="card" style={{ overflow: 'hidden' }}>
-        <div className="profile-cover">
-          <div className="overlay" />
-          <div className="profile-meta">
-            <span className="avatar-wrap">
-              <Avatar user={viewed} size={130} />
-            </span>
-            <div className="p-text">
-              <div className="p-name">{viewed.name}</div>
-              <div className="p-sub">@{viewed.username} · {viewed.about}</div>
-            </div>
-            <div className="p-actions">
-              {isOther ? (
-                <>
-                  <button
-                    type="button"
-                    className={`btn ${isFollowing ? 'btn-outline' : 'btn-primary'}`}
-                    onClick={() => void toggleFollow(viewedId)}
-                  >
-                    {isFollowing ? <UserCheck size={17} /> : <UserPlus size={17} />}
-                    {isFollowing ? 'Kuzatilmoqda' : 'Kuzatish'}
-                  </button>
-                  <button type="button" className="btn btn-outline">
-                    <MessageCircle size={17} /> Xabar
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button type="button" className="btn btn-primary">
-                    <UserPlus size={17} /> Do'stlik so'rovi
-                  </button>
-                  <button type="button" className="btn btn-outline">
-                    <Bell size={17} /> Follow
-                  </button>
-                </>
-              )}
-              <button type="button" className="btn btn-outline" aria-label="Ko'proq">
-                <MoreHorizontal size={17} />
-              </button>
-            </div>
+      <div className="card">
+        <div className="profile-cover" />
+        <div className="profile-meta">
+          <span className="avatar-wrap">
+            <Avatar user={viewed} size={130} />
+          </span>
+          <div className="p-text">
+            <div className="p-name">{viewed.name}</div>
+            <div className="p-sub">@{viewed.username} · {viewed.about}</div>
+          </div>
+          <div className="p-actions">
+            {isOther ? (
+              <>
+                <button
+                  type="button"
+                  className={`btn ${isFollowing ? 'btn-outline' : 'btn-primary'}`}
+                  onClick={() => void toggleFollow(viewedId)}
+                >
+                  {isFollowing ? <UserCheck size={17} /> : <UserPlus size={17} />}
+                  {isFollowing ? 'Kuzatilmoqda' : 'Kuzatish'}
+                </button>
+                <button type="button" className="btn btn-outline">
+                  <MessageCircle size={17} /> Xabar
+                </button>
+              </>
+            ) : (
+              <>
+                <button type="button" className="btn btn-primary">
+                  <UserPlus size={17} /> Do'stlik so'rovi
+                </button>
+                <button type="button" className="btn btn-outline">
+                  <Bell size={17} /> Follow
+                </button>
+              </>
+            )}
+            <button type="button" className="btn btn-outline" aria-label="Ko'proq">
+              <MoreHorizontal size={17} />
+            </button>
           </div>
         </div>
       </div>
