@@ -8,6 +8,38 @@ import type { Post } from '../data/mock'
 import { updateData } from '../data/store'
 import { fileToDataUrl } from '../lib/upload'
 
+function dispatch(kind: 'image' | 'video' | null) {
+  if (kind) window.dispatchEvent(new CustomEvent('fn:pick-media', { detail: kind }))
+  else window.dispatchEvent(new CustomEvent('fn:open-post'))
+}
+
+export function HomeComposer() {
+  const me = useMe()
+  return (
+    <>
+      <div className="card create-post" style={{ marginBottom: 20 }}>
+        <Avatar user={me} size={42} />
+        <button type="button" className="input-pill" onClick={() => dispatch(null)}>
+          Nima yangiliklar, {me.name.split(' ')[0]}?
+        </button>
+      </div>
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="create-post-actions">
+          <button type="button" className="cpa-item" onClick={() => dispatch('video')} style={{ color: 'var(--fn-danger)' }}>
+            <Video size={20} /> Video
+          </button>
+          <button type="button" className="cpa-item" onClick={() => dispatch('image')} style={{ color: 'var(--fn-success)' }}>
+            <ImagePlus size={20} /> Rasm
+          </button>
+          <button type="button" className="cpa-item" onClick={() => window.dispatchEvent(new CustomEvent('fn:add-mood'))} style={{ color: 'var(--fn-warning)' }}>
+            <Smile size={20} /> Kayfiyat
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
 export function CreatePost() {
   const me = useMe()
   const { pathname } = useLocation()
@@ -21,9 +53,25 @@ export function CreatePost() {
   const videoRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    const handler = () => setOpen(true)
-    window.addEventListener('fn:open-post', handler)
-    return () => window.removeEventListener('fn:open-post', handler)
+    const open = () => setOpen(true)
+    const pickMedia = (e: Event) => {
+      setOpen(true)
+      const kind = (e as CustomEvent).detail as 'image' | 'video'
+      if (kind === 'image') imageRef.current?.click()
+      else if (kind === 'video') videoRef.current?.click()
+    }
+    const addMood = () => {
+      setOpen(true)
+      setText((t) => t + (t ? ' ' : '') + ['😊', '🔥', '❤️', '🎉', '😂', '👍'][Math.floor(Math.random() * 6)])
+    }
+    window.addEventListener('fn:open-post', open)
+    window.addEventListener('fn:pick-media', pickMedia)
+    window.addEventListener('fn:add-mood', addMood)
+    return () => {
+      window.removeEventListener('fn:open-post', open)
+      window.removeEventListener('fn:pick-media', pickMedia)
+      window.removeEventListener('fn:add-mood', addMood)
+    }
   }, [])
 
   useEffect(() => {
@@ -79,43 +127,7 @@ export function CreatePost() {
   }
 
   return (
-    <>
-      <div className="card create-post" style={{ marginBottom: 20 }}>
-        <Avatar user={me} size={42} />
-        <button type="button" className="input-pill" onClick={() => setOpen(true)}>
-          Nima yangiliklar, {me.name.split(' ')[0]}?
-        </button>
-      </div>
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div className="create-post-actions">
-          <button
-            type="button"
-            className="cpa-item"
-            onClick={() => {
-              setOpen(true)
-              videoRef.current?.click()
-            }}
-            style={{ color: 'var(--fn-danger)' }}
-          >
-            <Video size={20} /> Video
-          </button>
-          <button
-            type="button"
-            className="cpa-item"
-            onClick={() => {
-              setOpen(true)
-              imageRef.current?.click()
-            }}
-            style={{ color: 'var(--fn-success)' }}
-          >
-            <ImagePlus size={20} /> Rasm
-          </button>
-          <button type="button" className="cpa-item" onClick={() => setOpen(true)} style={{ color: 'var(--fn-warning)' }}>
-            <Smile size={20} /> Kayfiyat
-          </button>
-        </div>
-      </div>
-
+    <> 
       {open && (
         <div className="fn-overlay" onClick={() => setOpen(false)}>
           <div className="fn-modal" onClick={(e) => e.stopPropagation()}>

@@ -2,6 +2,7 @@ import { Routes, Route } from 'react-router-dom'
 import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
 import BottomNav from './components/BottomNav'
+import { CreatePost } from './components/CreatePost'
 import { Home } from './pages/Home'
 import { Reels } from './pages/Reels'
 import { Photos } from './pages/Photos'
@@ -37,6 +38,7 @@ export default function App() {
         </main>
       </div>
       <BottomNav />
+      <CreatePost />
     </div>
   )
 }

@@ -1112,6 +1112,43 @@
   gap: 10px;
   flex-shrink: 0;
   padding-bottom: 4px;
+  position: relative;
+}
+
+.profile-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  background: var(--fn-surface);
+  border: 1px solid var(--fn-border);
+  border-radius: 12px;
+  box-shadow: var(--fn-shadow);
+  min-width: 190px;
+  overflow: hidden;
+  animation: fn-fade-in 140ms ease;
+}
+
+.profile-more-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  font-size: 14px;
+  color: var(--fn-text-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.profile-more-menu button:hover {
+  background: var(--fn-surface-alt);
+}
+
+.profile-more-menu button.danger {
+  color: var(--fn-danger);
 }
 
 .profile-tabs {
@@ -1463,6 +1500,102 @@
   font-size: 14px;
   line-height: 1.45;
   animation: fn-fade-in 180ms ease;
+}
+
+.msg .msg-image {
+  display: block;
+  max-width: 260px;
+  max-height: 260px;
+  border-radius: 12px;
+  margin-bottom: 6px;
+}
+
+.msg .msg-text {
+  display: block;
+}
+
+.chat-image-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 12px;
+}
+
+.chat-image-preview img {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--fn-border);
+}
+
+.post-more {
+  position: relative;
+}
+
+.post-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  background: var(--fn-surface);
+  border: 1px solid var(--fn-border);
+  border-radius: 12px;
+  box-shadow: var(--fn-shadow);
+  min-width: 200px;
+  overflow: hidden;
+  animation: fn-fade-in 140ms ease;
+}
+
+.post-more-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  font-size: 14px;
+  color: var(--fn-text-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.post-more-menu button:hover {
+  background: var(--fn-surface-alt);
+}
+
+.post-more-menu button.danger {
+  color: var(--fn-danger);
+}
+
+.post-more-toast {
+  position: fixed;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  background: var(--fn-text-primary);
+  color: var(--fn-surface);
+  padding: 8px 16px;
+  border-radius: var(--fn-radius-pill);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: var(--fn-shadow);
+  animation: fn-fade-in 160ms ease;
+}
+
+.author-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.author-link:hover {
+  text-decoration: underline;
 }
 
 .msg.mine {

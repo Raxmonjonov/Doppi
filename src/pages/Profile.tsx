@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { UserCheck, UserPlus, Bell, MoreHorizontal, MessageCircle } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { UserCheck, UserPlus, Bell, MoreHorizontal, MessageCircle, Pencil, LogOut, X } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
 import { PostCard } from '../components/PostCard'
 import { Lightbox } from '../components/Lightbox'
@@ -14,8 +14,9 @@ type Tab = 'posts' | 'photos' | 'friends' | 'about'
 
 export function Profile() {
   const me = useMe()
-  const { accounts } = useAuth()
+  const { accounts, updateProfile, logout } = useAuth()
   const [params] = useSearchParams()
+  const navigate = useNavigate()
   const viewedId = Number(params.get('user')) || 0
 
   const isOther = viewedId > 0 && viewedId !== me.id
@@ -26,6 +27,10 @@ export function Profile() {
 
   const [tab, setTab] = useState<Tab>('posts')
   const [albumOpen, setAlbumOpen] = useState<number | null>(null)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editName, setEditName] = useState(me.name)
+  const [editAbout, setEditAbout] = useState(me.about ?? '')
 
   const ownPosts = useData((d) => d.posts)
   const ownAlbums = useData((d) => d.albums)
@@ -36,6 +41,16 @@ export function Profile() {
   const albums = isOther && other ? readUserData(other.id).albums : ownAlbums
   const mine = posts.filter((p) => p.author.id === viewed.id)
   const openAlbum = albumOpen !== null ? albums[albumOpen] : undefined
+
+  const saveEdit = () => {
+    void updateProfile({ name: editName.trim() || me.name, about: editAbout })
+    setEditOpen(false)
+  }
+
+  const startChat = () => {
+    if (!other) return
+    navigate(`/messenger?user=${other.id}`)
+  }
 
   return (
     <div className="fade-in">
@@ -60,23 +75,30 @@ export function Profile() {
                   {isFollowing ? <UserCheck size={17} /> : <UserPlus size={17} />}
                   {isFollowing ? 'Kuzatilmoqda' : 'Kuzatish'}
                 </button>
-                <button type="button" className="btn btn-outline">
+                <button type="button" className="btn btn-outline" onClick={startChat}>
                   <MessageCircle size={17} /> Xabar
                 </button>
               </>
             ) : (
               <>
-                <button type="button" className="btn btn-primary">
-                  <UserPlus size={17} /> Do'stlik so'rovi
+                <button type="button" className="btn btn-primary" onClick={() => setEditOpen(true)}>
+                  <Pencil size={17} /> Tahrirlash
                 </button>
-                <button type="button" className="btn btn-outline">
-                  <Bell size={17} /> Follow
+                <button type="button" className="btn btn-outline" onClick={() => setMoreOpen((s) => !s)}>
+                  <MoreHorizontal size={17} />
                 </button>
+                {moreOpen && (
+                  <div className="profile-more-menu">
+                    <button type="button" onClick={() => { setMoreOpen(false); navigate('/settings') }}>
+                      <Bell size={16} /> Sozlamalar
+                    </button>
+                    <button type="button" className="danger" onClick={() => { setMoreOpen(false); void logout() }}>
+                      <LogOut size={16} /> Chiqish
+                    </button>
+                  </div>
+                )}
               </>
             )}
-            <button type="button" className="btn btn-outline" aria-label="Ko'proq">
-              <MoreHorizontal size={17} />
-            </button>
           </div>
         </div>
       </div>
@@ -154,6 +176,37 @@ export function Profile() {
             <div>
               <div className="setting-label">Haqida</div>
               <div className="setting-desc">{viewed.about}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editOpen && (
+        <div className="fn-overlay" onClick={() => setEditOpen(false)}>
+          <div className="fn-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="fn-modal-head">
+              <h3>Profilni tahrirlash</h3>
+              <button type="button" className="icon-btn" onClick={() => setEditOpen(false)} aria-label="Yopish">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="post-form">
+              <div>
+                <label className="form-label">Ism</label>
+                <input type="text" className="form-input" value={editName} onChange={(e) => setEditName(e.target.value)} />
+              </div>
+              <div>
+                <label className="form-label">Haqida</label>
+                <textarea className="form-input" rows={3} value={editAbout} onChange={(e) => setEditAbout(e.target.value)} />
+              </div>
+              <div className="post-form-footer">
+                <button type="button" className="btn btn-outline" onClick={() => setEditOpen(false)}>
+                  Bekor qilish
+                </button>
+                <button type="button" className="btn btn-primary" onClick={saveEdit}>
+                  Saqlash
+                </button>
+              </div>
             </div>
           </div>
         </div>

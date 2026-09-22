@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Users, Plus, X, Upload } from 'lucide-react'
+import { Users, Plus, X, Upload, UserCheck, UserPlus } from 'lucide-react'
 import type { Group } from '../data/mock'
 import { updateData, useData } from '../data/store'
 import { fileToDataUrl } from '../lib/upload'
@@ -48,6 +48,12 @@ export function Groups() {
     setOpen(false)
   }
 
+  const join = (g: Group) => {
+    updateData((d) => {
+      d.groups = d.groups.map((x) => (x.id === g.id ? { ...x, joined: !x.joined } : x))
+    })
+  }
+
   return (
     <div className="fade-in">
       <div className="page-head-row">
@@ -85,8 +91,16 @@ export function Groups() {
               <div className="entity-body">
                 <div className="title">{g.name}</div>
                 <div className="sub">
-                  <Users size={14} /> {g.members} · Jamoat guruhi
+                  <Users size={14} /> {g.members} · {g.joined ? 'Siz a\'zosisiz' : 'Jamoat guruhi'}
                 </div>
+                <button
+                  type="button"
+                  className={`btn ${g.joined ? 'btn-outline' : 'btn-primary'} btn-sm`}
+                  onClick={() => join(g)}
+                >
+                  {g.joined ? <UserCheck size={15} /> : <UserPlus size={15} />}
+                  {g.joined ? 'Guruhdasiz' : 'Guruhga qo\'shilish'}
+                </button>
               </div>
             </div>
           ))}

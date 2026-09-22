@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Send, Image, Search, Pin, PinOff, Trash2 } from 'lucide-react'
+import type { ChangeEvent } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { Send, Image, Search, Pin, PinOff, Trash2, X } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
 import type { Message } from '../data/mock'
 import { useMe } from '../data/useMe'
@@ -11,7 +12,7 @@ interface RawThread {
   id: number
   user: { id: number; name: string; username: string; avatar: string; online: boolean }
   online: boolean
-  messages: { id: number; from: number; text: string; time: string }[]
+  messages: { id: number; from: number; text: string; time: string; image?: string }[]
 }
 
 interface Thread {
@@ -46,6 +47,7 @@ async function loadThreads(): Promise<RawThread[]> {
 export function Messenger() {
   const me = useMe()
   const { accounts } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [threads, setThreads] = useState<Thread[]>([])
   const [activeId, setActiveId] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
@@ -60,6 +62,8 @@ export function Messenger() {
   })
   const [menuThreadId, setMenuThreadId] = useState<number | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const imageRef = useRef<HTMLInputElement>(null)
+  const [imageToSend, setImageToSend] = useState<string | null>(null)
 
   const togglePin = (id: number) => {
     setPinned((prev) => {
@@ -111,6 +115,8 @@ export function Messenger() {
     return () => document.removeEventListener('mousedown', onDoc)
   }, [menuThreadId])
 
+  const peerId = Number(searchParams.get('user')) || 0
+
   const startChat = async (userId: number) => {
     setStartOpen(false)
     setUserQuery('')
@@ -130,18 +136,43 @@ export function Messenger() {
     }
   }
 
+  useEffect(() => {
+    if (!peerId) return
+    void startChat(peerId)
+    setSearchParams({}, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [peerId, threads.length === 0])
+
   const send = async () => {
     const text = draft.trim()
     const target = activeId ?? threads[0]?.id
-    if (!text || !target) return
-    const msg: Message = { id: Date.now(), from: me.id, text, time: 'hozir' }
+    if ((!text && !imageToSend) || !target) return
+    const msgId = Date.now()
+    const msg: Message = { id: msgId, from: me.id, text, time: 'hozir' }
+    if (imageToSend) msg.image = imageToSend
     setThreads((prev) => prev.map((t) => (t.id === target ? { ...t, messages: [...t.messages, msg] } : t)))
     setDraft('')
+    setImageToSend(null)
     try {
-      await api(`/api/threads/${target}/messages`, { method: 'POST', body: { text } })
+      await api<{ message: Message }>(`/api/threads/${target}/messages`, {
+        method: 'POST',
+        body: imageToSend ? { text, image: imageToSend } : { text },
+      })
     } catch {
       /* offline — message stays local until next sync */
     }
+  }
+
+  const onImageFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = String(reader.result)
+      setImageToSend(dataUrl)
+    }
+    reader.readAsDataURL(f)
   }
 
   const q = userQuery.trim().toLowerCase()
@@ -253,7 +284,8 @@ export function Messenger() {
           <div className="chat-messages">
             {active.messages.map((m) => (
               <div key={m.id} className={`msg ${isOwnMessage(m.from, me.id) ? 'mine' : 'theirs'}`}>
-                {m.text}
+                {m.image && <img className="msg-image" src={m.image} alt="" loading="lazy" />}
+                {m.text && <span className={m.image ? 'msg-text' : ''}>{m.text}</span>}
                 <span className="time">{m.time}</span>
               </div>
             ))}
@@ -265,7 +297,7 @@ export function Messenger() {
           </div>
 
           <footer className="chat-input">
-            <button type="button" className="icon-btn" aria-label="Rasm yuklash">
+            <button type="button" className="icon-btn" aria-label="Rasm yuklash" onClick={() => imageRef.current?.click()}>
               <Image size={20} />
             </button>
             <input
@@ -281,6 +313,15 @@ export function Messenger() {
               <Send size={18} />
             </button>
           </footer>
+          {imageToSend && (
+            <div className="chat-image-preview">
+              <img src={imageToSend} alt="Yuboriladigan rasm" />
+              <button type="button" className="icon-btn" onClick={() => setImageToSend(null)} aria-label="Rasmni olib tashlash">
+                <X size={16} />
+              </button>
+            </div>
+          )}
+          <input ref={imageRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onImageFile} />
         </section>
       )}
     </div>

@@ -84,6 +84,7 @@ export interface Message {
   from: number
   text: string
   time: string
+  image?: string
 }
 
 export interface Thread {
@@ -119,7 +120,14 @@ export const stories: Story[] = []
 export const reels: Reel[] = []
 export const albums: Album[] = []
 export const groups: Group[] = []
-export const pages: Page[] = []
+export const pages: Page[] = [
+  { id: 1, name: 'Do\'ppi Yangiliklar', followers: '125K', cover: 'https://picsum.photos/seed/doppi1/640/300', category: 'Ommaviy axborot', subscribed: false },
+  { id: 2, name: 'O\'zbek Mumtoz Musiqa', followers: '87K', cover: 'https://picsum.photos/seed/doppi2/640/300', category: 'Musiqa', subscribed: false },
+  { id: 3, name: 'Sport & Sog\'lom Hayot', followers: '64K', cover: 'https://picsum.photos/seed/doppi3/640/300', category: 'Sport', subscribed: false },
+  { id: 4, name: 'Texnologiya Olami', followers: '48K', cover: 'https://picsum.photos/seed/doppi4/640/300', category: 'Texnologiya', subscribed: false },
+  { id: 5, name: 'Oshxona Sehri', followers: '39K', cover: 'https://picsum.photos/seed/doppi5/640/300', category: 'Ovqat', subscribed: false },
+  { id: 6, name: 'Sayohat Uzbekistan', followers: '23K', cover: 'https://picsum.photos/seed/doppi6/640/300', category: 'Sayohat', subscribed: false },
+]
 export const chatThreads: Thread[] = []
 export const notifications: AppNotification[] = []
 export const suggestedUsers: User[] = []

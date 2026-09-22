@@ -7,11 +7,28 @@ import { languages } from '../data/languages'
 export function Settings() {
   const { theme, toggle } = useTheme()
   const { user, logout } = useAuth()
-  const [emailNotifs, setEmailNotifs] = useState(true)
-  const [twoFactor, setTwoFactor] = useState(false)
+  const [emailNotifs, setEmailNotifs] = useState(() => localStorage.getItem('doppi-email-notifs-v1') !== 'off')
+  const [twoFactor, setTwoFactor] = useState(() => localStorage.getItem('doppi-2fa-v1') === 'on')
   const [langOpen, setLangOpen] = useState(false)
-  const [lang, setLang] = useState(languages[0])
+  const storedLangCode = localStorage.getItem('doppi-lang-v1')
+  const [lang, setLang] = useState(
+    () => languages.find((l) => l.code === storedLangCode) ?? languages[0],
+  )
   const langRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    localStorage.setItem('doppi-email-notifs-v1', emailNotifs ? 'on' : 'off')
+  }, [emailNotifs])
+
+  useEffect(() => {
+    localStorage.setItem('doppi-2fa-v1', twoFactor ? 'on' : 'off')
+  }, [twoFactor])
+
+  const pickLang = (l: (typeof languages)[number]) => {
+    setLang(l)
+    localStorage.setItem('doppi-lang-v1', l.code)
+    setLangOpen(false)
+  }
 
   useEffect(() => {
     if (!langOpen) return
@@ -98,8 +115,7 @@ export function Settings() {
                   className={`lang-option${lang.code === l.code ? ' active' : ''}`}
                   onClick={(e) => {
                     e.stopPropagation()
-                    setLang(l)
-                    setLangOpen(false)
+                    pickLang(l)
                   }}
                 >
                   <span className="lang-name">{l.name}</span>

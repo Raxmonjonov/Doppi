@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { Play } from 'lucide-react'
-import { CreatePost } from '../components/CreatePost'
+import { HomeComposer } from '../components/CreatePost'
 import { StoriesRow } from '../components/StoriesRow'
 import { PostCard } from '../components/PostCard'
 import { useData } from '../data/store'
@@ -11,7 +11,7 @@ export function Home() {
 
   return (
     <div>
-      <CreatePost />
+      <HomeComposer />
       <StoriesRow />
 
       {reels.length > 0 && (

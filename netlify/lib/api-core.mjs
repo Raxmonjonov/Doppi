@@ -329,7 +329,7 @@ export async function handleRequest(method, pathname, query, req, store) {
       }))
       .sort((a, b) => b.id - a.id)
 
-    const groups = [...doc.groups].sort((a, b) => b.id - a.id).map((g) => ({ id: g.id, name: g.name, cover: g.cover, joined: !!g.joined }))
+    const groups = [...doc.groups].sort((a, b) => b.id - a.id).map((g) => ({ id: g.id, name: g.name, cover: g.cover, joined: !!g.joined, members: g.members ?? "1 a'zo" }))
     const following = doc.follows.filter((f) => f.followerId === me.id).map((f) => f.followeeId)
 
     const staleIds = doc.stories.filter((s) => s.id <= storyCutoff).map((s) => s.id)
@@ -376,8 +376,9 @@ export async function handleRequest(method, pathname, query, req, store) {
         existing.name = String(g.name ?? '')
         existing.cover = String(g.cover ?? '')
         existing.joined = !!g.joined
+        if (g.members) existing.members = String(g.members)
       } else {
-        doc.groups.push({ id: Number(g.id), name: String(g.name ?? ''), cover: String(g.cover ?? ''), joined: !!g.joined, createdBy: me.id })
+        doc.groups.push({ id: Number(g.id), name: String(g.name ?? ''), cover: String(g.cover ?? ''), joined: !!g.joined, members: String(g.members ?? "1 a'zo"), createdBy: me.id })
       }
     }
 
@@ -528,7 +529,11 @@ export async function handleRequest(method, pathname, query, req, store) {
     const messages = doc.messages
       .filter((m) => m.threadId === t.id)
       .sort((a, b) => a.id - b.id)
-      .map((m) => ({ id: m.id, from: m.senderId, text: m.text, time: m.time }))
+      .map((m) => {
+        const base = { id: m.id, from: m.senderId, text: m.text, time: m.time }
+        if (m.image) base.image = m.image
+        return base
+      })
     return { id: t.id, user: other ? publicUser(other) : null, online: true, messages }
   }
 
@@ -575,9 +580,13 @@ export async function handleRequest(method, pathname, query, req, store) {
     if (!t) return send(404, { error: 'Suhbat topilmadi.' })
     const mid = Date.now()
     const time = nowTime()
-    doc.messages.push({ id: mid, threadId: id, senderId: me.id, text, time })
+    const msg = { id: mid, threadId: id, senderId: me.id, text, time }
+    if (body.image) msg.image = String(body.image)
+    doc.messages.push(msg)
     await store.saveDoc(doc)
-    return send(200, { message: { id: mid, from: me.id, text, time } })
+    const out = { id: mid, from: me.id, text, time }
+    if (msg.image) out.image = msg.image
+    return send(200, { message: out })
   }
 
   if (method === 'DELETE' && first === 'threads' && third === undefined) {

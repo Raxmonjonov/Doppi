@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Heart, MessageCircle, Share2, MoreHorizontal, Send } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Heart, MessageCircle, Share2, MoreHorizontal, Send, Link as LinkIcon, UserRound } from 'lucide-react'
 import type { Post, User } from '../data/mock'
 import { Avatar } from './Avatar'
 import { MediaGrid } from './MediaGrid'
@@ -12,7 +13,10 @@ export function PostCard({ post }: { post: Post }) {
   const [showComments, setShowComments] = useState(false)
   const [commentText, setCommentText] = useState('')
   const [shareOpen, setShareOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
   const me = useMe()
+  const navigate = useNavigate()
 
   const addComment = () => {
     const text = commentText.trim()
@@ -27,20 +31,46 @@ export function PostCard({ post }: { post: Post }) {
     void sendPostToUser(post, user.id)
   }
 
+  const copyLink = async () => {
+    setMoreOpen(false)
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/?post=${post.id}`)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+
   return (
     <article className="card post-card fade-in">
       <div className="post-head">
         <Avatar user={post.author} size={42} />
         <div className="meta" style={{ flex: 1 }}>
           <div className="author">
-            {post.author.name}
+            <button type="button" className="author-link" onClick={() => navigate(`/profile?user=${post.author.id}`)}>
+              {post.author.name}
+            </button>
             {post.live && <span className="live-badge">JONLI</span>}
           </div>
           <div className="time">{post.time} · Umumiy</div>
         </div>
-        <button type="button" className="icon-btn" aria-label="Ko'proq">
-          <MoreHorizontal size={20} />
-        </button>
+        <div className="post-more">
+          <button type="button" className="icon-btn" onClick={() => setMoreOpen((s) => !s)} aria-label="Ko'proq">
+            <MoreHorizontal size={20} />
+          </button>
+          {moreOpen && (
+            <div className="post-more-menu">
+              <button type="button" onClick={() => navigate(`/profile?user=${post.author.id}`)}>
+                <UserRound size={16} /> Profil
+              </button>
+              <button type="button" onClick={() => void copyLink()}>
+                <LinkIcon size={16} /> Havolani nusxalash
+              </button>
+            </div>
+          )}
+          {copied && <div className="post-more-toast">Havola nusxalandi</div>}
+        </div>
       </div>
 
       {post.text && <p className="post-text" style={{ fontStretch: 'normal' }}>{post.text}</p>}
