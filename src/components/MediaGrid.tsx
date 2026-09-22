@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useI18n } from '../i18n'
 import { Lightbox } from './Lightbox'
 
 interface MediaGridProps {
@@ -8,6 +9,7 @@ interface MediaGridProps {
 
 export function MediaGrid({ images, video }: MediaGridProps) {
   const [lightIndex, setLightIndex] = useState<number | null>(null)
+  const { t } = useI18n()
 
   if (video) {
     return (
@@ -30,7 +32,7 @@ export function MediaGrid({ images, video }: MediaGridProps) {
       <div className={cls}>
         {visible.map((src, i) => (
           <div className="cell" key={i}>
-            <img src={src} alt={`rasm ${i + 1}`} loading="lazy" onClick={() => setLightIndex(i)} />
+            <img src={src} alt={t('mediaGrid.imageAlt', { n: i + 1 })} loading="lazy" onClick={() => setLightIndex(i)} />
             {i === 3 && n > 4 && <span className="more-overlay">+{n - 4}</span>}
           </div>
         ))}

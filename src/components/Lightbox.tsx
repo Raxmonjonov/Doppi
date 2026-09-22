@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useI18n } from '../i18n'
 
 interface LightboxProps {
   images: string[]
@@ -10,6 +11,7 @@ interface LightboxProps {
 }
 
 export function Lightbox({ images, index, onClose, onIndex }: LightboxProps) {
+  const { t } = useI18n()
   const prev = () => onIndex((index - 1 + images.length) % images.length)
   const next = () => onIndex((index + 1) % images.length)
 
@@ -33,7 +35,7 @@ export function Lightbox({ images, index, onClose, onIndex }: LightboxProps) {
           e.stopPropagation()
           onClose()
         }}
-        aria-label="Yopish"
+        aria-label={t('common.close')}
       >
         <X size={24} />
       </button>
@@ -47,7 +49,7 @@ export function Lightbox({ images, index, onClose, onIndex }: LightboxProps) {
               e.stopPropagation()
               prev()
             }}
-            aria-label="Oldingi"
+            aria-label={t('lightbox.previous')}
           >
             <ChevronLeft size={28} />
           </button>
@@ -58,7 +60,7 @@ export function Lightbox({ images, index, onClose, onIndex }: LightboxProps) {
               e.stopPropagation()
               next()
             }}
-            aria-label="Keyingi"
+            aria-label={t('lightbox.next')}
           >
             <ChevronRight size={28} />
           </button>

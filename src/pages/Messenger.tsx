@@ -7,6 +7,7 @@ import type { Message } from '../data/mock'
 import { useMe } from '../data/useMe'
 import { useAuth } from '../data/auth'
 import { api } from '../api/client'
+import { useI18n } from '../i18n'
 
 interface RawThread {
   id: number
@@ -45,6 +46,7 @@ async function loadThreads(): Promise<RawThread[]> {
 }
 
 export function Messenger() {
+  const { t } = useI18n()
   const me = useMe()
   const { accounts } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -148,7 +150,7 @@ export function Messenger() {
     const target = activeId ?? threads[0]?.id
     if ((!text && !imageToSend) || !target) return
     const msgId = Date.now()
-    const msg: Message = { id: msgId, from: me.id, text, time: 'hozir' }
+    const msg: Message = { id: msgId, from: me.id, text, time: t('common.now') }
     if (imageToSend) msg.image = imageToSend
     setThreads((prev) => prev.map((t) => (t.id === target ? { ...t, messages: [...t.messages, msg] } : t)))
     setDraft('')
@@ -187,10 +189,10 @@ export function Messenger() {
     return (
       <div className="fade-in">
         <div className="card empty-state">
-          <div className="empty-state-title">Xabarlar hozircha yo'q</div>
-          <div className="empty-state-sub">Suhbat boshlash uchun qidiruvdan foydalanuvchi tanlang.</div>
+          <div className="empty-state-title">{t('messenger.emptyTitle')}</div>
+          <div className="empty-state-sub">{t('messenger.emptySub')}</div>
           <button type="button" className="btn btn-primary" onClick={() => setStartOpen(true)}>
-            <Search size={16} /> Yangi xabar
+            <Search size={16} /> {t('messenger.newMessage')}
           </button>
         </div>
       </div>
@@ -201,9 +203,9 @@ export function Messenger() {
     <div className="messenger fade-in">
       <aside className="card threads">
         <div className="threads-head">
-          Xabarlar
+          {t('messenger.threadsHeading')}
           <button type="button" className="btn btn-primary btn-sm" onClick={() => setStartOpen((v) => !v)}>
-            <Search size={14} /> Yangi
+            <Search size={14} /> {t('messenger.new')}
           </button>
         </div>
         {startOpen && (
@@ -221,45 +223,45 @@ export function Messenger() {
               const pb = pinned.includes(b.id) ? 1 : 0
               return pb - pa
             })
-            .map((t) => {
-              const last = t.messages[t.messages.length - 1]
+            .map((thread) => {
+              const last = thread.messages[thread.messages.length - 1]
               return (
-                <div key={t.id} className={`thread-wrap${pinned.includes(t.id) ? ' pinned' : ''}`}>
+                <div key={thread.id} className={`thread-wrap${pinned.includes(thread.id) ? ' pinned' : ''}`}>
                   <button
                     type="button"
-                    className={`thread-row${t.id === activeId ? ' active' : ''}`}
-                    onClick={() => setActiveId(t.id)}
+                    className={`thread-row${thread.id === activeId ? ' active' : ''}`}
+                    onClick={() => setActiveId(thread.id)}
                     onContextMenu={(e) => {
                       e.preventDefault()
-                      setMenuThreadId(t.id)
+                      setMenuThreadId(thread.id)
                     }}
                   >
-                    <Avatar user={t.user} size={46} showOnline />
+                    <Avatar user={thread.user} size={46} showOnline />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="name">
-                        {pinned.includes(t.id) && <Pin size={12} className="pin-icon" />}
-                        {t.user.name}
+                        {pinned.includes(thread.id) && <Pin size={12} className="pin-icon" />}
+                        {thread.user.name}
                       </div>
                       <div className="last">{last?.text}</div>
                     </div>
                   </button>
-                  {menuThreadId === t.id && (
+                  {menuThreadId === thread.id && (
                     <div className="thread-menu" ref={menuRef}>
                       <button
                         type="button"
-                        onClick={() => togglePin(t.id)}
+                        onClick={() => togglePin(thread.id)}
                       >
-                        {pinned.includes(t.id) ? <PinOff size={16} /> : <Pin size={16} />}
-                        {pinned.includes(t.id) ? 'Pindan olib tashlash' : 'Pin qilish'}
+                        {pinned.includes(thread.id) ? <PinOff size={16} /> : <Pin size={16} />}
+                        {pinned.includes(thread.id) ? t('messenger.unpin') : t('messenger.pin')}
                       </button>
                       <button
                         type="button"
                         className="danger"
                         onClick={() => {
-                          if (window.confirm('Suhbat butunlay o\'chirilsinmi?')) void deleteThread(t.id)
+                          if (window.confirm(t('messenger.deleteConfirm'))) void deleteThread(thread.id)
                         }}
                       >
-                        <Trash2 size={16} /> O'chirish
+                        <Trash2 size={16} /> {t('messenger.delete')}
                       </button>
                     </div>
                   )}
@@ -277,7 +279,7 @@ export function Messenger() {
               <Link to={`/profile?user=${active.user.id}`} className="chat-name">
                 {active.user.name}
               </Link>
-              <div className="status">{active.online ? 'Online' : 'Oxirgi marta: bugun'}</div>
+              <div className="status">{active.online ? t('messenger.online') : t('messenger.lastSeenToday')}</div>
             </div>
           </header>
 
@@ -291,32 +293,32 @@ export function Messenger() {
             ))}
             {active.messages.length === 0 && (
               <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--fn-text-muted)', padding: '12px 0' }}>
-                Salom ayting — suhbatni boshlang!
+                {t('messenger.emptyChatHint')}
               </div>
             )}
           </div>
 
           <footer className="chat-input">
-            <button type="button" className="icon-btn" aria-label="Rasm yuklash" onClick={() => imageRef.current?.click()}>
+            <button type="button" className="icon-btn" aria-label={t('messenger.attachImage')} onClick={() => imageRef.current?.click()}>
               <Image size={20} />
             </button>
             <input
               type="text"
-              placeholder={`${me.name.split(' ')[0]} sifatida xabar yozing...`}
+              placeholder={t('messenger.inputPlaceholder', { name: me.name.split(' ')[0] })}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void send()
               }}
             />
-            <button type="button" className="btn btn-primary" onClick={() => void send()} aria-label="Yuborish">
+            <button type="button" className="btn btn-primary" onClick={() => void send()} aria-label={t('common.send')}>
               <Send size={18} />
             </button>
           </footer>
           {imageToSend && (
             <div className="chat-image-preview">
-              <img src={imageToSend} alt="Yuboriladigan rasm" />
-              <button type="button" className="icon-btn" onClick={() => setImageToSend(null)} aria-label="Rasmni olib tashlash">
+              <img src={imageToSend} alt={t('messenger.imagePreviewAlt')} />
+              <button type="button" className="icon-btn" onClick={() => setImageToSend(null)} aria-label={t('messenger.removeImage')}>
                 <X size={16} />
               </button>
             </div>
@@ -336,19 +338,20 @@ interface PanelProps {
 }
 
 function SendUserPanel({ candidates, q, setQ, onPick }: PanelProps) {
+  const { t } = useI18n()
   return (
     <div className="send-user-panel">
       <div className="send-user-search">
         <Search size={16} />
         <input
           type="text"
-          placeholder="Foydalanuvchini qidirish..."
+          placeholder={t('messenger.searchUsersPlaceholder')}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
       </div>
       <div className="send-user-list">
-        {candidates.length === 0 && <div className="send-user-empty">Hech kim topilmadi</div>}
+        {candidates.length === 0 && <div className="send-user-empty">{t('messenger.noUsers')}</div>}
         {candidates.map((u) => (
           <button key={u.id} type="button" className="send-user-item" onClick={() => onPick(u.id)}>
             <Avatar user={u} size={40} showOnline />

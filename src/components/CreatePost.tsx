@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { ImagePlus, Video, Smile, X, Send, Upload } from 'lucide-react'
+import { useI18n } from '../i18n'
 import { Avatar } from './Avatar'
 import { Lightbox } from './Lightbox'
 import { useMe } from '../data/useMe'
@@ -15,24 +16,25 @@ function dispatch(kind: 'image' | 'video' | null) {
 
 export function HomeComposer() {
   const me = useMe()
+  const { t } = useI18n()
   return (
     <>
       <div className="card create-post" style={{ marginBottom: 20 }}>
         <Avatar user={me} size={42} />
         <button type="button" className="input-pill" onClick={() => dispatch(null)}>
-          Nima yangiliklar, {me.name.split(' ')[0]}?
+          {t('createPost.composerPlaceholder', { name: me.name.split(' ')[0] })}
         </button>
       </div>
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="create-post-actions">
           <button type="button" className="cpa-item" onClick={() => dispatch('video')} style={{ color: 'var(--fn-danger)' }}>
-            <Video size={20} /> Video
+            <Video size={20} /> {t('createPost.actionVideo')}
           </button>
           <button type="button" className="cpa-item" onClick={() => dispatch('image')} style={{ color: 'var(--fn-success)' }}>
-            <ImagePlus size={20} /> Rasm
+            <ImagePlus size={20} /> {t('createPost.actionPhoto')}
           </button>
           <button type="button" className="cpa-item" onClick={() => window.dispatchEvent(new CustomEvent('fn:add-mood'))} style={{ color: 'var(--fn-warning)' }}>
-            <Smile size={20} /> Kayfiyat
+            <Smile size={20} /> {t('createPost.actionMood')}
           </button>
         </div>
       </div>
@@ -42,6 +44,7 @@ export function HomeComposer() {
 
 export function CreatePost() {
   const me = useMe()
+  const { t } = useI18n()
   const { pathname } = useLocation()
   const [open, setOpen] = useState(false)
   const [text, setText] = useState('')
@@ -104,13 +107,13 @@ export function CreatePost() {
   }
 
   const submit = () => {
-    const t = text.trim()
-    if (!t && !image && !video) return
+    const trimmed = text.trim()
+    if (!trimmed && !image && !video) return
     const post: Post = {
       id: Date.now(),
       author: me,
-      time: 'hozir',
-      text: t || '',
+      time: t('common.now'),
+      text: trimmed || '',
       images: image ? [image] : [],
       ...(video ? { video } : {}),
       likes: 0,
@@ -132,15 +135,15 @@ export function CreatePost() {
         <div className="fn-overlay" onClick={() => setOpen(false)}>
           <div className="fn-modal" onClick={(e) => e.stopPropagation()}>
             <div className="fn-modal-head">
-              <h3>Post yaratish</h3>
-              <button type="button" className="icon-btn" onClick={() => setOpen(false)} aria-label="Yopish">
+              <h3>{t('createPost.title')}</h3>
+              <button type="button" className="icon-btn" onClick={() => setOpen(false)} aria-label={t('common.close')}>
                 <X size={20} />
               </button>
             </div>
             <div className="post-form">
               <textarea
                 autoFocus
-                placeholder={`Nima yangiliklar, ${me.name.split(' ')[0]}?`}
+                placeholder={t('createPost.textareaPlaceholder', { name: me.name.split(' ')[0] })}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
               />
@@ -153,25 +156,25 @@ export function CreatePost() {
                   )}
                   {video && <video src={video} controls muted className="selected" />
                   }
-                  <button type="button" className="icon-btn" onClick={() => { setImage(null); setVideo(null) }} aria-label="O'chirish">
+                  <button type="button" className="icon-btn" onClick={() => { setImage(null); setVideo(null) }} aria-label={t('createPost.removeMedia')}>
                     <X size={18} />
                   </button>
                 </div>
               )}
               <div className="post-form-uploads">
                 <button type="button" className="btn btn-outline btn-sm" onClick={() => imageRef.current?.click()}>
-                  <Upload size={15} /> Rasm yuklash
+                  <Upload size={15} /> {t('createPost.uploadPhoto')}
                 </button>
                 <button type="button" className="btn btn-outline btn-sm" onClick={() => videoRef.current?.click()}>
-                  <Video size={15} /> Video yuklash
+                  <Video size={15} /> {t('createPost.uploadVideo')}
                 </button>
               </div>
               <div className="post-form-footer">
                 <button type="button" className="btn btn-outline" onClick={() => setOpen(false)}>
-                  Bekor qilish
+                  {t('common.cancel')}
                 </button>
                 <button type="button" className="btn btn-primary" onClick={submit} disabled={!text.trim() && !image && !video}>
-                  <Send size={16} /> Post qilish
+                  <Send size={16} /> {t('createPost.submit')}
                 </button>
               </div>
             </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { X, Search } from 'lucide-react'
+import { useI18n } from '../i18n'
 import type { User } from '../data/mock'
 import { useAuth } from '../data/auth'
 import { useMe } from '../data/useMe'
@@ -15,6 +16,7 @@ export function ShareDialog({ open, onClose, onPick }: ShareDialogProps) {
   const me = useMe()
   const { accounts } = useAuth()
   const [q, setQ] = useState('')
+  const { t } = useI18n()
 
   if (!open) return null
 
@@ -33,8 +35,8 @@ export function ShareDialog({ open, onClose, onPick }: ShareDialogProps) {
     <div className="fn-overlay" onClick={onClose}>
       <div className="fn-modal" onClick={(e) => e.stopPropagation()}>
         <div className="fn-modal-head">
-          <h3>Ulashish</h3>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Yopish">
+          <h3>{t('shareDialog.title')}</h3>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label={t('common.close')}>
             <X size={20} />
           </button>
         </div>
@@ -44,14 +46,14 @@ export function ShareDialog({ open, onClose, onPick }: ShareDialogProps) {
             <Search size={16} />
             <input
               type="text"
-              placeholder="Foydalanuvchini qidirish..."
+              placeholder={t('shareDialog.searchPlaceholder')}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               autoFocus
             />
           </div>
           <div className="send-user-list">
-            {peers.length === 0 && <div className="send-user-empty">Hech kim topilmadi</div>}
+            {peers.length === 0 && <div className="send-user-empty">{t('shareDialog.noResults')}</div>}
             {peers.map((u) => (
               <button key={u.id} type="button" className="send-user-item" onClick={() => pick(u)}>
                 <Avatar user={u} size={40} showOnline />
@@ -66,7 +68,7 @@ export function ShareDialog({ open, onClose, onPick }: ShareDialogProps) {
 
         <div className="post-form-footer" style={{ padding: '0 16px 16px' }}>
           <button type="button" className="btn btn-outline" onClick={onClose}>
-            Bekor qilish
+            {t('common.cancel')}
           </button>
         </div>
       </div>

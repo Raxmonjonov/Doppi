@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
+import { useI18n } from '../i18n'
 import type { Story } from '../data/mock'
 import { updateData, useData } from '../data/store'
 import { useMe } from '../data/useMe'
@@ -11,6 +12,7 @@ export function StoriesRow() {
   const stories = useData((d) => d.stories)
   const [openUrl, setOpenUrl] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const { t } = useI18n()
 
   const pick = () => fileRef.current?.click()
 
@@ -46,18 +48,18 @@ export function StoriesRow() {
   return (
     <div className="card" style={{ marginBottom: 20 }}>
       <div className="stories">
-        <button type="button" className="story story-add" aria-label="Story qo'shish" onClick={pick}>
+        <button type="button" className="story story-add" aria-label={t('stories.add')} onClick={pick}>
           <div className="story-add-body">
             <span className="plus">
               <Plus size={26} strokeWidth={3} />
             </span>
-            <span className="story-add-title">Story qo'shish</span>
+            <span className="story-add-title">{t('stories.add')}</span>
           </div>
         </button>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onFile} />
 
         {stories.map((s) => (
-          <button type="button" className="story" key={s.id} aria-label={`${s.author.name} hikoyasi`} onClick={() => openStory(s)}>
+          <button type="button" className="story" key={s.id} aria-label={t('stories.storyAriaLabel', { name: s.author.name })} onClick={() => openStory(s)}>
             <img src={s.image} alt="" loading="lazy" />
             <span className={s.viewed ? 'story-ring-viewed' : 'story-ring-unseen'} />
             <span className="story-name">{s.author.name}</span>
@@ -65,7 +67,7 @@ export function StoriesRow() {
         ))}
 
         {stories.length === 0 && (
-          <span className="story-empty">Hozircha story yo'q — rasm yuklab, birinchi bo'ling!</span>
+          <span className="story-empty">{t('stories.empty')}</span>
         )}
       </div>
 

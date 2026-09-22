@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { Avatar } from './Avatar'
 import { useMe } from '../data/useMe'
+import { useI18n } from '../i18n'
 
 interface Item {
   to: string
@@ -19,16 +20,17 @@ interface Item {
 }
 
 const items: Item[] = [
-  { to: '/', icon: Home, label: 'Uy' },
-  { to: '/reels', icon: Play, label: 'Reels' },
-  { to: '/groups', icon: Users, label: 'Guruhlar' },
-  { to: '/photos', icon: Map, label: 'Fotoalbomlar' },
-  { to: '/messenger', icon: MessageCircle, label: 'Xabarlar' },
-  { to: '/profile', icon: UserPlus, label: 'Profil' },
-  { to: '/settings', icon: Settings, label: 'Sozlamalar' },
+  { to: '/', icon: Home, label: 'sidebar.labelHome' },
+  { to: '/reels', icon: Play, label: 'sidebar.labelReels' },
+  { to: '/groups', icon: Users, label: 'sidebar.labelGroups' },
+  { to: '/photos', icon: Map, label: 'sidebar.labelAlbums' },
+  { to: '/messenger', icon: MessageCircle, label: 'sidebar.labelMessages' },
+  { to: '/profile', icon: UserPlus, label: 'sidebar.labelProfile' },
+  { to: '/settings', icon: Settings, label: 'sidebar.labelSettings' },
 ]
 
 export function Sidebar() {
+  const { t } = useI18n()
   const me = useMe()
   return (
     <nav className="fn-sidebar">
@@ -41,7 +43,7 @@ export function Sidebar() {
         return (
           <NavLink key={item.to} to={item.to} className={({ isActive }) => `side-link${isActive ? ' active' : ''}`}>
             <Icon size={22} />
-            <span>{item.label}</span>
+            <span>{t(item.label)}</span>
           </NavLink>
         )
       })}

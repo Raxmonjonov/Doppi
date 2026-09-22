@@ -9,10 +9,12 @@ import { useData, readUserData } from '../data/store'
 import { toggleFollow } from '../data/interactions'
 import { useAuth } from '../data/auth'
 import type { User } from '../data/mock'
+import { useI18n } from '../i18n'
 
 type Tab = 'posts' | 'photos' | 'friends' | 'about'
 
 export function Profile() {
+  const { t } = useI18n()
   const me = useMe()
   const { accounts, updateProfile, logout } = useAuth()
   const [params] = useSearchParams()
@@ -73,16 +75,16 @@ export function Profile() {
                   onClick={() => void toggleFollow(viewedId)}
                 >
                   {isFollowing ? <UserCheck size={17} /> : <UserPlus size={17} />}
-                  {isFollowing ? 'Kuzatilmoqda' : 'Kuzatish'}
+                  {isFollowing ? t('profile.following') : t('profile.follow')}
                 </button>
                 <button type="button" className="btn btn-outline" onClick={startChat}>
-                  <MessageCircle size={17} /> Xabar
+                  <MessageCircle size={17} /> {t('profile.message')}
                 </button>
               </>
             ) : (
               <>
                 <button type="button" className="btn btn-primary" onClick={() => setEditOpen(true)}>
-                  <Pencil size={17} /> Tahrirlash
+                  <Pencil size={17} /> {t('profile.edit')}
                 </button>
                 <button type="button" className="btn btn-outline" onClick={() => setMoreOpen((s) => !s)}>
                   <MoreHorizontal size={17} />
@@ -90,10 +92,10 @@ export function Profile() {
                 {moreOpen && (
                   <div className="profile-more-menu">
                     <button type="button" onClick={() => { setMoreOpen(false); navigate('/settings') }}>
-                      <Bell size={16} /> Sozlamalar
+                      <Bell size={16} /> {t('profile.menuSettings')}
                     </button>
                     <button type="button" className="danger" onClick={() => { setMoreOpen(false); void logout() }}>
-                      <LogOut size={16} /> Chiqish
+                      <LogOut size={16} /> {t('profile.menuLogout')}
                     </button>
                   </div>
                 )}
@@ -104,9 +106,9 @@ export function Profile() {
       </div>
 
       <div className="profile-tabs">
-        {(['posts', 'photos', 'friends', 'about'] as Tab[]).map((t) => (
-          <button key={t} type="button" className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-            {t === 'posts' ? 'Postlar' : t === 'photos' ? 'Fotosuratlar' : t === 'friends' ? 'Do' + '\u2018stlar' : 'Ma' + '\u2018lumot'}
+        {(['posts', 'photos', 'friends', 'about'] as Tab[]).map((tabId) => (
+          <button key={tabId} type="button" className={tab === tabId ? 'active' : ''} onClick={() => setTab(tabId)}>
+            {tabId === 'posts' ? t('profile.tabPosts') : tabId === 'photos' ? t('profile.tabPhotos') : tabId === 'friends' ? t('profile.tabFriends') : t('profile.tabAbout')}
           </button>
         ))}
       </div>
@@ -115,9 +117,9 @@ export function Profile() {
         <div>
           {mine.length === 0 ? (
             <div className="card empty-state">
-              <div className="empty-state-title">{isOther ? 'Hozircha postlar yo\'q' : 'Hozircha postlaringiz yo\'q'}</div>
+              <div className="empty-state-title">{isOther ? t('profile.emptyPostsOther') : t('profile.emptyPostsMine')}</div>
               <div className="empty-state-sub">
-                {isOther ? '@' + viewed.username + ' hali post joylamagan.' : 'O\'z rasmingiz yoki videongizni yuklab, birinchi postingizni yarating.'}
+                {isOther ? t('profile.emptyPostsOtherSub', { name: viewed.username }) : t('profile.emptyPostsMineSub')}
               </div>
             </div>
           ) : (
@@ -130,8 +132,8 @@ export function Profile() {
         <div className="albums-grid">
           {albums.length === 0 ? (
             <div className="card empty-state">
-              <div className="empty-state-title">Fotoalbomlar hozircha bo'sh</div>
-              <div className="empty-state-sub">Fotoalbomlar sahifasidan rasmlaringizni yuklang.</div>
+              <div className="empty-state-title">{t('profile.emptyAlbumsTitle')}</div>
+              <div className="empty-state-sub">{t('profile.emptyAlbumsSub')}</div>
             </div>
           ) : (
             albums.map((a, idx) => (
@@ -141,7 +143,7 @@ export function Profile() {
                 </div>
                 <div className="album-meta">
                   <div className="title">{a.title}</div>
-                  <div className="sub">{a.count} ta rasm</div>
+                  <div className="sub">{t('profile.photoCount', { count: a.count })}</div>
                 </div>
               </div>
             ))
@@ -152,8 +154,8 @@ export function Profile() {
       {tab === 'friends' && (
         <div className="fr-stack">
           <div className="card empty-state">
-            <div className="empty-state-title">Do'stlar ro'yxati bo'sh</div>
-            <div className="empty-state-sub">Hozircha do'stlar yo'q.</div>
+            <div className="empty-state-title">{t('profile.emptyFriendsTitle')}</div>
+            <div className="empty-state-sub">{t('profile.emptyFriendsSub')}</div>
           </div>
         </div>
       )}
@@ -162,19 +164,19 @@ export function Profile() {
         <div className="card settings-card">
           <div className="setting-row">
             <div>
-              <div className="setting-label">Ism</div>
+              <div className="setting-label">{t('profile.aboutName')}</div>
               <div className="setting-desc">{viewed.name}</div>
             </div>
           </div>
           <div className="setting-row">
             <div>
-              <div className="setting-label">Foydalanuvchi nomi</div>
+              <div className="setting-label">{t('profile.aboutUsername')}</div>
               <div className="setting-desc">@{viewed.username}</div>
             </div>
           </div>
           <div className="setting-row">
             <div>
-              <div className="setting-label">Haqida</div>
+              <div className="setting-label">{t('profile.aboutBio')}</div>
               <div className="setting-desc">{viewed.about}</div>
             </div>
           </div>
@@ -185,26 +187,26 @@ export function Profile() {
         <div className="fn-overlay" onClick={() => setEditOpen(false)}>
           <div className="fn-modal" onClick={(e) => e.stopPropagation()}>
             <div className="fn-modal-head">
-              <h3>Profilni tahrirlash</h3>
-              <button type="button" className="icon-btn" onClick={() => setEditOpen(false)} aria-label="Yopish">
+              <h3>{t('profile.editTitle')}</h3>
+              <button type="button" className="icon-btn" onClick={() => setEditOpen(false)} aria-label={t('common.close')}>
                 <X size={20} />
               </button>
             </div>
             <div className="post-form">
               <div>
-                <label className="form-label">Ism</label>
+                <label className="form-label">{t('profile.editName')}</label>
                 <input type="text" className="form-input" value={editName} onChange={(e) => setEditName(e.target.value)} />
               </div>
               <div>
-                <label className="form-label">Haqida</label>
+                <label className="form-label">{t('profile.editAbout')}</label>
                 <textarea className="form-input" rows={3} value={editAbout} onChange={(e) => setEditAbout(e.target.value)} />
               </div>
               <div className="post-form-footer">
                 <button type="button" className="btn btn-outline" onClick={() => setEditOpen(false)}>
-                  Bekor qilish
+                  {t('common.cancel')}
                 </button>
                 <button type="button" className="btn btn-primary" onClick={saveEdit}>
-                  Saqlash
+                  {t('common.save')}
                 </button>
               </div>
             </div>

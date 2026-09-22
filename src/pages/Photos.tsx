@@ -5,8 +5,10 @@ import { updateData, useData } from '../data/store'
 import { Lightbox } from '../components/Lightbox'
 import { formatCount } from '../lib/format'
 import { toggleAlbumLike } from '../data/interactions'
+import { useI18n } from '../i18n'
 
 export function Photos() {
+  const { t } = useI18n()
   const albums = useData((d) => d.albums)
   const fileRef = useRef<HTMLInputElement>(null)
   const album = albums[0]
@@ -28,7 +30,7 @@ export function Photos() {
               const a = d.albums[0]
               d.albums = [{ ...a, count: a.count + photos.length, photos: [...a.photos, ...photos] }]
             } else {
-              const a: Album = { id: 1, title: 'Fotosuratlarim', count: photos.length, likes: 0, photos }
+              const a: Album = { id: 1, title: t('photos.defaultAlbumTitle'), count: photos.length, likes: 0, photos }
               d.albums = [a]
             }
           })
@@ -41,15 +43,15 @@ export function Photos() {
 
   return (
     <div className="fade-in">
-      <h1 className="page-head">Fotoalbomlar</h1>
-      <p className="page-sub">Faqat siz yuklagan rasmlar saqlanadi.</p>
+      <h1 className="page-head">{t('photos.pageTitle')}</h1>
+      <p className="page-sub">{t('photos.pageSub')}</p>
 
       {!album ? (
         <div className="card empty-state">
-          <div className="empty-state-title">Albomlar hozircha bo'sh</div>
-          <div className="empty-state-sub">O'z rasmlaringizni yuklab, albom yarating.</div>
+          <div className="empty-state-title">{t('photos.emptyTitle')}</div>
+          <div className="empty-state-sub">{t('photos.emptySub')}</div>
           <button type="button" className="btn btn-primary" onClick={() => fileRef.current?.click()}>
-            <Upload size={18} /> Rasm yuklash
+            <Upload size={18} /> {t('photos.uploadPhotos')}
           </button>
         </div>
       ) : (
@@ -64,6 +66,7 @@ export function Photos() {
 }
 
 function AlbumGridData({ album }: { album: Album }) {
+  const { t } = useI18n()
   const [tagOpen, setTagOpen] = useState<number | null>(null)
   const [lightIndex, setLightIndex] = useState<number | null>(null)
   const urls = album.photos.map((p) => p.url)
@@ -79,7 +82,7 @@ function AlbumGridData({ album }: { album: Album }) {
             type="button"
             className={`album-like${album.likedByMe ? ' active' : ''}`}
             onClick={() => void toggleAlbumLike(album)}
-            aria-label="Albomga yoqdi"
+            aria-label={t('photos.likeAlbum')}
           >
             <Heart size={16} fill={album.likedByMe ? 'currentColor' : 'none'} /> {formatCount(album.likes)}
           </button>
@@ -87,7 +90,7 @@ function AlbumGridData({ album }: { album: Album }) {
       </div>
       <div className="album-meta">
         <div className="title">{album.title}</div>
-        <div className="sub">Siz bilan bo'lishildi · {album.count} ta rasm</div>
+        <div className="sub">{t('photos.sharedWithYou')} · {t('photos.photoCount', { count: album.count })}</div>
       </div>
       <div style={{ padding: '0 12px 12px' }}>
         <div className="album-media">

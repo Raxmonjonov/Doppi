@@ -1,16 +1,18 @@
 import { NavLink } from 'react-router-dom'
 import { Home, Play, Plus, MessageCircle, User } from 'lucide-react'
+import { useI18n } from '../i18n'
 
 function BottomNav() {
+  const { t } = useI18n()
   return (
     <nav className="fn-bottomnav">
-      <BnItem to="/" icon={Home} label="Uy" />
-      <BnItem to="/reels" icon={Play} label="Reels" />
+      <BnItem to="/" icon={Home} label={t('bottomNav.labelHome')} />
+      <BnItem to="/reels" icon={Play} label={t('bottomNav.labelReels')} />
       <NavLink to="/" className="bottom-post" onClick={() => window.dispatchEvent(new CustomEvent('fn:open-post'))}>
         <Plus size={22} />
       </NavLink>
-      <BnItem to="/messenger" icon={MessageCircle} label="Xabarlar" />
-      <BnItem to="/profile" icon={User} label="Profil" />
+      <BnItem to="/messenger" icon={MessageCircle} label={t('bottomNav.labelMessages')} />
+      <BnItem to="/profile" icon={User} label={t('bottomNav.labelProfile')} />
     </nav>
   )
 }

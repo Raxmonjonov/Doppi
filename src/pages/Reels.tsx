@@ -19,13 +19,7 @@ import { useAuth } from '../data/auth'
 import { fileToDataUrl } from '../lib/upload'
 import { formatCount } from '../lib/format'
 import { addReelComment, shareReel, sendReelToUser, toggleReelLike } from '../data/interactions'
-
-const QUALITIES = [
-  { key: 'super', label: 'O\'ta yuqori (2K)' },
-  { key: 'high', label: 'Yuqori (1080p)' },
-  { key: 'mid', label: 'O\'rta (720p)' },
-  { key: 'low', label: 'Past (480p)' },
-]
+import { useI18n } from '../i18n'
 
 interface ReelItemProps {
   reel: Reel
@@ -34,6 +28,13 @@ interface ReelItemProps {
 }
 
 function ReelItem({ reel, active, peers }: ReelItemProps) {
+  const { t } = useI18n()
+  const qualities = [
+    { key: 'super', label: t('reels.qualitySuper') },
+    { key: 'high', label: t('reels.qualityHigh') },
+    { key: 'mid', label: t('reels.qualityMid') },
+    { key: 'low', label: t('reels.qualityLow') },
+  ]
   const videoRef = useRef<HTMLVideoElement>(null)
   const [progress, setProgress] = useState(0)
   const [showBar, setShowBar] = useState(false)
@@ -81,9 +82,9 @@ function ReelItem({ reel, active, peers }: ReelItemProps) {
 
   const submitComment = (e: React.FormEvent) => {
     e.preventDefault()
-    const t = draft.trim()
-    if (!t) return
-    void addReelComment(reel, { id: Date.now(), author: reel.author, text: t, time: 'hozir' })
+    const text = draft.trim()
+    if (!text) return
+    void addReelComment(reel, { id: Date.now(), author: reel.author, text, time: t('common.now') })
     setDraft('')
   }
 
@@ -123,7 +124,7 @@ function ReelItem({ reel, active, peers }: ReelItemProps) {
       <div className="reels-overlay" />
 
       {!playing && (
-        <button type="button" className="reels-play" onClick={togglePlay} aria-label="Ishga tushirish">
+        <button type="button" className="reels-play" onClick={togglePlay} aria-label={t('reels.play')}>
           <Play size={40} fill="currentColor" />
         </button>
       )}
@@ -172,7 +173,7 @@ function ReelItem({ reel, active, peers }: ReelItemProps) {
         </div>
       </div>
 
-      <button type="button" className="reels-bottom-tap" onClick={() => setShowBar((s) => !s)} aria-label="Progress ko'rsatish" />
+      <button type="button" className="reels-bottom-tap" onClick={() => setShowBar((s) => !s)} aria-label={t('reels.toggleProgress')} />
 
       <div className={`reels-progress${showBar ? ' show' : ''}`}>
         <div className="reels-progress-fill" style={{ width: `${progress * 100}%` }} />
@@ -180,8 +181,8 @@ function ReelItem({ reel, active, peers }: ReelItemProps) {
 
       {moreOpen && (
         <div className="reels-share-menu">
-          <div className="reels-quality-title">Video sifati</div>
-          {QUALITIES.map((q) => (
+          <div className="reels-quality-title">{t('reels.qualityTitle')}</div>
+          {qualities.map((q) => (
             <button
               key={q.key}
               type="button"
@@ -201,13 +202,13 @@ function ReelItem({ reel, active, peers }: ReelItemProps) {
         <div className="fn-overlay" onClick={() => setShareOpen(false)}>
           <div className="fn-modal" onClick={(e) => e.stopPropagation()}>
             <div className="fn-modal-head">
-              <h3>Videoni ulashish</h3>
-              <button type="button" className="icon-btn" onClick={() => setShareOpen(false)} aria-label="Yopish">
+              <h3>{t('reels.shareTitle')}</h3>
+              <button type="button" className="icon-btn" onClick={() => setShareOpen(false)} aria-label={t('common.close')}>
                 <X size={20} />
               </button>
             </div>
             <div className="reels-share-selectall">
-              <span>Barchasini tanlash</span>
+              <span>{t('reels.selectAll')}</span>
               <input type="checkbox" checked={allSelected} onChange={toggleAll} />
             </div>
             <div className="reels-share-list">
@@ -228,10 +229,10 @@ function ReelItem({ reel, active, peers }: ReelItemProps) {
             </div>
             <div className="post-form-footer">
               <button type="button" className="btn btn-outline" onClick={() => setShareOpen(false)}>
-                Bekor qilish
+                {t('common.cancel')}
               </button>
               <button type="button" className="btn btn-primary" disabled={selectedPeers.size === 0} onClick={doShare}>
-                <Send size={16} /> Yuborish ({selectedPeers.size})
+                <Send size={16} /> {t('reels.shareSend', { count: selectedPeers.size })}
               </button>
             </div>
           </div>
@@ -242,14 +243,14 @@ function ReelItem({ reel, active, peers }: ReelItemProps) {
         <div className="fn-overlay" onClick={() => setCommentsOpen(false)}>
           <div className="fn-modal" onClick={(e) => e.stopPropagation()}>
             <div className="fn-modal-head">
-              <h3>Izohlar ({reel.comments.length})</h3>
-              <button type="button" className="icon-btn" onClick={() => setCommentsOpen(false)} aria-label="Yopish">
+              <h3>{t('reels.commentsTitle', { count: reel.comments.length })}</h3>
+              <button type="button" className="icon-btn" onClick={() => setCommentsOpen(false)} aria-label={t('common.close')}>
                 <X size={20} />
               </button>
             </div>
             <div className="reel-comments">
               {reel.comments.length === 0 ? (
-                <p className="reel-comments-empty">Hozircha izoh yo'q — birinchi bo'ling!</p>
+                <p className="reel-comments-empty">{t('reels.emptyComments')}</p>
               ) : (
                 reel.comments.map((c) => (
                   <div className="reel-comment" key={c.id}>
@@ -263,7 +264,7 @@ function ReelItem({ reel, active, peers }: ReelItemProps) {
               )}
             </div>
             <form className="reel-comment-form" onSubmit={submitComment}>
-              <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Izoh yozing..." />
+              <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={t('reels.commentPlaceholder')} />
               <button type="submit" className="btn btn-primary btn-sm" aria-label="Yuborish">
                 <Send size={16} />
               </button>
@@ -276,6 +277,7 @@ function ReelItem({ reel, active, peers }: ReelItemProps) {
 }
 
 export function Reels() {
+  const { t } = useI18n()
   const me = useMe()
   const { accounts } = useAuth()
   const users: User[] = accounts.map((a) => ({
@@ -305,7 +307,7 @@ export function Reels() {
       id: Date.now(),
       author: me,
       image: url,
-      caption: 'Mening Reels videom',
+      caption: t('reels.defaultCaption'),
       sound: 'Original audio',
       likes: 0,
       comments: [],
@@ -328,9 +330,9 @@ export function Reels() {
   return (
     <div className="reels-page fade-in">
       <div className="reels-toolbar">
-        <strong>Reels</strong>
+        <strong>{t('reels.pageTitle')}</strong>
         <button type="button" className="btn btn-primary btn-sm" onClick={upload}>
-          <Clapperboard size={16} /> Video yuklash
+          <Clapperboard size={16} /> {t('reels.uploadVideo')}
         </button>
       </div>
 
@@ -338,10 +340,10 @@ export function Reels() {
 
       {reels.length === 0 ? (
         <div className="card empty-state">
-          <div className="empty-state-title">Reels hozircha bo'sh</div>
-          <div className="empty-state-sub">O'z videongizni yuklab, birinchi Reels bo'ling.</div>
+          <div className="empty-state-title">{t('reels.emptyTitle')}</div>
+          <div className="empty-state-sub">{t('reels.emptySub')}</div>
           <button type="button" className="btn btn-primary" onClick={upload}>
-            <Clapperboard size={18} /> Video yuklash
+            <Clapperboard size={18} /> {t('reels.uploadVideo')}
           </button>
         </div>
       ) : (

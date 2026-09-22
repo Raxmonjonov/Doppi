@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Heart, MessageCircle, Share2, MoreHorizontal, Send, Link as LinkIcon, UserRound } from 'lucide-react'
+import { useI18n } from '../i18n'
 import type { Post, User } from '../data/mock'
 import { Avatar } from './Avatar'
 import { MediaGrid } from './MediaGrid'
@@ -17,11 +18,12 @@ export function PostCard({ post }: { post: Post }) {
   const [copied, setCopied] = useState(false)
   const me = useMe()
   const navigate = useNavigate()
+  const { t } = useI18n()
 
   const addComment = () => {
     const text = commentText.trim()
     if (!text) return
-    const comment = { id: Date.now(), author: me, text, time: 'hozir' }
+    const comment = { id: Date.now(), author: me, text, time: t('common.now') }
     void addPostComment(post, comment)
     setCommentText('')
   }
@@ -51,25 +53,25 @@ export function PostCard({ post }: { post: Post }) {
             <button type="button" className="author-link" onClick={() => navigate(`/profile?user=${post.author.id}`)}>
               {post.author.name}
             </button>
-            {post.live && <span className="live-badge">JONLI</span>}
+            {post.live && <span className="live-badge">{t('postCard.liveBadge')}</span>}
           </div>
-          <div className="time">{post.time} · Umumiy</div>
+          <div className="time">{post.time} · {t('postCard.audiencePublic')}</div>
         </div>
         <div className="post-more">
-          <button type="button" className="icon-btn" onClick={() => setMoreOpen((s) => !s)} aria-label="Ko'proq">
+          <button type="button" className="icon-btn" onClick={() => setMoreOpen((s) => !s)} aria-label={t('postCard.more')}>
             <MoreHorizontal size={20} />
           </button>
           {moreOpen && (
             <div className="post-more-menu">
               <button type="button" onClick={() => navigate(`/profile?user=${post.author.id}`)}>
-                <UserRound size={16} /> Profil
+                <UserRound size={16} /> {t('common.profile')}
               </button>
               <button type="button" onClick={() => void copyLink()}>
-                <LinkIcon size={16} /> Havolani nusxalash
+                <LinkIcon size={16} /> {t('postCard.copyLink')}
               </button>
             </div>
           )}
-          {copied && <div className="post-more-toast">Havola nusxalandi</div>}
+          {copied && <div className="post-more-toast">{t('postCard.linkCopied')}</div>}
         </div>
       </div>
 
@@ -84,22 +86,22 @@ export function PostCard({ post }: { post: Post }) {
           {formatCount(post.likes)}
         </span>
         <span>
-          {post.comments.length} ta izoh · {post.shared ?? 0} ta ulashish
+          {t('postCard.statsComments', { count: post.comments.length })} · {t('postCard.statsShares', { count: post.shared ?? 0 })}
         </span>
       </div>
 
       <div className="post-bar">
         <button type="button" className={`pb-action${post.likedByMe ? ' liked' : ''}`} onClick={() => void togglePostLike(post)}>
           <Heart size={19} fill={post.likedByMe ? 'currentColor' : 'none'} />
-          Yoqdi
+          {t('postCard.like')}
         </button>
         <button type="button" className="pb-action" onClick={() => setShowComments((v) => !v)}>
           <MessageCircle size={19} />
-          Izoh
+          {t('postCard.comment')}
         </button>
         <button type="button" className="pb-action" onClick={() => setShareOpen(true)}>
           <Share2 size={19} />
-          Ulashish
+          {t('postCard.share')}
         </button>
       </div>
 
@@ -115,7 +117,7 @@ export function PostCard({ post }: { post: Post }) {
                 <div className="c-text">{c.text}</div>
               </div>
               <div className="comment-reply">
-                {c.time} · Yoqdi · Javob berish
+                {c.time} · {t('postCard.likedShort')} · {t('postCard.reply')}
               </div>
             </div>
           </div>
@@ -125,14 +127,14 @@ export function PostCard({ post }: { post: Post }) {
           <div style={{ display: 'flex', gap: 8, flex: 1 }}>
             <input
               className="comment-input"
-              placeholder="Izoh yozish..."
+              placeholder={t('postCard.commentPlaceholder')}
               value={commentText}
               onChange={(e) => setCommentText(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') addComment()
               }}
             />
-            <button type="button" className="icon-btn" onClick={addComment} aria-label="Yuborish">
+            <button type="button" className="icon-btn" onClick={addComment} aria-label={t('common.send')}>
               <Send size={18} />
             </button>
           </div>

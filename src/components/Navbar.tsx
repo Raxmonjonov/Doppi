@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Search } from 'lucide-react'
 import { useAuth } from '../data/auth'
+import { useI18n } from '../i18n'
 import { Avatar } from './Avatar'
 
 export function Navbar() {
+  const { t } = useI18n()
   const { accounts, user } = useAuth()
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
@@ -42,7 +44,7 @@ export function Navbar() {
         <Search size={18} />
         <input
           type="text"
-          placeholder="Foydalanuvchilarni qidirish"
+          placeholder={t('navbar.searchPlaceholder')}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value)
@@ -53,7 +55,7 @@ export function Navbar() {
         {open && (
           <div className="search-dropdown">
             {q && results.length === 0 ? (
-              <div className="search-empty">Hech kim topilmadi</div>
+              <div className="search-empty">{t('navbar.searchNoResults')}</div>
             ) : (
               results.map((a) => (
                 <button key={a.id} type="button" className="search-item" onClick={() => pick(a.id)}>
@@ -65,7 +67,7 @@ export function Navbar() {
                 </button>
               ))
             )}
-            {!q && <div className="search-empty">Qidirish uchun yozing</div>}
+            {!q && <div className="search-empty">{t('navbar.searchPrompt')}</div>}
           </div>
         )}
       </div>

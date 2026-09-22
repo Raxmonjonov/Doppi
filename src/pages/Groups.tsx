@@ -3,8 +3,10 @@ import { Users, Plus, X, Upload, UserCheck, UserPlus } from 'lucide-react'
 import type { Group } from '../data/mock'
 import { updateData, useData } from '../data/store'
 import { fileToDataUrl } from '../lib/upload'
+import { useI18n } from '../i18n'
 
 export function Groups() {
+  const { t } = useI18n()
   const groups = useData((d) => d.groups)
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
@@ -26,17 +28,17 @@ export function Groups() {
   const create = () => {
     const n = name.trim()
     if (!n) {
-      setError('Guruh nomini kiriting.')
+      setError(t('groups.errorNameRequired'))
       return
     }
     if (!cover) {
-      setError('Guruh uchun rasm tanlang.')
+      setError(t('groups.errorCoverRequired'))
       return
     }
     const g: Group = {
       id: Date.now(),
       name: n,
-      members: '1 a\'zo',
+      members: t('groups.defaultMembers'),
       cover,
       joined: true,
     }
@@ -58,11 +60,11 @@ export function Groups() {
     <div className="fade-in">
       <div className="page-head-row">
         <div>
-          <h1 className="page-head">Guruhlar</h1>
-          <p className="page-sub">O'zingizga mos jamoalarni toping va qo'shiling.</p>
+          <h1 className="page-head">{t('groups.pageTitle')}</h1>
+          <p className="page-sub">{t('groups.pageSub')}</p>
         </div>
         <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
-          <Plus size={17} /> Guruh yaratish
+          <Plus size={17} /> {t('groups.createButton')}
         </button>
       </div>
 
@@ -71,15 +73,15 @@ export function Groups() {
           <Plus size={24} strokeWidth={2.5} />
         </span>
         <span>
-          <strong>Yangi guruh yaratish</strong>
-          <small>Nom va rasm qo'shib guruh yarating</small>
+          <strong>{t('groups.createCardTitle')}</strong>
+          <small>{t('groups.createCardHint')}</small>
         </span>
       </button>
 
       {groups.length === 0 ? (
         <div className="card empty-state">
-          <div className="empty-state-title">Guruhlar hozircha yo'q</div>
-          <div className="empty-state-sub">Yuqoridagi tugma orqali birinchi guruhingizni yaratishingiz mumkin.</div>
+          <div className="empty-state-title">{t('groups.emptyTitle')}</div>
+          <div className="empty-state-sub">{t('groups.emptySub')}</div>
         </div>
       ) : (
         <div className="cards-grid">
@@ -91,7 +93,7 @@ export function Groups() {
               <div className="entity-body">
                 <div className="title">{g.name}</div>
                 <div className="sub">
-                  <Users size={14} /> {g.members} · {g.joined ? 'Siz a\'zosisiz' : 'Jamoat guruhi'}
+                  <Users size={14} /> {g.members} · {g.joined ? t('groups.statusJoined') : t('groups.statusPublic')}
                 </div>
                 <button
                   type="button"
@@ -99,7 +101,7 @@ export function Groups() {
                   onClick={() => join(g)}
                 >
                   {g.joined ? <UserCheck size={15} /> : <UserPlus size={15} />}
-                  {g.joined ? 'Guruhdasiz' : 'Guruhga qo\'shilish'}
+                  {g.joined ? t('groups.joinedButton') : t('groups.joinButton')}
                 </button>
               </div>
             </div>
@@ -111,33 +113,33 @@ export function Groups() {
         <div className="fn-overlay" onClick={() => setOpen(false)}>
           <div className="fn-modal" onClick={(e) => e.stopPropagation()}>
             <div className="fn-modal-head">
-              <h3>Yangi guruh yaratish</h3>
-              <button type="button" className="icon-btn" onClick={() => setOpen(false)} aria-label="Yopish">
+              <h3>{t('groups.modalTitle')}</h3>
+              <button type="button" className="icon-btn" onClick={() => setOpen(false)} aria-label={t('common.close')}>
                 <X size={20} />
               </button>
             </div>
 
             <div className="post-form">
               <div>
-                <label className="form-label">Guruh nomi</label>
+                <label className="form-label">{t('groups.labelName')}</label>
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="Masalan: Do'stlar"
+                  placeholder={t('groups.namePlaceholder')}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
               </div>
 
               <div>
-                <label className="form-label">Guruh rasmi</label>
+                <label className="form-label">{t('groups.labelCover')}</label>
                 <button type="button" className="group-cover-picker" onClick={pickImage}>
                   {cover ? (
-                    <img src={cover} alt="Guruh rasmi" />
+                    <img src={cover} alt={t('groups.coverAlt')} />
                   ) : (
                     <span>
                       <Upload size={22} />
-                      Rasm tanlash
+                      {t('groups.pickImage')}
                     </span>
                   )}
                 </button>
@@ -148,10 +150,10 @@ export function Groups() {
 
               <div className="post-form-footer">
                 <button type="button" className="btn btn-outline" onClick={() => setOpen(false)}>
-                  Bekor qilish
+                  {t('common.cancel')}
                 </button>
                 <button type="button" className="btn btn-primary" onClick={create}>
-                  <Plus size={16} /> Yaratish
+                  <Plus size={16} /> {t('groups.createSubmit')}
                 </button>
               </div>
             </div>

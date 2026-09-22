@@ -2,18 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import { Moon, Sun, Bell, Lock, Globe, Check, LogOut } from 'lucide-react'
 import { useTheme } from '../theme/useTheme'
 import { useAuth } from '../data/auth'
-import { languages } from '../data/languages'
+import { savedLangCodes, useI18n, languageName } from '../i18n'
 
 export function Settings() {
   const { theme, toggle } = useTheme()
   const { user, logout } = useAuth()
+  const { lang, setLang, t } = useI18n()
   const [emailNotifs, setEmailNotifs] = useState(() => localStorage.getItem('doppi-email-notifs-v1') !== 'off')
   const [twoFactor, setTwoFactor] = useState(() => localStorage.getItem('doppi-2fa-v1') === 'on')
   const [langOpen, setLangOpen] = useState(false)
-  const storedLangCode = localStorage.getItem('doppi-lang-v1')
-  const [lang, setLang] = useState(
-    () => languages.find((l) => l.code === storedLangCode) ?? languages[0],
-  )
   const langRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -23,12 +20,6 @@ export function Settings() {
   useEffect(() => {
     localStorage.setItem('doppi-2fa-v1', twoFactor ? 'on' : 'off')
   }, [twoFactor])
-
-  const pickLang = (l: (typeof languages)[number]) => {
-    setLang(l)
-    localStorage.setItem('doppi-lang-v1', l.code)
-    setLangOpen(false)
-  }
 
   useEffect(() => {
     if (!langOpen) return
@@ -41,16 +32,16 @@ export function Settings() {
 
   return (
     <div className="fade-in" style={{ maxWidth: 640 }}>
-      <h1 className="page-head">Sozlamalar</h1>
-      <p className="page-sub">Hisobingiz va xabarnomalarni boshqaring.</p>
+      <h1 className="page-head">{t('settings.pageTitle')}</h1>
+      <p className="page-sub">{t('settings.pageSub')}</p>
 
       <div className="card settings-card">
         <div className="setting-row">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {theme === 'light' ? <Sun size={20} /> : <Moon size={20} />}
             <div>
-              <div className="setting-label">Tungi rejim</div>
-              <div className="setting-desc">{theme === 'light' ? 'Kunduzgi rejim yoqilgan' : 'Tungi rejim yoqilgan'}</div>
+              <div className="setting-label">{t('settings.darkModeLabel')}</div>
+              <div className="setting-desc">{theme === 'light' ? t('settings.lightModeDesc') : t('settings.darkModeDesc')}</div>
             </div>
           </div>
           <button type="button" role="switch" aria-checked={theme === 'dark'} className={`toggle${theme === 'dark' ? ' on' : ''}`} onClick={toggle}>
@@ -60,13 +51,13 @@ export function Settings() {
       </div>
 
       <div className="card settings-card">
-        <h4 style={{ marginBottom: 8 }}>Xabarnomalar</h4>
+        <h4 style={{ marginBottom: 8 }}>{t('settings.notificationsTitle')}</h4>
         <div className="setting-row">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Bell size={20} />
             <div>
-              <div className="setting-label">E-mail xabarnomalari</div>
-              <div className="setting-desc">Yangi faollik haqida xat yuborish</div>
+              <div className="setting-label">{t('settings.emailNotifsLabel')}</div>
+              <div className="setting-desc">{t('settings.emailNotifsDesc')}</div>
             </div>
           </div>
           <button type="button" role="switch" aria-checked={emailNotifs} className={`toggle${emailNotifs ? ' on' : ''}`} onClick={() => setEmailNotifs((v) => !v)}>
@@ -77,8 +68,8 @@ export function Settings() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Lock size={20} />
             <div>
-              <div className="setting-label">Ikki bosqichli himoya</div>
-              <div className="setting-desc">Kirishda qo\u2018shimcha kod talab qilish</div>
+              <div className="setting-label">{t('settings.twoFactorLabel')}</div>
+              <div className="setting-desc">{t('settings.twoFactorDesc')}</div>
             </div>
           </div>
           <button type="button" role="switch" aria-checked={twoFactor} className={`toggle${twoFactor ? ' on' : ''}`} onClick={() => setTwoFactor((v) => !v)}>
@@ -102,24 +93,25 @@ export function Settings() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Globe size={20} />
             <div>
-              <div className="setting-label">Til</div>
-              <div className="setting-desc">{lang.name}</div>
+              <div className="setting-label">{t('settings.languageLabel')}</div>
+              <div className="setting-desc">{languageName(lang)}</div>
             </div>
           </div>
           {langOpen && (
             <div className="lang-dropdown">
-              {languages.map((l) => (
+              {savedLangCodes.map((code) => (
                 <button
-                  key={l.code}
+                  key={code}
                   type="button"
-                  className={`lang-option${lang.code === l.code ? ' active' : ''}`}
+                  className={`lang-option${lang === code ? ' active' : ''}`}
                   onClick={(e) => {
                     e.stopPropagation()
-                    pickLang(l)
+                    setLang(code)
+                    setLangOpen(false)
                   }}
                 >
-                  <span className="lang-name">{l.name}</span>
-                  {lang.code === l.code && <Check size={15} />}
+                  <span className="lang-name">{languageName(code)}</span>
+                  {lang === code && <Check size={15} />}
                 </button>
               ))}
             </div>
@@ -128,17 +120,17 @@ export function Settings() {
       </div>
 
       <div className="card settings-card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <h4 style={{ marginBottom: 8 }}>Hisob</h4>
+        <h4 style={{ marginBottom: 8 }}>{t('settings.accountTitle')}</h4>
         <div className="setting-row">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <LogOut size={20} />
             <div>
-              <div className="setting-label">Chiqish</div>
-              <div className="setting-desc">{user ? `@${user.username} sifatida tizimdan chiqing` : ''}</div>
+              <div className="setting-label">{t('settings.logoutLabel')}</div>
+              <div className="setting-desc">{user ? t('settings.logoutDesc', { name: user.username }) : ''}</div>
             </div>
           </div>
           <button type="button" className="btn btn-outline" onClick={() => void logout()}>
-            Chiqish
+            {t('settings.logoutButton')}
           </button>
         </div>
       </div>

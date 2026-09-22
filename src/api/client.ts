@@ -1,3 +1,15 @@
+import { translate } from '../i18n'
+
+const tr = (key: string, params?: Record<string, string | number>) => {
+  let lang = 'uz'
+  try {
+    lang = localStorage.getItem('doppi-lang-v1') ?? 'uz'
+  } catch {
+    /* ignore */
+  }
+  return translate(lang, key, params)
+}
+
 const TOKEN_KEY = 'doppi-token-v1'
 
 // Backend bazasi: Netlify'da VITE_API_URL env'idа ko'rsatiladi.
@@ -33,7 +45,7 @@ export async function api<T>(
   if (text) {
     // Netlify kabi statik hostda API mavjud bo'lmasa /api -> index.html qaytishi mumkin:
     if (!res.ok && text.trimStart().startsWith('<!')) {
-      throw new Error('Backend server ulanishi yo\'q. Iltimos API bazasini o\'rnating (VITE_API_URL).')
+      throw new Error(tr('api.backendUnreachable'))
     }
     data = JSON.parse(text) as T & { error?: string }
   }

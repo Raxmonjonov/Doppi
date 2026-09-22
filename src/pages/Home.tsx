@@ -4,8 +4,10 @@ import { HomeComposer } from '../components/CreatePost'
 import { StoriesRow } from '../components/StoriesRow'
 import { PostCard } from '../components/PostCard'
 import { useData } from '../data/store'
+import { useI18n } from '../i18n'
 
 export function Home() {
+  const { t } = useI18n()
   const posts = useData((d) => d.posts)
   const reels = useData((d) => d.reels)
 
@@ -17,9 +19,9 @@ export function Home() {
       {reels.length > 0 && (
         <div className="card" style={{ marginBottom: 20 }}>
           <div className="reels-strip-head">
-            <span className="reels-strip-title">Reels</span>
+            <span className="reels-strip-title">{t('home.reelsStripTitle')}</span>
             <Link to="/reels" className="reels-strip-more">
-              Barchasi
+              {t('home.seeAll')}
             </Link>
           </div>
           <div className="reels-strip">
@@ -38,8 +40,8 @@ export function Home() {
 
       {posts.length === 0 ? (
         <div className="card empty-state">
-          <div className="empty-state-title">Hozircha postlar yo'q</div>
-          <div className="empty-state-sub">Birinchi bo'lib o'z rasmingiz yoki videongizni yuklab, post yarating.</div>
+          <div className="empty-state-title">{t('home.emptyPostsTitle')}</div>
+          <div className="empty-state-sub">{t('home.emptyPostsSub')}</div>
         </div>
       ) : (
         posts.map((p) => <PostCard key={p.id} post={p} />)

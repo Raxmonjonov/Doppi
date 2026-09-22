@@ -13,10 +13,12 @@ import { Messenger } from './pages/Messenger'
 import { Settings } from './pages/Settings'
 import { AuthPage } from './pages/Auth'
 import { useAuth } from './data/auth'
+import { useI18n } from './i18n'
 
 export default function App() {
   const { user, ready } = useAuth()
-  if (!ready) return <div className="app-loading">Yuklanmoqda...</div>
+  const { t } = useI18n()
+  if (!ready) return <div className="app-loading">{t('app.loading')}</div>
   if (!user) return <AuthPage />
   return (
     <div className="app-shell">

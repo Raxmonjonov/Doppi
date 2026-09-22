@@ -1,6 +1,17 @@
 import { api } from '../api/client'
 import { updateData, readUserData } from './store'
 import type { Post, Reel, Album } from './mock'
+import { translate } from '../i18n'
+
+const tr = (key: string, params?: Record<string, string | number>) => {
+  let lang = 'uz'
+  try {
+    lang = localStorage.getItem('doppi-lang-v1') ?? 'uz'
+  } catch {
+    /* ignore */
+  }
+  return translate(lang, key, params)
+}
 
 export async function toggleFollow(userId: number): Promise<void> {
   const wasFollowing = readUserData(null).following.includes(userId)
@@ -35,7 +46,7 @@ export async function sendPostToUser(post: Post, userId: number): Promise<void> 
     const tid = await ensureThread(userId)
     await api(`/api/threads/${tid}/messages`, {
       method: 'POST',
-      body: { text: `📎 Sizga post ulashildi: "${post.text || 'Rasm/Video'}"` },
+      body: { text: tr('interactions.sharedPostMessage', { text: post.text || tr('interactions.sharedPostFallback') }) },
     })
     const r = await api<{ shared: number }>(`/api/posts/${post.id}/share`, { method: 'POST' })
     updateData((d) => {
@@ -54,7 +65,7 @@ export async function sendReelToUser(reel: Reel, userId: number): Promise<void> 
     const tid = await ensureThread(userId)
     await api(`/api/threads/${tid}/messages`, {
       method: 'POST',
-      body: { text: `🎬 Sizga Reels yuborildi: "${reel.caption || 'Video'}"` },
+      body: { text: tr('interactions.sharedReelMessage', { text: reel.caption || tr('interactions.sharedReelFallback') }) },
     })
     const res = await api<{ shares: number }>(`/api/reels/${reel.id}/share`, { method: 'POST' })
     updateData((d) => {
