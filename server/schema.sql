@@ -1,0 +1,141 @@
+-- Do'ppi PostgreSQL schema
+
+CREATE TABLE IF NOT EXISTS users (
+  id BIGINT PRIMARY KEY,
+  name TEXT NOT NULL,
+  username TEXT NOT NULL,
+  email TEXT NOT NULL,
+  salt TEXT NOT NULL DEFAULT '',
+  hash TEXT NOT NULL DEFAULT '',
+  google_id TEXT,
+  avatar TEXT NOT NULL DEFAULT '',
+  about TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS posts (
+  id BIGINT PRIMARY KEY,
+  author_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  time TEXT NOT NULL DEFAULT '',
+  text TEXT NOT NULL DEFAULT '',
+  images JSONB NOT NULL DEFAULT '[]',
+  video TEXT,
+  live BOOLEAN NOT NULL DEFAULT false
+);
+
+CREATE TABLE IF NOT EXISTS post_likes (
+  post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (post_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS post_comments (
+  id BIGINT PRIMARY KEY,
+  post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  author_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  time TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS post_shares (
+  id SERIAL PRIMARY KEY,
+  post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS stories (
+  id BIGINT PRIMARY KEY,
+  author_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  image TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS story_views (
+  story_id BIGINT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (story_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS reels (
+  id BIGINT PRIMARY KEY,
+  author_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  image TEXT NOT NULL DEFAULT '',
+  caption TEXT NOT NULL DEFAULT '',
+  sound TEXT NOT NULL DEFAULT '',
+  view_mode TEXT NOT NULL DEFAULT 'none'
+);
+
+CREATE TABLE IF NOT EXISTS reel_likes (
+  reel_id BIGINT NOT NULL REFERENCES reels(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (reel_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS reel_comments (
+  id BIGINT PRIMARY KEY,
+  reel_id BIGINT NOT NULL REFERENCES reels(id) ON DELETE CASCADE,
+  author_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  time TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS reel_shares (
+  id SERIAL PRIMARY KEY,
+  reel_id BIGINT NOT NULL REFERENCES reels(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS albums (
+  id BIGINT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
+  photos JSONB NOT NULL DEFAULT '[]'
+);
+
+CREATE TABLE IF NOT EXISTS album_likes (
+  album_id BIGINT NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (album_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS threads (
+  id BIGINT PRIMARY KEY,
+  member_a BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  member_b BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE (member_a, member_b)
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id BIGINT PRIMARY KEY,
+  thread_id BIGINT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+  sender_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  time TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS groups (
+  id BIGINT PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT '',
+  cover TEXT NOT NULL DEFAULT '',
+  joined BOOLEAN NOT NULL DEFAULT false,
+  created_by BIGINT REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS follows (
+  follower_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  followee_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (follower_id, followee_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_follows_follower ON follows(follower_id);
+CREATE INDEX IF NOT EXISTS idx_follows_followee ON follows(followee_id);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author_id);
+CREATE INDEX IF NOT EXISTS idx_comments_post ON post_comments(post_id);
+CREATE INDEX IF NOT EXISTS idx_reel_comments ON reel_comments(reel_id);
+CREATE INDEX IF NOT EXISTS idx_thread_members ON threads(member_a, member_b);
+CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id);

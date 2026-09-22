@@ -1,0 +1,85 @@
+/* =========================================================
+   Do'ppi — Design tokens
+   Light & Dark theme, markazlashtirilgan. Komponent ichida
+   hardcoded rang ishlatilmaydi.
+   ========================================================= */
+
+:root {
+  --fn-primary: #5b4fe0;
+  --fn-primary-hover: #4a3fc7;
+  --fn-primary-active: #3d33ad;
+  --fn-primary-tint: #edebfc;
+  --fn-accent: #ff7a45;
+  --fn-accent-hover: #f0632e;
+
+  --fn-bg: #f5f5fa;
+  --fn-surface: #ffffff;
+  --fn-surface-alt: #fafafc;
+  --fn-border: #e4e4ef;
+  --fn-border-strong: #d3d3e3;
+
+  --fn-text-primary: #1c1c28;
+  --fn-text-secondary: #6b6b7d;
+  --fn-text-muted: #9a9aae;
+
+  --fn-online: #00c2a8;
+  --fn-success: #2ecc71;
+  --fn-danger: #ff4757;
+  --fn-warning: #ffc048;
+  --fn-info: #3ec1d3;
+
+  --fn-story-gradient: linear-gradient(135deg, #5b4fe0 0%, #ff7a45 100%);
+  --fn-shadow: 0 4px 16px rgba(91, 79, 224, 0.08);
+  --fn-shadow-lg: 0 12px 40px rgba(91, 79, 224, 0.16);
+
+  --fn-radius-card: 16px;
+  --fn-radius-btn: 10px;
+  --fn-radius-pill: 999px;
+
+  --fn-navbar-h: 60px;
+  --fn-sidebar-w: 260px;
+  --fn-sidebar-ic: 72px;
+  --fn-rightpanel-w: 300px;
+  --fn-feed-w: 640px;
+
+  --fn-space: 8px;
+}
+
+[data-theme='dark'] {
+  --fn-primary: #8b7cff;
+  --fn-primary-hover: #a79bff;
+  --fn-primary-active: #6f5fe0;
+  --fn-primary-tint: #2a2440;
+  --fn-accent: #ff8f66;
+  --fn-accent-hover: #ffa582;
+
+  --fn-bg: #121218;
+  --fn-surface: #1c1c26;
+  --fn-surface-alt: #22222e;
+  --fn-border: #2c2c3a;
+  --fn-border-strong: #3a3a4a;
+
+  --fn-text-primary: #f0f0f5;
+  --fn-text-secondary: #b0b0c3;
+  --fn-text-muted: #7a7a8f;
+
+  --fn-online: #2dddbf;
+  --fn-success: #3ee083;
+  --fn-danger: #ff6b7a;
+  --fn-warning: #ffd166;
+  --fn-info: #5fd3e3;
+
+  --fn-story-gradient: linear-gradient(135deg, #8b7cff 0%, #ff8f66 100%);
+  --fn-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  --fn-shadow-lg: 0 12px 44px rgba(0, 0, 0, 0.55);
+}
+
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) {
+    color-scheme: dark;
+  }
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+}

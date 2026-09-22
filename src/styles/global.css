@@ -1,0 +1,347 @@
+/* =========================================================
+   Do'ppi — Global base, typography, utilities
+   ========================================================= */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--fn-bg);
+  color: var(--fn-text-primary);
+  font-size: 15px;
+  line-height: 1.5;
+  transition:
+    background-color 200ms ease,
+    color 200ms ease;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--fn-text-primary);
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  padding: 0;
+}
+
+input,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--fn-primary);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--fn-border-strong);
+  border-radius: 8px;
+  border: 2px solid var(--fn-bg);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- Theme transition ---------- */
+[data-theme-transition] body *,
+[data-theme-transition] body {
+  transition:
+    background-color 200ms ease,
+    color 200ms ease,
+    border-color 200ms ease !important;
+}
+
+/* ---------- Utility: surfaces ---------- */
+.card {
+  background: var(--fn-surface);
+  border: 1px solid var(--fn-border);
+  border-radius: var(--fn-radius-card);
+  box-shadow: var(--fn-shadow);
+}
+
+/* ---------- Avatars ---------- */
+.avatar {
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--fn-border);
+  flex-shrink: 0;
+}
+
+.avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, var(--fn-primary), #7c3aed);
+  user-select: none;
+}
+
+.avatar-wrap {
+  position: relative;
+  width: fit-content;
+}
+
+.avatar-wrap .online-dot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--fn-online);
+  border: 2.5px solid var(--fn-surface);
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: var(--fn-radius-btn);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 10px 18px;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    border-color 180ms ease,
+    opacity 180ms ease,
+    transform 150ms ease;
+  user-select: none;
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn-primary {
+  background: var(--fn-primary);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--fn-primary-hover);
+}
+
+.btn-primary:active {
+  background: var(--fn-primary-active);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--fn-primary);
+  border: 1.5px solid var(--fn-primary);
+}
+
+.btn-outline:hover {
+  background: var(--fn-primary-tint);
+}
+
+.btn-soft {
+  background: var(--fn-primary-tint);
+  color: var(--fn-primary);
+}
+
+.btn-soft:hover {
+  background: var(--fn-primary);
+  color: #fff;
+}
+
+.btn-sm {
+  padding: 7px 14px;
+  font-size: 13px;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.btn-accent {
+  background: var(--fn-accent);
+  color: #fff;
+}
+
+.btn-accent:hover {
+  background: var(--fn-accent-hover);
+}
+
+/* ---------- Badges ---------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--fn-radius-pill);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+}
+
+.badge-warning {
+  background: rgba(255, 192, 72, 0.16);
+  color: var(--fn-warning);
+}
+
+.badge-success {
+  background: rgba(46, 204, 113, 0.14);
+  color: var(--fn-success);
+}
+
+.badge-danger {
+  background: rgba(255, 71, 87, 0.12);
+  color: var(--fn-danger);
+}
+
+/* ---------- Skeleton shimmer ---------- */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--fn-surface-alt);
+  border-radius: 8px;
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  animation: shimmer 1.4s infinite;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton.sk-avatar {
+  border-radius: 50%;
+}
+
+/* ---------- Micro animations ---------- */
+@keyframes fn-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.3);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes fn-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fn-pulse-dot {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes fn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--fn-primary-tint);
+  border-top-color: var(--fn-primary);
+  animation: fn-spin 0.7s linear infinite;
+}
+
+.fade-in {
+  animation: fn-fade-in 150ms ease;
+}
+
+/* ---------- Links flush with icons ---------- */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: var(--fn-text-primary);
+  padding: 8px;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    transform 150ms ease;
+}
+
+.icon-btn:hover {
+  background: var(--fn-primary-tint);
+  color: var(--fn-primary);
+}
