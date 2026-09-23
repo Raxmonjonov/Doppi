@@ -65,9 +65,11 @@ export interface Album {
 export interface Group {
   id: number
   name: string
-  members: string
   cover: string
-  joined: boolean
+  createdBy: number
+  memberIds: number[]
+  members?: string
+  joined?: boolean
 }
 
 export interface Page {

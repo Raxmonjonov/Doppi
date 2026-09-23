@@ -2429,3 +2429,292 @@
 @keyframes fn-spin {
   to { transform: rotate(360deg); }
 }
+
+/* =========================================================
+   Groups
+   ========================================================= */
+
+.group-create-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1.5px dashed color-mix(in srgb, var(--fn-primary) 45%, transparent);
+  border-radius: var(--fn-radius-card);
+  background: color-mix(in srgb, var(--fn-primary) 6%, transparent);
+  color: var(--fn-text-primary);
+  text-align: left;
+  margin-bottom: 16px;
+  transition: background 0.2s;
+}
+.group-create-card:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fn-primary) 12%, transparent);
+}
+.group-create-card:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.group-create-plus {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--fn-primary) 16%, transparent);
+  color: var(--fn-primary);
+}
+
+.group-create-card strong {
+  display: block;
+  font-size: 15px;
+  margin-bottom: 2px;
+}
+.group-create-card small {
+  display: block;
+  color: var(--fn-text-muted);
+  font-size: 12.5px;
+}
+
+.entity-cover-fallback {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  font-size: 44px;
+  font-weight: 800;
+  color: var(--fn-on-primary);
+  background: linear-gradient(135deg, var(--fn-primary), color-mix(in srgb, var(--fn-primary) 50%, var(--fn-online)));
+}
+
+.group-limit-hint {
+  font-size: 12.5px;
+  color: var(--fn-text-muted);
+  margin-bottom: 2px;
+}
+
+.group-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0 14px;
+  border-bottom: 1px solid var(--fh-border-color, var(--fn-border));
+  margin-bottom: 14px;
+}
+.group-detail-head + .group-detail .group-call-buttons { margin-left: auto; }
+
+.group-call-buttons {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.call-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: var(--fn-on-primary);
+}
+.call-video {
+  background: color-mix(in srgb, var(--fn-online) 80%, var(--fn-primary));
+}
+.call-audio {
+  background: var(--fn-primary);
+}
+
+.group-layout {
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.group-members {
+  padding: 12px;
+  max-height: 70vh;
+  overflow: hidden;
+}
+.group-members .threads-head {
+  margin-bottom: 10px;
+}
+.group-members-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  max-height: calc(70vh - 60px);
+}
+
+.group-admin-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--fn-on-primary);
+  background: var(--fn-primary);
+  vertical-align: middle;
+}
+
+.msg-author {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--fn-text-secondary);
+  margin-bottom: 3px;
+}
+
+.chat-empty-hint {
+  text-align: center;
+  font-size: 13px;
+  color: var(--fn-text-muted);
+  padding: 12px 0;
+}
+
+/* =========================================================
+   Calls
+   ========================================================= */
+
+.incoming-call {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 24px;
+}
+.incoming-name {
+  font-size: 18px;
+  font-weight: 700;
+}
+.incoming-sub {
+  color: var(--fn-text-muted);
+  font-size: 13.5px;
+  margin-bottom: 6px;
+}
+.incoming-actions {
+  display: flex;
+  gap: 22px;
+  margin-top: 10px;
+}
+
+.call-stage {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--fn-primary) 22%, var(--fn-bg)), color-mix(in srgb, var(--fn-primary) 8%, var(--fn-bg)));
+  border-radius: 18px;
+  padding: 18px;
+  width: min(820px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.call-head {
+  text-align: center;
+}
+.call-title {
+  font-size: 17px;
+  font-weight: 700;
+}
+.call-sub {
+  font-size: 13px;
+  color: var(--fn-text-muted);
+}
+
+.call-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 240px));
+  gap: 12px;
+  justify-content: center;
+}
+.call-tile {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #000;
+  display: grid;
+  place-items: center;
+}
+.call-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.call-self video {
+  transform: scaleX(-1);
+}
+.call-video-hidden {
+  display: none !important;
+}
+.call-tag {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+}
+.call-avatar-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.call-controls {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+.call-ctl {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--fn-btn-bg, color-mix(in srgb, var(--fn-text-secondary) 14%, transparent));
+  color: var(--fn-text-primary);
+}
+.call-ctl.active {
+  background: var(--fn-text-muted);
+  color: var(--fn-bg);
+}
+.call-ctl.call-answer {
+  background: var(--fn-online);
+  color: var(--fn-on-primary);
+}
+.call-ctl.call-end {
+  background: var(--fn-danger);
+  color: var(--fn-on-primary);
+}
+
+.call-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--fn-danger);
+  font-size: 14px;
+  padding: 8px 0;
+}
+
+@media (max-width: 720px) {
+  .group-layout {
+    grid-template-columns: 1fr;
+  }
+  .group-members {
+    order: 2;
+    max-height: 260px;
+  }
+  .call-grid {
+    grid-template-columns: 1fr;
+  }
+}
