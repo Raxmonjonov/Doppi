@@ -6,6 +6,7 @@ export function emptyDoc() {
   return {
     users: [],
     sessions: [],
+    adminSessions: [],
     posts: [],
     postLikes: [],
     postComments: [],
@@ -81,6 +82,7 @@ function upsert(doc, key, item, idKey = 'id') {
 }
 
 function removeFrom(doc, key, pred) {
+  if (!Array.isArray(doc[key])) return
   const idx = doc[key].findIndex(pred)
   if (idx >= 0) doc[key].splice(idx, 1)
 }
@@ -166,6 +168,38 @@ export async function handleRequest(method, pathname, query, req, store) {
     return send(200, { ok: true })
   }
 
+  /* ---------- Admin ---------- */
+
+  const ADMIN_USER = process.env.ADMIN_USERNAME ?? 'Admin'
+  const ADMIN_PASS = process.env.ADMIN_PASSWORD ?? 'Admin.Do\'ppi.Uzbekitan.66'
+  const adminAuth = (d, token) => {
+    if (!token) return null
+    const s = d.adminSessions?.find((x) => x.token === token)
+    if (!s) return null
+    s.lastSeen = Date.now()
+    return s
+  }
+
+  if (method === 'POST' && first === 'admin' && second === 'login') {
+    const body = await readBody(req)
+    const un = String(body.username ?? '')
+    const pw = String(body.password ?? '')
+    if (un === ADMIN_USER && pw === ADMIN_PASS) {
+      const token = makeToken()
+      doc.adminSessions = doc.adminSessions ?? []
+      doc.adminSessions.push({ token, userId: 'admin', lastSeen: Date.now() })
+      await store.saveDoc(doc)
+      return send(200, { token })
+    }
+    return send(401, { error: 'Foydalanuvchi nomi yoki parol xato.' })
+  }
+
+  if (method === 'POST' && first === 'admin' && second === 'logout') {
+    removeFrom(doc, 'adminSessions', (s) => s.token === bearer)
+    await store.saveDoc(doc)
+    return send(200, { ok: true })
+  }
+
   /* ---------- Presence ---------- */
 
   // Client heartbeat: keeps the session "online". Called every ~15s while the app is open.
@@ -177,8 +211,8 @@ export async function handleRequest(method, pathname, query, req, store) {
   }
 
   if (method === 'GET' && first === 'dashboard') {
-    const me = auth(doc, bearer)
-    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const admin = adminAuth(doc, bearer)
+    if (!admin) return send(401, { error: 'Admin kirishi talab qilinadi.' })
 
     const now = Date.now()
     const ONLINE_MS = 60 * 1000 // online = lastSeen within the last minute

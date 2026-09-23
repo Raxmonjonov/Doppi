@@ -20,8 +20,6 @@ import { Avatar } from '../components/Avatar'
 import { api } from '../api/client'
 import { useI18n } from '../i18n'
 
-const ADMIN_USER = 'Admin'
-const ADMIN_PASS = 'Admin.Do\'ppi.Uzbekitan.66'
 const SESSION_KEY = 'doppi-admin-v1'
 
 interface Totals {
@@ -77,7 +75,7 @@ export function AdminPage() {
   const { t } = useI18n()
   const [authed, setAuthed] = useState(() => {
     try {
-      return localStorage.getItem(SESSION_KEY) === '1'
+      return !!localStorage.getItem(SESSION_KEY)
     } catch {
       return false
     }
@@ -86,23 +84,40 @@ export function AdminPage() {
   const [u, setU] = useState('')
   const [p, setP] = useState('')
   const [loginError, setLoginError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
-  const login = (e: React.FormEvent) => {
+  const login = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoginError(null)
-    if (u.trim() === ADMIN_USER && p === ADMIN_PASS) {
+    setBusy(true)
+    try {
+      const res = await api<{ token: string }>('/api/admin/login', {
+        method: 'POST',
+        body: { username: u.trim(), password: p },
+        token: null,
+      })
       try {
-        localStorage.setItem(SESSION_KEY, '1')
+        localStorage.setItem(SESSION_KEY, res.token)
       } catch {
         /* ignore */
       }
       setAuthed(true)
-    } else {
-      setLoginError(t('admin.invalidCredentials'))
+    } catch (err) {
+      setLoginError(err instanceof Error ? (err.message === 'Xatolik: 401' ? t('admin.invalidCredentials') : err.message) : t('admin.invalidCredentials'))
+    } finally {
+      setBusy(false)
     }
   }
 
-  const logout = () => {
+  const logout = async () => {
+    const token = localStorage.getItem(SESSION_KEY)
+    try {
+      if (token) {
+        api<{ ok: boolean }>('/api/admin/logout', { method: 'POST', body: {}, token }).catch(() => {})
+      }
+    } catch {
+      /* ignore */
+    }
     try {
       localStorage.removeItem(SESSION_KEY)
     } catch {
@@ -125,12 +140,12 @@ export function AdminPage() {
           <form className="auth-form" onSubmit={login}>
             <label className="auth-field">
               <span>{t('admin.usernameLabel')}</span>
-              <input value={u} onChange={(e) => setU(e.target.value)} placeholder={ADMIN_USER} autoComplete="username" autoFocus />
+              <input value={u} onChange={(e) => setU(e.target.value)} placeholder="Admin" autoComplete="username" autoFocus disabled={busy} />
             </label>
 
             <label className="auth-field">
               <span>{t('admin.passwordLabel')}</span>
-              <input type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="••••••••" autoComplete="current-password" />
+              <input type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="••••••••" autoComplete="current-password" disabled={busy} />
             </label>
 
             {loginError && (
@@ -139,7 +154,7 @@ export function AdminPage() {
               </div>
             )}
 
-            <button type="submit" className="btn btn-primary auth-submit">
+            <button type="submit" className="btn btn-primary auth-submit" disabled={busy}>
               <ShieldCheck size={16} /> {t('admin.submit')}
             </button>
           </form>
@@ -159,7 +174,8 @@ function AdminStats({ t, onLogout }: { t: (k: string, p?: Record<string, string 
   const load = () => {
     setLoading(true)
     setError(null)
-    api<DashboardData>('/api/dashboard')
+    const adminToken = localStorage.getItem(SESSION_KEY)
+    api<DashboardData>('/api/dashboard', { token: adminToken })
       .then((d) => setData(d))
       .catch((e) => setError(e instanceof Error ? e.message : 'Xatolik'))
       .finally(() => setLoading(false))
