@@ -76,6 +76,54 @@
   position: relative;
 }
 
+/* ---------- Live clock ---------- */
+.fn-clock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: var(--fn-radius-pill);
+  background: var(--fn-surface-alt);
+  border: 1px solid var(--fn-border);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.fn-clock-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--fn-online);
+  box-shadow: 0 0 0 0 rgba(0, 194, 168, 0.5);
+  animation: clock-pulse 2s infinite;
+}
+
+@keyframes clock-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 194, 168, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(0, 194, 168, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 194, 168, 0);
+  }
+}
+
+.fn-clock-time {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--fn-text-primary);
+  line-height: 1;
+}
+
+.fn-clock-date {
+  font-size: 12px;
+  color: var(--fn-text-muted);
+  line-height: 1;
+}
+
 .search-dropdown {
   position: absolute;
   top: calc(100% + 8px);
@@ -405,6 +453,14 @@
 
   .fn-search {
     display: none;
+  }
+
+  .fn-clock-date {
+    display: none;
+  }
+
+  .fn-clock {
+    padding: 6px 10px;
   }
 
   .fn-nav-actions .nav-item:not([data-mobile-keep]) {

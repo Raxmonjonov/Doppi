@@ -4,6 +4,7 @@ import { Search } from 'lucide-react'
 import { useAuth } from '../data/auth'
 import { useI18n } from '../i18n'
 import { Avatar } from './Avatar'
+import { LiveClock } from './LiveClock'
 
 export function Navbar() {
   const { t } = useI18n()
@@ -71,6 +72,8 @@ export function Navbar() {
           </div>
         )}
       </div>
+
+      <LiveClock />
     </header>
   )
 }
