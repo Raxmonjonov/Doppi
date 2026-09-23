@@ -114,15 +114,17 @@ export async function handleRequest(method, pathname, query, req, store) {
 
   if (method === 'POST' && first === 'auth' && second === 'register') {
     const body = await readBody(req)
-    const { name, username, email, password } = body
+    const { name, username, email, password, avatar, about } = body
     const uname = String(username ?? '').trim()
-    const nm = String(name ?? '').trim()
+    const nm = String(name ?? '').trim() || uname
     const em = String(email ?? '').trim().toLowerCase()
     const pw = String(password ?? '')
+    const av = typeof avatar === 'string' ? avatar : ''
+    const ab = typeof about === 'string' ? about : ''
 
     if (!nm || !uname || !em || !pw) return send(400, { error: "Barcha maydonlarni to'ldiring." })
     if (uname.length < 3) return send(400, { error: "Foydalanuvchi nomi kamida 3 belgidan iborat bo'lishi kerak." })
-    if (pw.length < 4) return send(400, { error: "Parol kamida 4 belgidan iborat bo'lishi kerak." })
+    if (pw.length < 4) return send(400, { error: 'Parol kamida 4 belgidan iborat bo\'lishi kerak.' })
 
     const taken = doc.users.find((u) => u.username.toLowerCase() === uname.toLowerCase() || u.email.toLowerCase() === em)
     if (taken) {
@@ -134,11 +136,11 @@ export async function handleRequest(method, pathname, query, req, store) {
     const { salt, hash } = hashPassword(pw)
     const id = Date.now()
     const createdAt = new Date().toISOString()
-    doc.users.push({ id, name: nm, username: uname, email: em, salt, hash, avatar: '', about: '', createdAt, lastLoginAt: createdAt, lastLogoutAt: 0 })
+    doc.users.push({ id, name: nm, username: uname, email: em, salt, hash, avatar: av, about: ab, createdAt, lastLoginAt: createdAt, lastLogoutAt: 0 })
     const token = makeToken()
     doc.sessions.push({ token, userId: id, lastSeen: Date.now() })
     await store.saveDoc(doc)
-    return send(200, { token, user: publicUser({ id, name: nm, username: uname, email: em, avatar: '', about: '', createdAt }) })
+    return send(200, { token, user: publicUser({ id, name: nm, username: uname, email: em, avatar: av, about: ab, createdAt }) })
   }
 
   if (method === 'POST' && first === 'auth' && second === 'login') {

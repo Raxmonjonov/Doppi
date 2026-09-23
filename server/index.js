@@ -100,11 +100,13 @@ async function authMiddleware(req, res, next) {
 /* ---------- Auth ---------- */
 
 app.post('/api/auth/register', async (req, res) => {
-  const { name, username, email, password } = req.body ?? {}
+  const { name, username, email, password, avatar, about } = req.body ?? {}
   const uname = String(username ?? '').trim()
-  const nm = String(name ?? '').trim()
+  const nm = String(name ?? '').trim() || uname
   const em = String(email ?? '').trim().toLowerCase()
   const pw = String(password ?? '')
+  const av = typeof avatar === 'string' ? avatar : ''
+  const ab = typeof about === 'string' ? about : ''
 
   if (!nm || !uname || !em || !pw) {
     return res.status(400).json({ error: "Barcha maydonlarni to'ldiring." })
@@ -129,12 +131,12 @@ app.post('/api/auth/register', async (req, res) => {
     const id = Date.now()
     const createdAt = new Date().toISOString()
     await pool.query(
-      `INSERT INTO users (id, name, username, email, salt, hash, avatar, about, created_at) VALUES ($1,$2,$3,$4,$5,$6,'','',$7)`,
-      [id, nm, uname, em, salt, hash, createdAt],
+      `INSERT INTO users (id, name, username, email, salt, hash, avatar, about, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [id, nm, uname, em, salt, hash, av, ab, createdAt],
     )
     const token = makeToken()
     await pool.query(`INSERT INTO sessions (token, user_id) VALUES ($1,$2)`, [token, id])
-    const user = publicUser({ id, name: nm, username: uname, email: em, avatar: '', about: '', createdAt })
+    const user = publicUser({ id, name: nm, username: uname, email: em, avatar: av, about: ab, createdAt })
     res.json({ token, user })
   } catch (e) {
     console.error(e)

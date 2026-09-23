@@ -89,6 +89,138 @@
   gap: 14px;
 }
 
+.auth-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 18px;
+  color: var(--fn-text-primary);
+  text-align: center;
+}
+
+.auth-steps {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+
+.auth-step {
+  height: 4px;
+  width: 56px;
+  border-radius: 999px;
+  background: var(--fn-border-strong);
+  transition: background 0.25s;
+}
+
+.auth-step.active {
+  background: var(--fn-primary);
+}
+
+.auth-step.done {
+  background: color-mix(in srgb, var(--fn-primary) 45%, transparent);
+}
+
+.auth-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.auth-next {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.auth-back {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.auth-submit-inline {
+  flex: 1;
+}
+
+.auth-photo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.auth-photo-preview {
+  width: 128px;
+  height: 128px;
+  border-radius: 50%;
+  border: 2px dashed var(--fn-border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fn-text-muted);
+  cursor: pointer;
+  overflow: hidden;
+  position: relative;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.auth-photo-preview:hover {
+  border-color: var(--fn-primary);
+  box-shadow: 0 0 0 3px var(--fn-primary-tint);
+}
+
+.auth-photo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.auth-photo-preview.has {
+  border-style: solid;
+  border-color: var(--fn-primary);
+}
+
+.auth-photo-check {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--fn-online);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  display: none;
+}
+
+.auth-photo-preview.has .auth-photo-check {
+  display: flex;
+}
+
+.auth-switch {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--fn-text-secondary);
+}
+
+.auth-switch a {
+  color: var(--fn-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.auth-switch a:hover {
+  text-decoration: underline;
+}
+
 .auth-field {
   display: flex;
   flex-direction: column;

@@ -13,12 +13,21 @@ export interface Account {
   createdAt: string
 }
 
+export interface RegisterData {
+  name: string
+  username: string
+  email: string
+  password: string
+  avatar?: string
+  about?: string
+}
+
 interface AuthContextValue {
   user: Account | null
   accounts: Account[]
   ready: boolean
   login: (username: string, password: string) => Promise<string | null>
-  register: (data: Omit<Account, 'id' | 'createdAt' | 'avatar' | 'about'>) => Promise<string | null>
+  register: (data: RegisterData) => Promise<string | null>
   logout: () => Promise<void>
   updateProfile: (patch: Partial<Pick<Account, 'name' | 'avatar' | 'about'>>) => Promise<void>
   refreshAccounts: () => Promise<void>
@@ -160,7 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const register = async (data: Omit<Account, 'id' | 'createdAt' | 'avatar' | 'about'>): Promise<string | null> => {
+  const register = async (data: RegisterData): Promise<string | null> => {
     try {
       const { token, user } = await api<{ token: string; user: Account }>('/api/auth/register', {
         method: 'POST',

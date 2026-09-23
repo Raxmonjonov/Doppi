@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
 import BottomNav from './components/BottomNav'
@@ -12,7 +12,8 @@ import { Pages } from './pages/Pages'
 import { Dashboard } from './pages/Dashboard'
 import { Messenger } from './pages/Messenger'
 import { Settings } from './pages/Settings'
-import { AuthPage } from './pages/Auth'
+import { LoginPage } from './pages/Login'
+import { RegisterPage } from './pages/Register'
 import { useAuth } from './data/auth'
 import { useI18n } from './i18n'
 
@@ -20,7 +21,15 @@ export default function App() {
   const { user, ready } = useAuth()
   const { t } = useI18n()
   if (!ready) return <div className="app-loading">{t('app.loading')}</div>
-  if (!user) return <AuthPage />
+  if (!user) {
+    return (
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    )
+  }
   return (
     <div className="app-shell">
       <Navbar />
