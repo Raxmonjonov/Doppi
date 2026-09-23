@@ -5,7 +5,7 @@ import { useAuth } from '../data/auth'
 import { useI18n } from '../i18n'
 import { fileToDataUrl } from '../lib/upload'
 
-const STEPS = ['email', 'username', 'photo', 'work'] as const
+const STEPS = ['email', 'username', 'photo', 'work', 'password'] as const
 type Step = (typeof STEPS)[number]
 
 export function RegisterPage() {
@@ -54,6 +54,10 @@ export function RegisterPage() {
     }
     if (step === 'photo') {
       setStep('work')
+      return
+    }
+    if (step === 'work') {
+      setStep('password')
     }
   }
 
@@ -111,16 +115,10 @@ export function RegisterPage() {
           )}
 
           {step === 'username' && (
-            <>
-              <label className="auth-field">
-                <span>{t('auth.labelUsername')}</span>
-                <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t('auth.usernamePlaceholder')} autoComplete="username" autoFocus />
-              </label>
-              <label className="auth-field">
-                <span>{t('auth.labelPassword')}</span>
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="new-password" />
-              </label>
-            </>
+            <label className="auth-field">
+              <span>{t('auth.labelUsername')}</span>
+              <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t('auth.usernamePlaceholder')} autoComplete="username" autoFocus />
+            </label>
           )}
 
           {step === 'photo' && (
@@ -153,6 +151,13 @@ export function RegisterPage() {
             </label>
           )}
 
+          {step === 'password' && (
+            <label className="auth-field">
+              <span>{t('auth.labelPassword')}</span>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="new-password" autoFocus />
+            </label>
+          )}
+
           {error && (
             <div className="auth-error">
               <AlertCircle size={16} /> {error}
@@ -165,7 +170,7 @@ export function RegisterPage() {
                 <ArrowLeft size={16} /> {t('auth.back')}
               </button>
             )}
-            {step !== 'work' ? (
+            {step !== 'password' ? (
               <button type="button" className="btn btn-primary auth-next" onClick={next}>
                 {t('auth.next')} <ArrowRight size={16} />
               </button>
