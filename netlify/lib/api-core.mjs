@@ -22,6 +22,8 @@ export function emptyDoc() {
     threads: [],
     messages: [],
     groups: [],
+    groupMessages: [],
+    callSignals: [],
     follows: [],
   }
 }
@@ -407,7 +409,7 @@ export async function handleRequest(method, pathname, query, req, store) {
       }))
       .sort((a, b) => b.id - a.id)
 
-    const groups = [...doc.groups].sort((a, b) => b.id - a.id).map((g) => ({ id: g.id, name: g.name, cover: g.cover, joined: !!g.joined, members: g.members ?? "1 a'zo" }))
+    const groups = [...doc.groups].sort((a, b) => b.id - a.id)
     const following = doc.follows.filter((f) => f.followerId === me.id).map((f) => f.followeeId)
 
     const staleIds = doc.stories.filter((s) => s.id <= storyCutoff).map((s) => s.id)
@@ -599,6 +601,159 @@ export async function handleRequest(method, pathname, query, req, store) {
       await store.saveDoc(doc)
     }
     return send(200, { ok: true })
+  }
+
+  /* ---------- Groups ---------- */
+
+  const MAX_GROUPS = 3
+
+  function groupResponse(g, meId) {
+    const members = (g.memberIds ?? []).map((id) => userById(doc, id)).filter(Boolean).map((u) => ({
+      id: u.id,
+      name: u.name,
+      username: u.username,
+      avatar: u.avatar ?? '',
+      online: doc.sessions.some((s) => s.userId === u.id && Date.now() - Number(s.lastSeen ?? 0) < 60_000),
+    }))
+    const messages = (doc.groupMessages ?? [])
+      .filter((m) => m.groupId === g.id)
+      .sort((a, b) => a.id - b.id)
+      .map((m) => {
+        const sender = userById(doc, m.senderId)
+        const base = {
+          id: m.id,
+          from: m.senderId,
+          sender: sender ? { id: sender.id, name: sender.name, username: sender.username, avatar: sender.avatar ?? '' } : null,
+          text: m.text,
+          time: m.time,
+        }
+        if (m.image) base.image = m.image
+        return base
+      })
+    return {
+      id: g.id,
+      name: g.name,
+      cover: g.cover,
+      createdBy: g.createdBy,
+      isAdmin: g.createdBy === meId,
+      members,
+      messages,
+    }
+  }
+
+  if (method === 'GET' && first === 'groups' && second === undefined) {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const list = [...doc.groups]
+      .filter((g) => (g.memberIds ?? []).includes(me.id))
+      .sort((a, b) => b.id - a.id)
+      .map((g) => groupResponse(g, me.id))
+    return send(200, { groups: list })
+  }
+
+  if (method === 'POST' && first === 'groups' && second === undefined) {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const body = await readBody(req)
+    const name = String(body.name ?? '').trim()
+    const cover = String(body.cover ?? '').trim()
+    if (!name) return send(400, { error: "Guruh nomini kiriting." })
+    const mine = doc.groups.filter((g) => g.createdBy === me.id).length
+    if (mine >= MAX_GROUPS) return send(403, { error: `Siz ko'pi bilan ${MAX_GROUPS} ta guruh yaratishingiz mumkin.` })
+    const g = { id: Date.now(), name, cover, createdBy: me.id, memberIds: [me.id] }
+    doc.groups.push(g)
+    await store.saveDoc(doc)
+    return send(200, { group: groupResponse(g, me.id) })
+  }
+
+  if (method === 'GET' && first === 'groups' && second !== undefined && third === undefined) {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const id = Number(second)
+    const g = doc.groups.find((x) => x.id === id && (x.memberIds ?? []).includes(me.id))
+    if (!g) return send(404, { error: 'Guruh topilmadi.' })
+    return send(200, { group: groupResponse(g, me.id) })
+  }
+
+  if (method === 'POST' && first === 'groups' && third === 'members') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const id = Number(second)
+    const g = doc.groups.find((x) => x.id === id)
+    if (!g) return send(404, { error: 'Guruh topilmadi.' })
+    if (g.createdBy !== me.id) return send(403, { error: 'Faqat guruh yaratuvchisi a\'zo qo\'shishi mumkin.' })
+    const body = await readBody(req)
+    const userId = Number(body.userId)
+    if (!Number.isInteger(userId) || !userById(doc, userId)) return send(400, { error: "Foydalanuvchi topilmadi." })
+    if (!(g.memberIds ?? []).includes(userId)) {
+      g.memberIds = [...(g.memberIds ?? []), userId]
+      await store.saveDoc(doc)
+    }
+    return send(200, { group: groupResponse(g, me.id) })
+  }
+
+  if (method === 'DELETE' && first === 'groups' && third === 'members') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const id = Number(second)
+    const g = doc.groups.find((x) => x.id === id)
+    if (!g) return send(404, { error: 'Guruh topilmadi.' })
+    if (g.createdBy !== me.id && me.id !== Number(third)) return send(403, { error: 'Ruxsat yo\'q.' })
+    g.memberIds = (g.memberIds ?? []).filter((x) => x !== me.id)
+    await store.saveDoc(doc)
+    return send(200, { ok: true })
+  }
+
+  if (method === 'POST' && first === 'groups' && third === 'messages') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const id = Number(second)
+    const g = doc.groups.find((x) => x.id === id && (x.memberIds ?? []).includes(me.id))
+    if (!g) return send(404, { error: 'Guruh topilmadi.' })
+    const body = await readBody(req)
+    const text = String(body.text ?? '').trim()
+    if (!text) return send(400, { error: "Xabar bo'sh bo'lishi mumkin emas." })
+    const mid = Date.now()
+    const time = nowTime()
+    const msg = { id: mid, groupId: id, senderId: me.id, text, time }
+    if (body.image) msg.image = String(body.image)
+    doc.groupMessages = doc.groupMessages ?? []
+    doc.groupMessages.push(msg)
+    await store.saveDoc(doc)
+    return send(200, { message: { id: mid, from: me.id, sender: { id: me.id, name: me.name, username: me.username, avatar: me.avatar ?? '' }, text, time, image: msg.image } })
+  }
+
+  /* ---------- Group calls (WebRTC signalling relay) ---------- */
+
+  if (method === 'POST' && first === 'groups' && third === 'calls') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const id = Number(second)
+    const g = doc.groups.find((x) => x.id === id && (x.memberIds ?? []).includes(me.id))
+    if (!g) return send(404, { error: 'Guruh topilmadi.' })
+    const body = await readBody(req)
+    const kind = String(body.kind ?? '')
+    const to = Number(body.to ?? 0)
+    const payload = body.data ?? null
+    const signal = { id: Date.now(), groupId: id, from: me.id, to, kind, data: payload }
+    doc.callSignals = doc.callSignals ?? []
+    doc.callSignals.push(signal)
+    if (doc.callSignals.length > 500) doc.callSignals = doc.callSignals.slice(-500)
+    await store.saveDoc(doc)
+    return send(200, { signal })
+  }
+
+  if (method === 'GET' && first === 'groups' && third === 'calls') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const id = Number(second)
+    const g = doc.groups.find((x) => x.id === id && (x.memberIds ?? []).includes(me.id))
+    if (!g) return send(404, { error: 'Guruh topilmadi.' })
+    const since = Number(query.since ?? 0)
+    const signals = (doc.callSignals ?? [])
+      .filter((s) => s.groupId === id && s.id > since && s.from !== me.id && (s.to === 0 || s.to === me.id))
+      .sort((a, b) => a.id - b.id)
+    return send(200, { signals })
   }
 
   /* ---------- Threads ---------- */
