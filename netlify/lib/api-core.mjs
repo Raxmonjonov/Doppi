@@ -100,13 +100,14 @@ export async function handleRequest(method, pathname, query, req, store) {
 
   const segs = pathname.split('/').filter(Boolean)
   const api = segs.length >= 1 && segs[0] === 'api' ? segs.slice(1) : segs
-  const [first, second, third, fourth] = api
+  const [first, second, third, _fourth] = api
 
   const bearer = String(req.headers?.authorization ?? req.headers?.get?.('authorization') ?? '').replace(/^Bearer\s+/i, '').trim()
   const auth = (d, token) => {
     if (!token) return null
     const s = d.sessions.find((x) => x.token === token)
     if (!s) return null
+    s.lastSeen = Date.now()
     return userById(d, s.userId) ?? null
   }
 
@@ -134,9 +135,9 @@ export async function handleRequest(method, pathname, query, req, store) {
     const { salt, hash } = hashPassword(pw)
     const id = Date.now()
     const createdAt = new Date().toISOString()
-    doc.users.push({ id, name: nm, username: uname, email: em, salt, hash, avatar: '', about: '', createdAt })
+    doc.users.push({ id, name: nm, username: uname, email: em, salt, hash, avatar: '', about: '', createdAt, lastLoginAt: createdAt, lastLogoutAt: 0 })
     const token = makeToken()
-    doc.sessions.push({ token, userId: id })
+    doc.sessions.push({ token, userId: id, lastSeen: Date.now() })
     await store.saveDoc(doc)
     return send(200, { token, user: publicUser({ id, name: nm, username: uname, email: em, avatar: '', about: '', createdAt }) })
   }
@@ -150,7 +151,8 @@ export async function handleRequest(method, pathname, query, req, store) {
     if (user.googleId && !user.hash) return send(400, { error: 'Bu hisob Google orqali ochilgan — Google tugmasi bilan kiring.' })
     if (!verifyPassword(pw, user.salt, user.hash)) return send(401, { error: "Parol noto'g'ri." })
     const token = makeToken()
-    doc.sessions.push({ token, userId: user.id })
+    user.lastLoginAt = new Date().toISOString()
+    doc.sessions.push({ token, userId: user.id, lastSeen: Date.now() })
     await store.saveDoc(doc)
     return send(200, { token, user: publicUser(user) })
   }
@@ -173,7 +175,7 @@ export async function handleRequest(method, pathname, query, req, store) {
       const id = Date.now()
       const createdAt = new Date().toISOString()
       const avatar = String(picture ?? '')
-      user = { id, name: String(name ?? base), username, email: em, salt: '', hash: '', avatar, about: '', googleId: String(sub), createdAt }
+      user = { id, name: String(name ?? base), username, email: em, salt: '', hash: '', avatar, about: '', googleId: String(sub), createdAt, lastLoginAt: createdAt, lastLogoutAt: 0 }
       doc.users.push(user)
     } else if (!user.googleId) {
       const pgret = String(picture ?? '')
@@ -181,7 +183,8 @@ export async function handleRequest(method, pathname, query, req, store) {
       if (!user.avatar) user.avatar = pgret
     }
     const token = makeToken()
-    doc.sessions.push({ token, userId: user.id })
+    user.lastLoginAt = new Date().toISOString()
+    doc.sessions.push({ token, userId: user.id, lastSeen: Date.now() })
     await store.saveDoc(doc)
     return send(200, { token, user: publicUser(user) })
   }
@@ -189,9 +192,82 @@ export async function handleRequest(method, pathname, query, req, store) {
   if (method === 'POST' && first === 'auth' && second === 'logout') {
     const me = auth(doc, bearer)
     if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    me.lastLogoutAt = Date.now()
     removeFrom(doc, 'sessions', (s) => s.token === bearer)
     await store.saveDoc(doc)
     return send(200, { ok: true })
+  }
+
+  /* ---------- Presence ---------- */
+
+  // Client heartbeat: keeps the session "online". Called every ~15s while the app is open.
+  if (method === 'POST' && first === 'ping') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    await store.saveDoc(doc)
+    return send(200, { ok: true })
+  }
+
+  if (method === 'GET' && first === 'dashboard') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+
+    const now = Date.now()
+    const ONLINE_MS = 60 * 1000 // online = lastSeen within the last minute
+
+    const onlineIds = new Set()
+    const offlineIds = new Set()
+    for (const u of doc.users) {
+      const hasActive = doc.sessions.some((s) => s.userId === u.id && now - Number(s.lastSeen ?? 0) < ONLINE_MS)
+      ;(hasActive ? onlineIds : offlineIds).add(u.id)
+    }
+
+    const lastLogout = doc.users
+      .filter((u) => Number(u.lastLogoutAt ?? 0) > 0)
+      .sort((a, b) => Number(b.lastLogoutAt) - Number(a.lastLogoutAt))[0] ?? null
+
+    const recent = [...doc.users]
+      .sort((a, b) => {
+        const at = (u) => new Date(u.lastLoginAt ?? u.createdAt).getTime() || 0
+        return at(b) - at(a)
+      })
+      .slice(0, 6)
+
+    const dayMs = 24 * 60 * 60 * 1000
+    const growth = []
+    for (let i = 13; i >= 0; i--) {
+      const start = new Date(now - i * dayMs)
+      start.setHours(0, 0, 0, 0)
+      const end = start.getTime() + dayMs
+      const count = doc.users.filter((u) => {
+        const t = new Date(u.createdAt).getTime() || 0
+        return t >= start.getTime() && t < end
+      }).length
+      growth.push({ day: start.toISOString().slice(0, 10), count })
+    }
+
+    const uBase = (u) => ({ id: u.id, name: u.name, username: u.username, avatar: u.avatar ?? '' })
+
+    return send(200, {
+      totals: {
+        users: doc.users.length,
+        online: onlineIds.size,
+        offline: offlineIds.size,
+        posts: doc.posts.length,
+        comments: doc.postComments.length,
+        reels: doc.reels.length,
+        messages: doc.messages.length,
+        threads: doc.threads.length,
+        groups: doc.groups.length,
+        albums: doc.albums.length,
+        stories: doc.stories.length,
+        follows: doc.follows.length,
+      },
+      growth,
+      lastLogout: lastLogout ? { ...uBase(lastLogout), at: Number(lastLogout.lastLogoutAt) } : null,
+      lastOnline: [...onlineIds].map((id) => uBase(userById(doc, id))),
+      recentUsers: recent.map((u) => ({ ...uBase(u), lastLoginAt: u.lastLoginAt ?? u.createdAt, createdAt: u.createdAt })),
+    })
   }
 
   if (method === 'GET' && first === 'auth' && second === 'me') {

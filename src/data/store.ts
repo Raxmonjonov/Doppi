@@ -132,10 +132,19 @@ async function pushData(): Promise<void> {
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
+function sendPing() {
+  if (!getToken()) return
+  void api('/api/ping', { method: 'POST' }).catch(() => {
+    /* offline — ignore */
+  })
+}
+
 export function startSync() {
   if (pollTimer) return
   void pullData()
   pollTimer = setInterval(() => {
     void pullData()
   }, 5000)
+  sendPing()
+  setInterval(sendPing, 30000)
 }

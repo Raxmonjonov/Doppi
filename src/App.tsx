@@ -9,6 +9,7 @@ import { Photos } from './pages/Photos'
 import { Profile } from './pages/Profile'
 import { Groups } from './pages/Groups'
 import { Pages } from './pages/Pages'
+import { Dashboard } from './pages/Dashboard'
 import { Messenger } from './pages/Messenger'
 import { Settings } from './pages/Settings'
 import { AuthPage } from './pages/Auth'
@@ -33,6 +34,7 @@ export default function App() {
             <Route path="/profile" element={<Profile />} />
             <Route path="/groups" element={<Groups />} />
             <Route path="/pages" element={<Pages />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/messenger" element={<Messenger />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Home />} />
