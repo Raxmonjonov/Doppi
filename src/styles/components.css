@@ -2269,6 +2269,12 @@
   gap: 12px;
 }
 
+.dash-head-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .dash-error {
   background: color-mix(in srgb, var(--fn-danger) 12%, transparent);
   color: var(--fn-danger);

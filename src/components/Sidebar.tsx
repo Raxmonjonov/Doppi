@@ -7,7 +7,7 @@ import {
   Settings,
   MessageCircle,
   UserPlus,
-  LayoutDashboard,
+  Shield,
   type LucideIcon,
 } from 'lucide-react'
 import { Avatar } from './Avatar'
@@ -27,7 +27,7 @@ const items: Item[] = [
   { to: '/photos', icon: Map, label: 'sidebar.labelAlbums' },
   { to: '/messenger', icon: MessageCircle, label: 'sidebar.labelMessages' },
   { to: '/profile', icon: UserPlus, label: 'sidebar.labelProfile' },
-  { to: '/dashboard', icon: LayoutDashboard, label: 'sidebar.labelDashboard' },
+  { to: '/admin', icon: Shield, label: 'sidebar.labelAdmin' },
   { to: '/settings', icon: Settings, label: 'sidebar.labelSettings' },
 ]
 
