@@ -14,20 +14,12 @@ export interface Account {
   createdAt: string
 }
 
-export interface GoogleProfile {
-  sub: string
-  email: string
-  name: string
-  picture?: string
-}
-
 interface AuthContextValue {
   user: Account | null
   accounts: Account[]
   ready: boolean
   login: (username: string, password: string) => Promise<string | null>
   register: (data: Omit<Account, 'id' | 'createdAt' | 'avatar' | 'about'>) => Promise<string | null>
-  googleSignIn: (profile: GoogleProfile) => Promise<string | null>
   logout: () => Promise<void>
   updateProfile: (patch: Partial<Pick<Account, 'name' | 'avatar' | 'about'>>) => Promise<void>
   refreshAccounts: () => Promise<void>
@@ -183,20 +175,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const googleSignIn = async (profile: GoogleProfile): Promise<string | null> => {
-    try {
-      const { token, user } = await api<{ token: string; user: Account }>('/api/auth/google', {
-        method: 'POST',
-        body: profile,
-      })
-      setToken(token)
-      setSession(user)
-      return null
-    } catch (e) {
-      return e instanceof Error ? e.message : 'Xatolik yuz berdi.'
-    }
-  }
-
   const logout = async () => {
     try {
       await api('/api/auth/logout', { method: 'POST' })
@@ -220,7 +198,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const value = useMemo<AuthContextValue>(
-    () => ({ user: session, accounts, ready, login, register, googleSignIn, logout, updateProfile, refreshAccounts }),
+    () => ({ user: session, accounts, ready, login, register, logout, updateProfile, refreshAccounts }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [session, accounts, ready],
   )

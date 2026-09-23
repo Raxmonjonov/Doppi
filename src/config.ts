@@ -1,1 +1,0 @@
-export const GOOGLE_CLIENT_ID = 'PASTE_YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com'

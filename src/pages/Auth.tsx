@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { LogIn, UserPlus, AlertCircle } from 'lucide-react'
 import { useAuth } from '../data/auth'
-import { GoogleAuthButton } from '../components/GoogleAuthButton'
 import { useI18n } from '../i18n'
 
 type Mode = 'login' | 'register'
@@ -113,10 +112,6 @@ export function AuthPage() {
             {busy ? t('auth.pleaseWait') : mode === 'login' ? t('auth.loginSubmit') : t('auth.registerSubmit')}
           </button>
         </form>
-
-        <div className="auth-divider"><span>{t('auth.orDivider')}</span></div>
-
-        <GoogleAuthButton />
       </div>
     </div>
   )
