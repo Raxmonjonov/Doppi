@@ -10,7 +10,6 @@ export interface Account {
   password?: string
   avatar: string
   about: string
-  googleId?: string
   createdAt: string
 }
 

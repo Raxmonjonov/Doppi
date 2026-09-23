@@ -62,7 +62,6 @@ function publicUser(u) {
     email: u.email,
     avatar: u.avatar ?? '',
     about: u.about ?? '',
-    googleId: u.googleId ?? undefined,
     createdAt: u.createdAt,
     online: true,
   }
@@ -154,57 +153,8 @@ app.post('/api/auth/login', async (req, res) => {
     )
     const user = rows[0]
     if (!user) return res.status(404).json({ error: 'Bunday foydalanuvchi topilmadi.' })
-    if (user.googleId && !user.hash) {
-      return res.status(400).json({ error: 'Bu hisob Google orqali ochilgan — Google tugmasi bilan kiring.' })
-    }
     if (!verifyPassword(pw, user.salt, user.hash)) {
       return res.status(401).json({ error: "Parol noto'g'ri." })
-    }
-    const token = makeToken()
-    await pool.query(`INSERT INTO sessions (token, user_id) VALUES ($1,$2)`, [token, user.id])
-    res.json({ token, user: publicUser(user) })
-  } catch (e) {
-    console.error(e)
-    res.status(500).json({ error: 'Server xatosi.' })
-  }
-})
-
-app.post('/api/auth/google', async (req, res) => {
-  const { sub, email, name, picture } = req.body ?? {}
-  const em = String(email ?? '').trim().toLowerCase()
-  if (!sub || !em) return res.status(400).json({ error: "Google profil ma'lumotlari yetarli emas." })
-  try {
-    const { rows } = await pool.query(
-      `SELECT * FROM users WHERE google_id = $1 OR LOWER(email) = $2`,
-      [String(sub), em],
-    )
-    let user = rows[0]
-    if (!user) {
-      const base = em.split('@')[0].replace(/[^a-z0-9_.]/gi, '') || 'user'
-      let username = base
-      let n = 2
-      for (;;) {
-        const clash = await pool.query(`SELECT id FROM users WHERE LOWER(username) = LOWER($1)`, [username])
-        if (clash.rows.length === 0) break
-        username = `${base}${n}`
-        n += 1
-      }
-      const id = Date.now()
-      const createdAt = new Date().toISOString()
-      const avatar = String(picture ?? '')
-      await pool.query(
-        `INSERT INTO users (id, name, username, email, salt, hash, avatar, about, google_id, created_at) VALUES ($1,$2,$3,$4,'','',$5,'',$6,$7)`,
-        [id, String(name ?? base), username, em, avatar, String(sub), createdAt],
-      )
-      user = { id, name: String(name ?? base), username, email: em, avatar, about: '', googleId: String(sub), createdAt }
-    } else if (!user.googleId) {
-      const pgret = String(picture ?? '')
-      await pool.query(
-        `UPDATE users SET google_id = $1, avatar = CASE WHEN avatar = '' THEN $2 ELSE avatar END WHERE id = $3`,
-        [String(sub), pgret, user.id],
-      )
-      user.googleId = String(sub)
-      if (!user.avatar) user.avatar = pgret
     }
     const token = makeToken()
     await pool.query(`INSERT INTO sessions (token, user_id) VALUES ($1,$2)`, [token, user.id])

@@ -45,7 +45,7 @@ const doc = {
 }
 
 doc.users = await q(`SELECT id, name, username, email, salt, hash, avatar, about,
-  google_id AS "googleId", created_at AS "createdAt" FROM users ORDER BY id`)
+  created_at AS "createdAt" FROM users ORDER BY id`)
 doc.sessions = await q(`SELECT token, user_id AS "userId" FROM sessions`)
 doc.posts = await q(`SELECT id, author_id AS "authorId", time, text, images, video, live FROM posts ORDER BY id`)
 doc.postLikes = await q(`SELECT post_id AS "postId", user_id AS "userId" FROM post_likes`)

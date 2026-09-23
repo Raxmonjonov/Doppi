@@ -24,7 +24,7 @@ export function Profile() {
   const isOther = viewedId > 0 && viewedId !== me.id
   const other = accounts.find((a) => a.id === viewedId)
   const viewed: User = isOther && other
-    ? { id: other.id, name: other.name, username: other.username, avatar: other.avatar, online: other.googleId ? true : false, about: other.about }
+    ? { id: other.id, name: other.name, username: other.username, avatar: other.avatar, online: true, about: other.about }
     : me
 
   const [tab, setTab] = useState<Tab>('posts')

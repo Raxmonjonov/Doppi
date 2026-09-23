@@ -49,7 +49,6 @@ function publicUser(u) {
     email: u.email,
     avatar: u.avatar ?? '',
     about: u.about ?? '',
-    googleId: u.googleId ?? undefined,
     createdAt: u.createdAt,
     online: true,
   }
@@ -148,40 +147,7 @@ export async function handleRequest(method, pathname, query, req, store) {
     const pw = String(body.password ?? '')
     const user = doc.users.find((u) => u.username.toLowerCase() === idf || u.email.toLowerCase() === idf)
     if (!user) return send(404, { error: 'Bunday foydalanuvchi topilmadi.' })
-    if (user.googleId && !user.hash) return send(400, { error: 'Bu hisob Google orqali ochilgan — Google tugmasi bilan kiring.' })
     if (!verifyPassword(pw, user.salt, user.hash)) return send(401, { error: "Parol noto'g'ri." })
-    const token = makeToken()
-    user.lastLoginAt = new Date().toISOString()
-    doc.sessions.push({ token, userId: user.id, lastSeen: Date.now() })
-    await store.saveDoc(doc)
-    return send(200, { token, user: publicUser(user) })
-  }
-
-  if (method === 'POST' && first === 'auth' && second === 'google') {
-    const body = await readBody(req)
-    const { sub, email, name, picture } = body
-    const em = String(email ?? '').trim().toLowerCase()
-    if (!sub || !em) return send(400, { error: "Google profil ma'lumotlari yetarli emas." })
-    let user = doc.users.find((u) => String(u.googleId ?? '') === String(sub) || (u.email ?? '').toLowerCase() === em)
-    if (!user) {
-      const base = em.split('@')[0].replace(/[^a-z0-9_.]/gi, '') || 'user'
-      let username = base
-      let n = 2
-      for (;;) {
-        if (!doc.users.some((u) => u.username.toLowerCase() === username.toLowerCase())) break
-        username = `${base}${n}`
-        n += 1
-      }
-      const id = Date.now()
-      const createdAt = new Date().toISOString()
-      const avatar = String(picture ?? '')
-      user = { id, name: String(name ?? base), username, email: em, salt: '', hash: '', avatar, about: '', googleId: String(sub), createdAt, lastLoginAt: createdAt, lastLogoutAt: 0 }
-      doc.users.push(user)
-    } else if (!user.googleId) {
-      const pgret = String(picture ?? '')
-      user.googleId = String(sub)
-      if (!user.avatar) user.avatar = pgret
-    }
     const token = makeToken()
     user.lastLoginAt = new Date().toISOString()
     doc.sessions.push({ token, userId: user.id, lastSeen: Date.now() })
