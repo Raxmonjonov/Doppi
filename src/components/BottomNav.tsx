@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Play, Plus, MessageCircle, User, LayoutDashboard } from 'lucide-react'
+import { Home, Play, Plus, MessageCircle, User, Shield } from 'lucide-react'
 import { useI18n } from '../i18n'
 
 function BottomNav() {
@@ -12,7 +12,7 @@ function BottomNav() {
         <Plus size={22} />
       </NavLink>
       <BnItem to="/messenger" icon={MessageCircle} label={t('bottomNav.labelMessages')} />
-      <BnItem to="/dashboard" icon={LayoutDashboard} label={t('bottomNav.labelDashboard')} />
+      <BnItem to="/admin" icon={Shield} label={t('bottomNav.labelAdmin')} />
       <BnItem to="/profile" icon={User} label={t('bottomNav.labelProfile')} />
     </nav>
   )
