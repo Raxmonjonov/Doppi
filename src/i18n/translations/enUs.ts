@@ -208,6 +208,8 @@ export const en: Dict = {
   'groups.mute': 'Mute',
   'groups.camOff': 'Camera off',
   'groups.endCall': 'End call',
+  'groups.callEnded': 'Call ended',
+  'groups.callDeclined': 'Call declined',
   'groups.you': 'You',
   'groups.limitHint': 'You can create {count} more group(s)',
   'groups.limitReached': 'Limit reached: max 3 groups',
