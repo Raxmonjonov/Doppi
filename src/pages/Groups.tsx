@@ -320,7 +320,11 @@ function GroupDetail({
   const loadGroup = useCallback(async () => {
     try {
       const { group: g } = await api<{ group: Group }>(`/api/groups/${group.id}`)
-      setMessages(g.messages)
+      setMessages((prev) => {
+        const serverIds = new Set(g.messages.map((m) => String(m.id)))
+        const extra = prev.filter((m) => !serverIds.has(String(m.id)))
+        return extra.length ? [...g.messages, ...extra] : g.messages
+      })
       setMembers(g.members)
       onGroupChanged(g)
     } catch {
@@ -328,36 +332,56 @@ function GroupDetail({
     }
   }, [group.id, onGroupChanged])
 
+  const loadGroupRef = useRef(loadGroup)
+  loadGroupRef.current = loadGroup
+
   // Poll messages/members + incoming call rings
   useEffect(() => {
     let alive = true
+    let bootstrapped = false
+    let inFlight = false
     const iv = setInterval(async () => {
-      void loadGroup()
+      void loadGroupRef.current()
+      if (inFlight) return
+      inFlight = true
       try {
         const { signals } = await api<{ signals: Signal[] }>(`/api/groups/${group.id}/calls?since=${sinceRef.current}`)
+        if (!alive) return
+        if (!bootstrapped) {
+          bootstrapped = true
+          for (const s of signals) if (s.id > sinceRef.current) sinceRef.current = s.id
+          return
+        }
         for (const s of signals) {
           if (s.id > sinceRef.current) sinceRef.current = s.id
-          if (s.kind === 'ring' && !activeCallRef.current) {
+          if (s.kind === 'ring' && !activeCallRef.current && !incomingRef.current) {
             const fromName = membersRef.current.find((m) => m.id === s.from)?.name ?? ''
             setIncoming({ from: s.from, name: fromName, kind: (s.data?.kind as 'video' | 'audio') ?? 'video' })
+          } else if ((s.kind === 'decline' || s.kind === 'hangup') && incomingRef.current) {
+            if (s.from === incomingRef.current.from) setIncoming(null)
           }
         }
       } catch {
         /* ignore */
+      } finally {
+        inFlight = false
       }
       if (!alive) return
     }, 4000)
     return () => {
       alive = false
+      inFlight = false
       clearInterval(iv)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [group.id, loadGroup])
+  }, [group.id])
 
   const activeCallRef = useRef<ActiveCall | null>(null)
   activeCallRef.current = activeCall
   const membersRef = useRef<GroupMember[]>(members)
   membersRef.current = members
+  const incomingRef = useRef<typeof incoming>(null)
+  incomingRef.current = incoming
 
   const send = async () => {
     const text = draft.trim()
@@ -613,6 +637,9 @@ function GroupCall({
   const [mediaError, setMediaError] = useState<string | null>(null)
   const sinceRef = useRef(0)
   const endedRef = useRef(false)
+  const [endReason, setEndReason] = useState<'declined' | 'ended' | null>(null)
+  const [callFailed, setCallFailed] = useState(false)
+  const prePeerIceRef = useRef<Map<number, RTCIceCandidateInit[]>>(new Map())
 
   const kind = call.kind
 
@@ -661,6 +688,13 @@ function GroupCall({
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         peersRef.current.delete(userId)
         setRemoteStreams((prev) => prev.filter((s) => s.userId !== userId))
+        if (!endedRef.current && pc.connectionState === 'failed') {
+          endedRef.current = true
+          postSignal('hangup', 0, null)
+          selfStreamRef.current?.getTracks().forEach((tr) => tr.stop())
+          selfStreamRef.current = null
+          setCallFailed(true)
+        }
       }
     }
     return pc
@@ -671,6 +705,20 @@ function GroupCall({
     if (!peer?.pc) return
     const buffered = peer.iceBuffer
     peer.iceBuffer = []
+    for (const c of buffered) {
+      try {
+        await peer.pc.addIceCandidate(c)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  const flushPrePeerIce = async (userId: number) => {
+    const buffered = prePeerIceRef.current.get(userId) ?? []
+    prePeerIceRef.current.delete(userId)
+    const peer = peersRef.current.get(userId)
+    if (!peer?.pc) return
     for (const c of buffered) {
       try {
         await peer.pc.addIceCandidate(c)
@@ -710,6 +758,7 @@ function GroupCall({
       if (!pc) return
       await attachLocal(pc)
       await pc.setRemoteDescription({ type: 'offer', sdp: String(data?.sdp ?? '') })
+      await flushPrePeerIce(from)
       const answer = await pc.createAnswer()
       await pc.setLocalDescription(answer)
       await flushIce(from)
@@ -721,13 +770,16 @@ function GroupCall({
       await peer.pc.setRemoteDescription({ type: 'answer', sdp: String(data?.sdp ?? '') })
       peer.hasAnswer = true
       await flushIce(from)
+      await flushPrePeerIce(from)
     },
     async handleIce(from: number, data: Signal['data']) {
       const candidate = data?.candidate
+      if (!candidate) return
       const peer = peersRef.current.get(from)
-      if (!peer?.pc || !candidate) return
-      if (!peer.pc.remoteDescription) {
-        peer.iceBuffer.push(candidate)
+      if (!peer?.pc || !peer.pc.remoteDescription) {
+        const arr = prePeerIceRef.current.get(from) ?? []
+        arr.push(candidate)
+        prePeerIceRef.current.set(from, arr)
         return
       }
       try {
@@ -742,6 +794,12 @@ function GroupCall({
       peersRef.current.delete(from)
       remoteStreamsRef.current.delete(from)
       setRemoteStreams((prev) => prev.filter((s) => s.userId !== from))
+      if (!endedRef.current) {
+        endedRef.current = true
+        selfStreamRef.current?.getTracks().forEach((tr) => tr.stop())
+        selfStreamRef.current = null
+        setEndReason('declined')
+      }
     },
     async handleHangup(from: number) {
       const peer = peersRef.current.get(from)
@@ -749,6 +807,12 @@ function GroupCall({
       peersRef.current.delete(from)
       remoteStreamsRef.current.delete(from)
       setRemoteStreams((prev) => prev.filter((s) => s.userId !== from))
+      if (!endedRef.current) {
+        endedRef.current = true
+        selfStreamRef.current?.getTracks().forEach((tr) => tr.stop())
+        selfStreamRef.current = null
+        setEndReason('ended')
+      }
     },
     createPeer,
     attachLocal,
@@ -773,9 +837,13 @@ function GroupCall({
   useEffect(() => {
     let alive = true
     let bootstrapped = false
-    const iv = setInterval(async () => {
+    let inFlight = false
+    const tick = async () => {
+      if (inFlight || !alive) return
+      inFlight = true
       try {
         const { signals } = await api<{ signals: Signal[] }>(`/api/groups/${groupId}/calls?since=${sinceRef.current}`)
+        if (!alive) return
         if (!bootstrapped) {
           bootstrapped = true
           for (const s of signals) if (s.id > sinceRef.current) sinceRef.current = s.id
@@ -783,20 +851,28 @@ function GroupCall({
         }
         for (const s of signals) {
           if (s.id > sinceRef.current) sinceRef.current = s.id
-          const h = apiRef.current
-          if (s.kind === 'offer') await h.handleOffer(s.from, s.data)
-          else if (s.kind === 'answer') await h.handleAnswer(s.from, s.data)
-          else if (s.kind === 'ice') await h.handleIce(s.from, s.data)
-          else if (s.kind === 'decline') await h.handleDecline(s.from)
-          else if (s.kind === 'hangup') await h.handleHangup(s.from)
+          try {
+            const h = apiRef.current
+            if (s.kind === 'offer') await h.handleOffer(s.from, s.data)
+            else if (s.kind === 'answer') await h.handleAnswer(s.from, s.data)
+            else if (s.kind === 'ice') await h.handleIce(s.from, s.data)
+            else if (s.kind === 'decline') await h.handleDecline(s.from)
+            else if (s.kind === 'hangup') await h.handleHangup(s.from)
+          } catch {
+            /* skip faulty signal, keep iterating */
+          }
         }
-        if (!alive) return
       } catch {
         /* ignore */
+      } finally {
+        inFlight = false
       }
-    }, 1000)
+    }
+    void tick()
+    const iv = setInterval(tick, 1000)
     return () => {
       alive = false
+      inFlight = false
       clearInterval(iv)
     }
   }, [groupId])
@@ -822,6 +898,21 @@ function GroupCall({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Cleanup on unmount (navigation away, parent unmount, call replaced): stop mic/cam + close peers
+  useEffect(() => {
+    const peers = peersRef.current
+    const streams = remoteStreamsRef.current
+    return () => {
+      if (endedRef.current) return
+      for (const [, peer] of peers) peer.pc?.close()
+      peers.clear()
+      streams.clear()
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      selfStreamRef.current?.getTracks().forEach((tr) => tr.stop())
+      selfStreamRef.current = null
+    }
+  }, [])
+
   useEffect(() => {
     selfStream?.getAudioTracks().forEach((tr) => (tr.enabled = !muted))
   }, [selfStream, muted])
@@ -829,6 +920,13 @@ function GroupCall({
   useEffect(() => {
     selfStream?.getVideoTracks().forEach((tr) => (tr.enabled = !camOff))
   }, [selfStream, camOff])
+
+  useEffect(() => {
+    if (!endReason) return
+    const to = setTimeout(onEnded, 2500)
+    return () => clearTimeout(to)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [endReason])
 
   const hangup = () => {
     if (endedRef.current) return
@@ -841,6 +939,42 @@ function GroupCall({
     selfStreamRef.current?.getTracks().forEach((tr) => tr.stop())
     selfStreamRef.current = null
     onEnded()
+  }
+
+  if (callFailed) {
+    return (
+      <div className="fn-overlay">
+        <div className="fn-modal call-modal">
+          <div className="call-error">
+            <PhoneOff size={22} />
+            {t('groups.callEnded')}
+          </div>
+          <div className="post-form-footer">
+            <button type="button" className="btn btn-primary" onClick={onEnded}>
+              {t('common.close')}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (endReason) {
+    return (
+      <div className="fn-overlay">
+        <div className="fn-modal call-modal">
+          <div className="call-error">
+            <PhoneOff size={22} />
+            {t(endReason === 'declined' ? 'groups.callDeclined' : 'groups.callEnded')}
+          </div>
+          <div className="post-form-footer">
+            <button type="button" className="btn btn-primary" onClick={onEnded}>
+              {t('common.close')}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (mediaError) {
