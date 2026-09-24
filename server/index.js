@@ -628,6 +628,25 @@ function threadResponse(t, other, messages) {
   }
 }
 
+app.get('/api/threads/calls', authMiddleware, async (req, res) => {
+  try {
+    const since = Number(req.query.since ?? 0)
+    const { rows } = await pool.query(
+      `SELECT s.* FROM thread_call_signals s
+       JOIN threads t ON t.id = s.thread_id
+       WHERE (t.member_a = $1 OR t.member_b = $1) AND s.id > $2
+         AND s.sender_id <> $1 AND (s.recipient_id = 0 OR s.recipient_id = $1)
+       ORDER BY s.id`,
+      [req.user.id, since],
+    )
+    const out = rows.map((s) => ({ id: s.id, threadId: s.thread_id, from: s.sender_id, to: s.recipient_id, kind: s.kind, data: s.payload }))
+    res.json({ signals: out })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
 app.get('/api/threads', authMiddleware, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -718,6 +737,54 @@ app.delete('/api/threads/:id', authMiddleware, async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ error: 'Suhbat topilmadi.' })
     await pool.query(`DELETE FROM threads WHERE id = $1`, [id])
     res.json({ ok: true })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+app.post('/api/threads/:id/calls', authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    const { rows } = await pool.query(
+      `SELECT * FROM threads WHERE id = $1 AND (member_a = $2 OR member_b = $2)`,
+      [id, req.user.id],
+    )
+    if (rows.length === 0) return res.status(404).json({ error: 'Suhbat topilmadi.' })
+    const kind = String(req.body?.kind ?? '')
+    const to = Number(req.body?.to ?? 0)
+    const payload = req.body?.data ?? null
+    const sid = Date.now()
+    await pool.query(
+      `INSERT INTO thread_call_signals (id, thread_id, sender_id, recipient_id, kind, payload)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [sid, id, req.user.id, to, kind, JSON.stringify(payload ?? {})],
+    )
+    await pool.query(`DELETE FROM thread_call_signals WHERE id < (SELECT MAX(id) - 500 FROM thread_call_signals LIMIT 1)`)
+    res.json({ signal: { id: sid, threadId: id, from: req.user.id, to, kind, data: payload } })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+app.get('/api/threads/:id/calls', authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    const { rows } = await pool.query(
+      `SELECT * FROM threads WHERE id = $1 AND (member_a = $2 OR member_b = $2)`,
+      [id, req.user.id],
+    )
+    if (rows.length === 0) return res.status(404).json({ error: 'Suhbat topilmadi.' })
+    const since = Number(req.query.since ?? 0)
+    const { rows: signals } = await pool.query(
+      `SELECT * FROM thread_call_signals
+       WHERE thread_id = $1 AND id > $2 AND sender_id <> $3 AND (recipient_id = 0 OR recipient_id = $3)
+       ORDER BY id`,
+      [id, since, req.user.id],
+    )
+    const out = signals.map((s) => ({ id: s.id, threadId: s.thread_id, from: s.sender_id, to: s.recipient_id, kind: s.kind, data: s.payload }))
+    res.json({ signals: out })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Server xatosi.' })

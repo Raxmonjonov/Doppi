@@ -2704,6 +2704,12 @@
   color: var(--fn-text-muted);
 }
 
+.call-cname {
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+}
+
 .call-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 240px));
