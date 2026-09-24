@@ -429,7 +429,25 @@ app.put('/api/data', authMiddleware, async (req, res) => {
       )
     }
 
-    for (const a of Array.isArray(d.albums) ? d.albums : []) {
+    const incomingAlbums = Array.isArray(d.albums) ? d.albums : []
+    const currentAlbums = (await client.query(`SELECT id, photos FROM albums`)).rows
+    const existingIds = new Set(currentAlbums.map((a) => String(a.id)))
+    const incomingIds = new Set(incomingAlbums.map((a) => String(Number(a.id))))
+    const addCount = [...incomingIds].filter((id) => !existingIds.has(id)).length
+    if (existingIds.size + addCount > 10) {
+      await client.query('ROLLBACK')
+      return res.status(403).json({ error: "Ko'pi bilan 10 ta albom yaratish mumkin." })
+    }
+    const remainingPhotos = currentAlbums
+      .filter((a) => !incomingIds.has(String(a.id)))
+      .reduce((n, a) => n + (Array.isArray(a.photos) ? a.photos.length : 0), 0)
+    const incomingTotal = incomingAlbums.reduce((n, a) => n + (Array.isArray(a.photos) ? a.photos.length : 0), 0)
+    if (remainingPhotos + incomingTotal > 30) {
+      await client.query('ROLLBACK')
+      return res.status(403).json({ error: "Barcha albomlarda ko'pi bilan 30 ta rasm bo'lishi mumkin." })
+    }
+
+    for (const a of incomingAlbums) {
       await client.query(
         `INSERT INTO albums (id, title, photos)
          VALUES ($1,$2,$3)

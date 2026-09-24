@@ -476,10 +476,15 @@ export async function handleRequest(method, pathname, query, req, store) {
     }
 
     for (const a of Array.isArray(d.albums) ? d.albums : []) {
+      if (doc.albums.length >= 10 && !doc.albums.some((x) => x.id === Number(a.id)))
+        return send(403, { error: 'Ko\'pi bilan 10 ta albom yaratish mumkin.' })
+      const photos = Array.isArray(a.photos) ? a.photos : []
+      const otherPhotos = doc.albums.filter((x) => x.id !== Number(a.id)).reduce((n, x) => n + (Array.isArray(x.photos) ? x.photos.length : 0), 0)
+      if (otherPhotos + photos.length > 30) return send(403, { error: 'Barcha albomlarda ko\'pi bilan 30 ta rasm bo\'lishi mumkin.' })
       upsert(doc, 'albums', {
         id: Number(a.id),
         title: String(a.title ?? ''),
-        photos: Array.isArray(a.photos) ? a.photos : [],
+        photos,
       })
     }
 
