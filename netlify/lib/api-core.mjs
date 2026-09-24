@@ -21,6 +21,7 @@ export function emptyDoc() {
     albumLikes: [],
     threads: [],
     messages: [],
+    threadCallSignals: [],
     groups: [],
     groupMessages: [],
     callSignals: [],
@@ -761,6 +762,38 @@ export async function handleRequest(method, pathname, query, req, store) {
     return send(200, { signals })
   }
 
+  if (method === 'POST' && first === 'threads' && third === 'calls') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const id = Number(second)
+    const t = doc.threads.find((x) => x.id === id && (x.memberA === me.id || x.memberB === me.id))
+    if (!t) return send(404, { error: 'Suhbat topilmadi.' })
+    const body = await readBody(req)
+    const kind = String(body.kind ?? '')
+    const to = Number(body.to ?? 0)
+    const payload = body.data ?? null
+    const sid = Date.now()
+    const signal = { id: sid, threadId: id, from: me.id, to, kind, data: payload }
+    doc.threadCallSignals = doc.threadCallSignals ?? []
+    doc.threadCallSignals.push(signal)
+    if (doc.threadCallSignals.length > 500) doc.threadCallSignals = doc.threadCallSignals.slice(-500)
+    await store.saveDoc(doc)
+    return send(200, { signal })
+  }
+
+  if (method === 'GET' && first === 'threads' && third === 'calls') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const id = Number(second)
+    const t = doc.threads.find((x) => x.id === id && (x.memberA === me.id || x.memberB === me.id))
+    if (!t) return send(404, { error: 'Suhbat topilmadi.' })
+    const since = Number(query.since ?? 0)
+    const signals = (doc.threadCallSignals ?? [])
+      .filter((s) => s.threadId === id && s.id > since && s.from !== me.id && (s.to === 0 || s.to === me.id))
+      .sort((a, b) => a.id - b.id)
+    return send(200, { signals })
+  }
+
   /* ---------- Threads ---------- */
 
   function threadResponse(t, other, doc) {
@@ -773,6 +806,18 @@ export async function handleRequest(method, pathname, query, req, store) {
         return base
       })
     return { id: t.id, user: other ? publicUser(other) : null, online: true, messages }
+  }
+
+  if (method === 'GET' && first === 'threads' && second === 'calls' && third === undefined) {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const since = Number(query.since ?? 0)
+    const signals = (doc.threadCallSignals ?? []).filter((s) => {
+      const t = doc.threads.find((x) => x.id === s.threadId)
+      if (!t || (t.memberA !== me.id && t.memberB !== me.id)) return false
+      return s.id > since && s.from !== me.id && (s.to === 0 || s.to === me.id)
+    }).sort((a, b) => a.id - b.id)
+    return send(200, { signals })
   }
 
   if (method === 'GET' && first === 'threads' && second === undefined) {
