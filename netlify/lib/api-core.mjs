@@ -476,16 +476,25 @@ export async function handleRequest(method, pathname, query, req, store) {
       })
     }
 
-    for (const a of Array.isArray(d.albums) ? d.albums : []) {
-      if (doc.albums.length >= 10 && !doc.albums.some((x) => x.id === Number(a.id)))
-        return send(403, { error: 'Ko\'pi bilan 10 ta albom yaratish mumkin.' })
-      const photos = Array.isArray(a.photos) ? a.photos : []
-      const otherPhotos = doc.albums.filter((x) => x.id !== Number(a.id)).reduce((n, x) => n + (Array.isArray(x.photos) ? x.photos.length : 0), 0)
-      if (otherPhotos + photos.length > 30) return send(403, { error: 'Barcha albomlarda ko\'pi bilan 30 ta rasm bo\'lishi mumkin.' })
+    const incomingAlbums = Array.isArray(d.albums) ? d.albums : []
+    const existingIds = new Set(doc.albums.map((x) => String(x.id)))
+    const incomingIds = new Set(incomingAlbums.map((a) => String(Number(a.id))))
+    const addCount = [...incomingIds].filter((id) => !existingIds.has(id)).length
+    if (existingIds.size + addCount > 10) {
+      return send(403, { error: 'Ko\'pi bilan 10 ta albom yaratish mumkin.' })
+    }
+    const remainingPhotos = doc.albums
+      .filter((x) => !incomingIds.has(String(x.id)))
+      .reduce((n, x) => n + (Array.isArray(x.photos) ? x.photos.length : 0), 0)
+    const incomingTotal = incomingAlbums.reduce((n, a) => n + (Array.isArray(a.photos) ? a.photos.length : 0), 0)
+    if (remainingPhotos + incomingTotal > 30) {
+      return send(403, { error: 'Barcha albomlarda ko\'pi bilan 30 ta rasm bo\'lishi mumkin.' })
+    }
+    for (const a of incomingAlbums) {
       upsert(doc, 'albums', {
         id: Number(a.id),
         title: String(a.title ?? ''),
-        photos,
+        photos: Array.isArray(a.photos) ? a.photos : [],
       })
     }
 
@@ -718,7 +727,7 @@ export async function handleRequest(method, pathname, query, req, store) {
     if (!g) return send(404, { error: 'Guruh topilmadi.' })
     const body = await readBody(req)
     const text = String(body.text ?? '').trim()
-    if (!text) return send(400, { error: "Xabar bo'sh bo'lishi mumkin emas." })
+    if (!text && !body.image) return send(400, { error: "Xabar bo'sh bo'lishi mumkin emas." })
     const mid = Date.now()
     const time = nowTime()
     const msg = { id: mid, groupId: id, senderId: me.id, text, time }
@@ -744,7 +753,11 @@ export async function handleRequest(method, pathname, query, req, store) {
     const signal = { id: Date.now(), groupId: id, from: me.id, to, kind, data: payload }
     doc.callSignals = doc.callSignals ?? []
     doc.callSignals.push(signal)
-    if (doc.callSignals.length > 500) doc.callSignals = doc.callSignals.slice(-500)
+    const sameGroup = doc.callSignals.filter((x) => x.groupId === id)
+    if (sameGroup.length > 500) {
+      const keep = sameGroup.slice(-500)
+      doc.callSignals = doc.callSignals.filter((x) => x.groupId !== id).concat(keep)
+    }
     await store.saveDoc(doc)
     return send(200, { signal })
   }
@@ -776,7 +789,11 @@ export async function handleRequest(method, pathname, query, req, store) {
     const signal = { id: sid, threadId: id, from: me.id, to, kind, data: payload }
     doc.threadCallSignals = doc.threadCallSignals ?? []
     doc.threadCallSignals.push(signal)
-    if (doc.threadCallSignals.length > 500) doc.threadCallSignals = doc.threadCallSignals.slice(-500)
+    const sameThread = doc.threadCallSignals.filter((x) => x.threadId === id)
+    if (sameThread.length > 500) {
+      const keep = sameThread.slice(-500)
+      doc.threadCallSignals = doc.threadCallSignals.filter((x) => x.threadId !== id).concat(keep)
+    }
     await store.saveDoc(doc)
     return send(200, { signal })
   }
@@ -858,7 +875,7 @@ export async function handleRequest(method, pathname, query, req, store) {
     const id = Number(second)
     const body = await readBody(req)
     const text = String(body.text ?? '').trim()
-    if (!text) return send(400, { error: "Xabar bo'sh bo'lishi mumkin emas." })
+    if (!text && !body.image) return send(400, { error: "Xabar bo'sh bo'lishi mumkin emas." })
     const t = doc.threads.find((x) => x.id === id && (x.memberA === me.id || x.memberB === me.id))
     if (!t) return send(404, { error: 'Suhbat topilmadi.' })
     const mid = Date.now()

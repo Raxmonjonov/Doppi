@@ -65,7 +65,8 @@ export function Messenger() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [threads, setThreads] = useState<Thread[]>([])
   const [activeId, setActiveId] = useState<number | null>(null)
-  const [draft, setDraft] = useState('')
+  const [drafts, setDrafts] = useState<Record<number, string>>({})
+  const [imagesToSend, setImagesToSend] = useState<Record<number, string | null>>({})
   const [userQuery, setUserQuery] = useState('')
   const [startOpen, setStartOpen] = useState(false)
   const [pinned, setPinned] = useState<number[]>(() => {
@@ -78,7 +79,6 @@ export function Messenger() {
   const [menuThreadId, setMenuThreadId] = useState<number | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const imageRef = useRef<HTMLInputElement>(null)
-  const [imageToSend, setImageToSend] = useState<string | null>(null)
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null)
   const [incoming, setIncoming] = useState<{ threadId: number; from: number; name: string; kind: 'video' | 'audio' } | null>(null)
   const ringsSinceRef = useRef(0)
@@ -116,12 +116,38 @@ export function Messenger() {
 
   const active = threads.find((t) => t.id === activeId) ?? threads[0]
 
+  const activeThreadId = active?.id ?? null
+  const draft = activeThreadId !== null ? (drafts[activeThreadId] ?? '') : ''
+  const imageToSend = activeThreadId !== null ? (imagesToSend[activeThreadId] ?? null) : null
+  const setDraft = (v: string) => {
+    if (activeThreadId === null) return
+    setDrafts((d) => ({ ...d, [activeThreadId]: v }))
+  }
+  const setImageToSend = (v: string | null) => {
+    if (activeThreadId === null) return
+    setImagesToSend((d) => ({ ...d, [activeThreadId]: v }))
+  }
+
   useEffect(() => {
     let alive = true
     const fetchThreads = async () => {
       const ts = await loadThreads()
       if (!alive) return
-      setThreads(ts.map((t) => toThread(t)))
+      setThreads((prev) => {
+        const server = new Map(ts.map((t) => [String(t.id), toThread(t)]))
+        const merged: Thread[] = ts.map((t) => {
+          const st = toThread(t)
+          const local = prev.find((p) => String(p.id) === String(t.id))
+          if (!local) return st
+          const serverIds = new Set(st.messages.map((m) => String(m.id)))
+          const extra = local.messages.filter((m) => !serverIds.has(String(m.id)))
+          return extra.length ? { ...st, messages: [...st.messages, ...extra] } : st
+        })
+        for (const p of prev) {
+          if (!server.has(String(p.id))) merged.push(p)
+        }
+        return merged
+      })
     }
     void fetchThreads()
     const iv = setInterval(fetchThreads, 5000)
@@ -132,9 +158,20 @@ export function Messenger() {
   }, [me.id])
 
   useEffect(() => {
+    let alive = true
+    let bootstrapped = false
+    let inFlight = false
     const pollRings = async () => {
+      if (inFlight) return
+      inFlight = true
       try {
         const { signals } = await api<{ signals: Signal[] }>(`/api/threads/calls?since=${ringsSinceRef.current}`)
+        if (!alive) return
+        if (!bootstrapped) {
+          bootstrapped = true
+          for (const s of signals) if (s.id > ringsSinceRef.current) ringsSinceRef.current = s.id
+          return
+        }
         for (const s of signals) {
           if (s.id > ringsSinceRef.current) ringsSinceRef.current = s.id
           if (s.kind === 'ring' && !activeCallRef.current) {
@@ -153,11 +190,15 @@ export function Messenger() {
         }
       } catch {
         /* ignore */
+      } finally {
+        inFlight = false
       }
     }
     void pollRings()
     const iv = setInterval(pollRings, 4000)
     return () => {
+      alive = false
+      inFlight = false
       clearInterval(iv)
     }
   }, [me.id])
@@ -201,7 +242,7 @@ export function Messenger() {
 
   const send = async () => {
     const text = draft.trim()
-    const target = activeId ?? threads[0]?.id
+    const target = activeThreadId
     if ((!text && !imageToSend) || !target) return
     const msgId = Date.now()
     const msg: Message = { id: msgId, from: me.id, text, time: t('common.now') }
@@ -210,10 +251,15 @@ export function Messenger() {
     setDraft('')
     setImageToSend(null)
     try {
-      await api<{ message: Message }>(`/api/threads/${target}/messages`, {
+      const { message } = await api<{ message: Message }>(`/api/threads/${target}/messages`, {
         method: 'POST',
         body: imageToSend ? { text, image: imageToSend } : { text },
       })
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.id === target ? { ...t, messages: t.messages.map((m) => (m.id === msgId ? message : m)) } : t,
+        ),
+      )
     } catch {
       /* offline — message stays local until next sync */
     }
@@ -519,6 +565,7 @@ function ThreadCall({
 }) {
   const { t } = useI18n()
   const peerRef = useRef<Peer>({ pc: null, hasAnswer: false, iceBuffer: [] })
+  const prePeerIceRef = useRef<Map<number, RTCIceCandidateInit[]>>(new Map())
   const remoteStreamRef = useRef<MediaStream | null>(null)
   const selfStreamRef = useRef<MediaStream | null>(null)
   const localRef = useRef<HTMLVideoElement>(null)
@@ -530,6 +577,7 @@ function ThreadCall({
   const sinceRef = useRef(0)
   const endedRef = useRef(false)
   const [endReason, setEndReason] = useState<'declined' | 'ended' | null>(null)
+  const [callFailed, setCallFailed] = useState(false)
   const [callSeconds, setCallSeconds] = useState(0)
 
   const kind = call.kind
@@ -579,6 +627,13 @@ function ThreadCall({
         peerRef.current = { pc: null, hasAnswer: false, iceBuffer: [] }
         remoteStreamRef.current = null
         setRemoteStream(null)
+        if (!endedRef.current && pc.connectionState === 'failed') {
+          endedRef.current = true
+          postSignal('hangup', 0, null)
+          selfStreamRef.current?.getTracks().forEach((tr) => tr.stop())
+          selfStreamRef.current = null
+          setCallFailed(true)
+        }
       }
     }
     return pc
@@ -589,6 +644,20 @@ function ThreadCall({
     if (!peer.pc) return
     const buffered = peer.iceBuffer
     peer.iceBuffer = []
+    for (const c of buffered) {
+      try {
+        await peer.pc.addIceCandidate(c)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  const flushPrePeerIce = async (from: number) => {
+    const buffered = prePeerIceRef.current.get(from) ?? []
+    prePeerIceRef.current.delete(from)
+    const peer = peerRef.current
+    if (!peer.pc) return
     for (const c of buffered) {
       try {
         await peer.pc.addIceCandidate(c)
@@ -618,6 +687,7 @@ function ThreadCall({
     createPeer,
     attachLocal,
     postSignal,
+    flushPrePeerIce,
   })
   apiRef.current = {
     async handleOffer(_from: number, data: Signal['data']) {
@@ -625,6 +695,7 @@ function ThreadCall({
       if (!pc) return
       await apiRef.current.attachLocal(pc)
       await pc.setRemoteDescription({ type: 'offer', sdp: String(data?.sdp ?? '') })
+      await flushPrePeerIce(_from)
       const answer = await pc.createAnswer()
       await pc.setLocalDescription(answer)
       await flushIce()
@@ -636,13 +707,16 @@ function ThreadCall({
       await peer.pc.setRemoteDescription({ type: 'answer', sdp: String(data?.sdp ?? '') })
       peer.hasAnswer = true
       await flushIce()
+      await flushPrePeerIce(_from)
     },
     async handleIce(_from: number, data: Signal['data']) {
       const candidate = data?.candidate
+      if (!candidate) return
       const peer = peerRef.current
-      if (!peer.pc || !candidate) return
-      if (!peer.pc.remoteDescription) {
-        peer.iceBuffer.push(candidate)
+      if (!peer.pc || !peer.pc.remoteDescription) {
+        const arr = prePeerIceRef.current.get(_from) ?? []
+        arr.push(candidate)
+        prePeerIceRef.current.set(_from, arr)
         return
       }
       try {
@@ -657,6 +731,8 @@ function ThreadCall({
       peerRef.current = { pc: null, hasAnswer: false, iceBuffer: [] }
       remoteStreamRef.current = null
       setRemoteStream(null)
+      selfStreamRef.current?.getTracks().forEach((tr) => tr.stop())
+      selfStreamRef.current = null
       endedRef.current = true
       setEndReason('declined')
     },
@@ -666,12 +742,15 @@ function ThreadCall({
       peerRef.current = { pc: null, hasAnswer: false, iceBuffer: [] }
       remoteStreamRef.current = null
       setRemoteStream(null)
+      selfStreamRef.current?.getTracks().forEach((tr) => tr.stop())
+      selfStreamRef.current = null
       endedRef.current = true
       setEndReason('ended')
     },
     createPeer,
     attachLocal,
     postSignal,
+    flushPrePeerIce,
   }
 
   // Bind local preview when the media arrives
@@ -689,9 +768,13 @@ function ThreadCall({
   useEffect(() => {
     let alive = true
     let bootstrapped = false
-    const iv = setInterval(async () => {
+    let inFlight = false
+    const tick = async () => {
+      if (inFlight || !alive) return
+      inFlight = true
       try {
         const { signals } = await api<{ signals: Signal[] }>(`/api/threads/${threadId}/calls?since=${sinceRef.current}`)
+        if (!alive) return
         if (!bootstrapped) {
           bootstrapped = true
           for (const s of signals) if (s.id > sinceRef.current) sinceRef.current = s.id
@@ -699,20 +782,28 @@ function ThreadCall({
         }
         for (const s of signals) {
           if (s.id > sinceRef.current) sinceRef.current = s.id
-          const h = apiRef.current
-          if (s.kind === 'offer') await h.handleOffer(s.from, s.data)
-          else if (s.kind === 'answer') await h.handleAnswer(s.from, s.data)
-          else if (s.kind === 'ice') await h.handleIce(s.from, s.data)
-          else if (s.kind === 'decline') await h.handleDecline(s.from)
-          else if (s.kind === 'hangup') await h.handleHangup(s.from)
+          try {
+            const h = apiRef.current
+            if (s.kind === 'offer') await h.handleOffer(s.from, s.data)
+            else if (s.kind === 'answer') await h.handleAnswer(s.from, s.data)
+            else if (s.kind === 'ice') await h.handleIce(s.from, s.data)
+            else if (s.kind === 'decline') await h.handleDecline(s.from)
+            else if (s.kind === 'hangup') await h.handleHangup(s.from)
+          } catch {
+            /* skip faulty signal, keep iterating */
+          }
         }
-        if (!alive) return
       } catch {
         /* ignore */
+      } finally {
+        inFlight = false
       }
-    }, 1000)
+    }
+    void tick()
+    const iv = setInterval(tick, 1000)
     return () => {
       alive = false
+      inFlight = false
       clearInterval(iv)
     }
   }, [threadId])
@@ -735,6 +826,18 @@ function ThreadCall({
         }
       }
     })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Cleanup on unmount (navigation away, parent unmount, call replaced): stop mic/cam + close pc
+  useEffect(() => {
+    return () => {
+      if (endedRef.current) return
+      peerRef.current.pc?.close()
+      peerRef.current = { pc: null, hasAnswer: false, iceBuffer: [] }
+      selfStreamRef.current?.getTracks().forEach((tr) => tr.stop())
+      selfStreamRef.current = null
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -770,6 +873,24 @@ function ThreadCall({
     selfStreamRef.current?.getTracks().forEach((tr) => tr.stop())
     selfStreamRef.current = null
     onEnded()
+  }
+
+  if (callFailed) {
+    return (
+      <div className="fn-overlay">
+        <div className="fn-modal call-modal">
+          <div className="call-error">
+            <PhoneOff size={22} />
+            {t('groups.callEnded')}
+          </div>
+          <div className="post-form-footer">
+            <button type="button" className="btn btn-primary" onClick={onEnded}>
+              {t('common.close')}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (mediaError) {

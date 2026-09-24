@@ -660,7 +660,7 @@ app.get('/api/threads', authMiddleware, async (req, res) => {
       const other = users[0]
       if (!other) continue
       const { rows: msgs } = await pool.query(
-        `SELECT id, sender_id AS from, text, time FROM messages WHERE thread_id = $1 ORDER BY id`,
+        `SELECT id, sender_id AS from, text, image, time FROM messages WHERE thread_id = $1 ORDER BY id`,
         [t.id],
       )
       threads.push(threadResponse(t, other, msgs))
@@ -694,7 +694,7 @@ app.post('/api/threads', authMiddleware, async (req, res) => {
     const { rows: users } = await pool.query(`SELECT * FROM users WHERE id = $1`, [otherId])
     const other = users[0]
     const { rows: msgs } = await pool.query(
-      `SELECT id, sender_id AS from, text, time FROM messages WHERE thread_id = $1 ORDER BY id`,
+      `SELECT id, sender_id AS from, text, image, time FROM messages WHERE thread_id = $1 ORDER BY id`,
       [thread.id],
     )
     res.json({ thread: threadResponse(thread, other, msgs) })
@@ -707,7 +707,8 @@ app.post('/api/threads', authMiddleware, async (req, res) => {
 app.post('/api/threads/:id/messages', authMiddleware, async (req, res) => {
   const id = Number(req.params.id)
   const text = String(req.body?.text ?? '').trim()
-  if (!text) return res.status(400).json({ error: "Xabar bo'sh bo'lishi mumkin emas." })
+  const image = String(req.body?.image ?? '').trim()
+  if (!text && !image) return res.status(400).json({ error: "Xabar bo'sh bo'lishi mumkin emas." })
   try {
     const { rows } = await pool.query(
       `SELECT * FROM threads WHERE id = $1 AND (member_a = $2 OR member_b = $2)`,
@@ -717,10 +718,12 @@ app.post('/api/threads/:id/messages', authMiddleware, async (req, res) => {
     const mid = Date.now()
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     await pool.query(
-      `INSERT INTO messages (id, thread_id, sender_id, text, time) VALUES ($1,$2,$3,$4,$5)`,
-      [mid, id, req.user.id, text, time],
+      `INSERT INTO messages (id, thread_id, sender_id, text, image, time) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [mid, id, req.user.id, text, image, time],
     )
-    res.json({ message: { id: mid, from: req.user.id, text, time } })
+    const out = { id: mid, from: req.user.id, text, time }
+    if (image) out.image = image
+    res.json({ message: out })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Server xatosi.' })
@@ -758,9 +761,13 @@ app.post('/api/threads/:id/calls', authMiddleware, async (req, res) => {
     await pool.query(
       `INSERT INTO thread_call_signals (id, thread_id, sender_id, recipient_id, kind, payload)
        VALUES ($1,$2,$3,$4,$5,$6)`,
-      [sid, id, req.user.id, to, kind, JSON.stringify(payload ?? {})],
+      [sid, id, req.user.id, to, kind, JSON.stringify(payload)],
     )
-    await pool.query(`DELETE FROM thread_call_signals WHERE id < (SELECT MAX(id) - 500 FROM thread_call_signals LIMIT 1)`)
+    await pool.query(
+      `DELETE FROM thread_call_signals
+       WHERE thread_id = $1 AND id < (SELECT COALESCE(MAX(id), 0) - 500 FROM thread_call_signals WHERE thread_id = $1)`,
+      [id],
+    )
     res.json({ signal: { id: sid, threadId: id, from: req.user.id, to, kind, data: payload } })
   } catch (e) {
     console.error(e)
@@ -800,19 +807,25 @@ async function memberIdsOf(groupId) {
   return rows.map((r) => r.user_id)
 }
 
-async function groupResponse(g) {
+async function groupResponse(g, meId) {
   const ids = await memberIdsOf(g.id)
   const members = []
   for (const uid of ids) {
     const { rows } = await pool.query(`SELECT * FROM users WHERE id = $1`, [uid])
-    if (rows[0]) members.push(publicUser(rows[0]))
+    if (rows[0]) {
+      const u = rows[0]
+      members.push({ id: u.id, name: u.name, username: u.username, avatar: u.avatar ?? '', online: true })
+    }
   }
+  const memberById = new Map(members.map((m) => [m.id, m]))
   const { rows: msgs } = await pool.query(
     `SELECT id, sender_id, text, image, time FROM group_messages WHERE group_id = $1 ORDER BY id`,
     [g.id],
   )
   const messages = msgs.map((m) => {
     const base = { id: m.id, from: m.sender_id, text: m.text, time: m.time }
+    const sender = memberById.get(m.sender_id)
+    if (sender) base.sender = sender
     if (m.image) base.image = m.image
     return base
   })
@@ -820,7 +833,8 @@ async function groupResponse(g) {
     id: g.id,
     name: g.name,
     cover: g.cover ?? '',
-    creatorId: g.created_by,
+    createdBy: g.created_by,
+    isAdmin: g.created_by === meId,
     members,
     messages,
   }
@@ -844,7 +858,7 @@ app.get('/api/groups', authMiddleware, async (req, res) => {
       [req.user.id],
     )
     const out = []
-    for (const g of rows) out.push(await groupResponse(g))
+    for (const g of rows) out.push(await groupResponse(g, req.user.id))
     res.json({ groups: out })
   } catch (e) {
     console.error(e)
@@ -875,7 +889,7 @@ app.post('/api/groups', authMiddleware, async (req, res) => {
       [id, req.user.id],
     )
     const { rows } = await pool.query(`SELECT * FROM groups WHERE id = $1`, [id])
-    res.json({ group: await groupResponse(rows[0]) })
+    res.json({ group: await groupResponse(rows[0], req.user.id) })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Server xatosi.' })
@@ -889,7 +903,7 @@ app.get('/api/groups/:id', authMiddleware, async (req, res) => {
     if (!ok) return res.status(404).json({ error: 'Guruh topilmadi.' })
     const { rows } = await pool.query(`SELECT * FROM groups WHERE id = $1`, [id])
     if (rows.length === 0) return res.status(404).json({ error: 'Guruh topilmadi.' })
-    res.json({ group: await groupResponse(rows[0]) })
+    res.json({ group: await groupResponse(rows[0], req.user.id) })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Server xatosi.' })
@@ -912,7 +926,7 @@ app.post('/api/groups/:id/members', authMiddleware, async (req, res) => {
       `INSERT INTO group_members (group_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
       [id, userId],
     )
-    res.json({ group: await groupResponse(g) })
+    res.json({ group: await groupResponse(g, req.user.id) })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Server xatosi.' })
@@ -945,15 +959,15 @@ app.post('/api/groups/:id/messages', authMiddleware, async (req, res) => {
     const ok = await isGroupMember(id, req.user.id)
     if (!ok) return res.status(404).json({ error: 'Guruh topilmadi.' })
     const text = String(req.body?.text ?? '').trim()
-    if (!text) return res.status(400).json({ error: "Xabar bo'sh bo'lishi mumkin emas." })
+    const image = typeof req.body?.image === 'string' ? req.body.image : ''
+    if (!text && !image) return res.status(400).json({ error: "Xabar bo'sh bo'lishi mumkin emas." })
     const mid = Date.now()
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    const image = typeof req.body?.image === 'string' ? req.body.image : ''
     await pool.query(
       `INSERT INTO group_messages (id, group_id, sender_id, text, image, time) VALUES ($1,$2,$3,$4,$5,$6)`,
       [mid, id, req.user.id, text, image, time],
     )
-    const out = { id: mid, from: req.user.id, text, time }
+    const out = { id: mid, from: req.user.id, sender: { id: req.user.id, name: req.user.name, username: req.user.username, avatar: req.user.avatar ?? '' }, text, time }
     if (image) out.image = image
     res.json({ message: out })
   } catch (e) {
@@ -974,9 +988,13 @@ app.post('/api/groups/:id/calls', authMiddleware, async (req, res) => {
     await pool.query(
       `INSERT INTO group_call_signals (id, group_id, sender_id, recipient_id, kind, payload)
        VALUES ($1,$2,$3,$4,$5,$6)`,
-      [sid, id, req.user.id, to, kind, JSON.stringify(payload ?? {})],
+      [sid, id, req.user.id, to, kind, JSON.stringify(payload)],
     )
-    await pool.query(`DELETE FROM group_call_signals WHERE id < (SELECT MAX(id) - 500 FROM group_call_signals LIMIT 1)`)
+    await pool.query(
+      `DELETE FROM group_call_signals
+       WHERE group_id = $1 AND id < (SELECT COALESCE(MAX(id), 0) - 500 FROM group_call_signals WHERE group_id = $1)`,
+      [id],
+    )
     res.json({ signal: { id: sid, groupId: id, from: req.user.id, to, kind, data: payload } })
   } catch (e) {
     console.error(e)
