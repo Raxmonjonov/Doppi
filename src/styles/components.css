@@ -1028,6 +1028,75 @@
   color: var(--fn-text-muted);
 }
 
+.album-view {
+  cursor: default;
+  overflow: hidden;
+}
+
+.album-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.album-detail-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.photos-progress {
+  color: var(--fn-text-muted);
+  font-weight: 600;
+}
+
+.photos-limit-note {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--fn-warn-bg, color-mix(in srgb, var(--fn-warn) 12%, transparent));
+  color: var(--fn-warn, #b45309);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.empty-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.album-new-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 160px;
+  color: var(--fn-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--fn-surface-alt);
+  border: 1.5px dashed var(--fn-border);
+  cursor: pointer;
+  transition: color 180ms ease, border-color 180ms ease, background-color 180ms ease;
+}
+
+.album-new-tile:hover {
+  color: var(--fn-primary);
+  border-color: var(--fn-primary);
+}
+
+.album-card .albums-grid {
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+}
+
 .photo-tag {
   position: absolute;
   background: var(--fn-primary);
