@@ -116,7 +116,13 @@ export function Photos() {
           {albums.map((a) => (
             <div className="card album-card" key={a.id}>
               <div className="album-cover-wrap" onClick={() => setOpenId(a.id)}>
-                <img src={a.photos[0].url} alt={a.title} loading="lazy" />
+                {a.photos[0] ? (
+                  <img src={a.photos[0].url} alt={a.title} loading="lazy" />
+                ) : (
+                  <div className="album-cover-empty">
+                    <ImageIcon size={34} />
+                  </div>
+                )}
                 <div className="album-hover">
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <ImageIcon size={16} /> {a.count}

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { UserCheck, UserPlus, Bell, MoreHorizontal, MessageCircle, Pencil, LogOut, X } from 'lucide-react'
+import { UserCheck, UserPlus, Bell, MoreHorizontal, MessageCircle, Pencil, LogOut, X, Image as ImageIcon } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
 import { PostCard } from '../components/PostCard'
 import { Lightbox } from '../components/Lightbox'
@@ -138,8 +138,14 @@ export function Profile() {
           ) : (
             albums.map((a, idx) => (
               <div className="card album-card" key={a.id}>
-                <div className="album-cover-wrap" onClick={() => setAlbumOpen(idx)}>
-                  <img src={a.photos[0].url} alt={a.title} loading="lazy" />
+                <div className="album-cover-wrap" onClick={() => a.photos.length > 0 && setAlbumOpen(idx)}>
+                  {a.photos[0] ? (
+                    <img src={a.photos[0].url} alt={a.title} loading="lazy" />
+                  ) : (
+                    <div className="album-cover-empty">
+                      <ImageIcon size={34} />
+                    </div>
+                  )}
                 </div>
                 <div className="album-meta">
                   <div className="title">{a.title}</div>

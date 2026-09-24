@@ -970,6 +970,15 @@
   transition: transform 250ms ease;
 }
 
+.album-cover-empty {
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--fn-text-muted);
+  background: var(--fn-surface-alt);
+}
+
 .album-card:hover .album-cover-wrap img {
   transform: scale(1.06);
 }
