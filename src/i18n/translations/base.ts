@@ -201,6 +201,8 @@ export const uz: Dict = {
   'groups.mute': 'Ovozni o\'chirish',
   'groups.camOff': 'Kamera o\'chiq',
   'groups.endCall': "Qo'ng'iroqni tugatish",
+  'groups.callEnded': "Qo'ng'iroq yakunlandi",
+  'groups.callDeclined': "Qo'ng'iroq rad etildi",
   'groups.you': 'Siz',
   'groups.limitHint': 'Yana {count} ta guruh yaratishingiz mumkin',
   'groups.limitReached': "Limitga yetildi: ko'pi bilan 3 ta guruh",

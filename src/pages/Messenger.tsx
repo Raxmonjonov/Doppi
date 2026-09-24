@@ -85,6 +85,8 @@ export function Messenger() {
 
   const activeCallRef = useRef<ActiveCall | null>(null)
   activeCallRef.current = activeCall
+  const incomingRef = useRef<typeof incoming>(null)
+  incomingRef.current = incoming
   const threadsRef = useRef<Thread[]>(threads)
   threadsRef.current = threads
 
@@ -143,6 +145,10 @@ export function Messenger() {
               name: th?.user.name ?? '',
               kind: (s.data?.kind as 'video' | 'audio') ?? 'video',
             })
+          } else if ((s.kind === 'decline' || s.kind === 'hangup') && incomingRef.current) {
+            if (s.threadId === incomingRef.current.threadId && s.from === incomingRef.current.from) {
+              setIncoming(null)
+            }
           }
         }
       } catch {
@@ -517,6 +523,7 @@ function ThreadCall({
   const [mediaError, setMediaError] = useState<string | null>(null)
   const sinceRef = useRef(0)
   const endedRef = useRef(false)
+  const [endReason, setEndReason] = useState<'declined' | 'ended' | null>(null)
 
   const kind = call.kind
 
@@ -643,6 +650,7 @@ function ThreadCall({
       peerRef.current = { pc: null, hasAnswer: false, iceBuffer: [] }
       remoteStreamRef.current = null
       setRemoteStream(null)
+      setEndReason('declined')
     },
     async handleHangup(_from: number) {
       const peer = peerRef.current
@@ -650,6 +658,7 @@ function ThreadCall({
       peerRef.current = { pc: null, hasAnswer: false, iceBuffer: [] }
       remoteStreamRef.current = null
       setRemoteStream(null)
+      setEndReason('ended')
     },
     createPeer,
     attachLocal,
@@ -748,6 +757,24 @@ function ThreadCall({
           <div className="call-error">
             <PhoneOff size={22} />
             {mediaError}
+          </div>
+          <div className="post-form-footer">
+            <button type="button" className="btn btn-primary" onClick={onEnded}>
+              {t('common.close')}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (endReason) {
+    return (
+      <div className="fn-overlay">
+        <div className="fn-modal call-modal">
+          <div className="call-error">
+            <PhoneOff size={22} />
+            {t(endReason === 'declined' ? 'groups.callDeclined' : 'groups.callEnded')}
           </div>
           <div className="post-form-footer">
             <button type="button" className="btn btn-primary" onClick={onEnded}>
