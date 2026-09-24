@@ -575,14 +575,19 @@ function GroupDetail({
 interface Peer {
   pc: RTCPeerConnection | null
   hasAnswer: boolean
+  iceBuffer: RTCIceCandidateInit[]
 }
+
+const remoteStreamsRef = new Map<number, MediaStream>()
 
 function StreamVideo({ stream, hidden }: { stream: MediaStream; hidden: boolean }) {
   const ref = useRef<HTMLVideoElement>(null)
   useEffect(() => {
-    if (ref.current) ref.current.srcObject = stream
+    if (!ref.current) return
+    ref.current.srcObject = stream
+    ref.current.play().catch(() => {})
   }, [stream])
-  return <video ref={ref} autoPlay playsInline className={hidden ? 'call-video-hidden' : ''} />
+  return <video ref={ref} autoPlay playsInline muted={false} className={hidden ? 'call-video-hidden' : ''} />
 }
 
 function GroupCall({
@@ -641,14 +646,16 @@ function GroupCall({
     if (existing?.pc) return existing.pc
     if (typeof RTCPeerConnection === 'undefined') return null
     const pc = new RTCPeerConnection({ iceServers: [STUN] })
-    peersRef.current.set(userId, { pc, hasAnswer: false })
+    peersRef.current.set(userId, { pc, hasAnswer: false, iceBuffer: [] })
 
     pc.onicecandidate = (ev) => {
       if (ev.candidate) postSignal('ice', userId, { candidate: ev.candidate })
     }
     pc.ontrack = (ev) => {
-      const stream = ev.streams[0]
-      if (!stream) return
+      if (!ev.streams?.[0] && !ev.track) return
+      const stream = ev.streams?.[0] ?? new MediaStream()
+      if (ev.track) stream.addTrack(ev.track)
+      remoteStreamsRef.set(userId, stream)
       setRemoteStreams((prev) => [...prev.filter((s) => s.userId !== userId), { userId, stream }])
     }
     pc.onconnectionstatechange = () => {
@@ -659,6 +666,20 @@ function GroupCall({
     }
     return pc
   }, [postSignal])
+
+  const flushIce = async (userId: number) => {
+    const peer = peersRef.current.get(userId)
+    if (!peer?.pc) return
+    const buffered = peer.iceBuffer
+    peer.iceBuffer = []
+    for (const c of buffered) {
+      try {
+        await peer.pc.addIceCandidate(c)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
 
   const attachLocal = useCallback(
     async (pc: RTCPeerConnection) => {
@@ -672,18 +693,17 @@ function GroupCall({
   )
 
   // Keep a live reference to handlers so the polling loop never uses stale closures.
-  // Live reference to handlers so the polling loop always uses fresh closures.
   const apiRef = useRef({
     async handleOffer(_from: number, _data: Signal['data']) {},
     async handleAnswer(_from: number, _data: Signal['data']) {},
     async handleIce(_from: number, _data: Signal['data']) {},
     async handleDecline(_from: number) {},
     async handleHangup(_from: number) {},
-    async handleRing(_from: number) {},
     createPeer,
     attachLocal,
     postSignal,
     getLocal,
+    flushIce,
   })
   apiRef.current = {
     async handleOffer(from: number, data: Signal['data']) {
@@ -693,6 +713,7 @@ function GroupCall({
       await pc.setRemoteDescription({ type: 'offer', sdp: String(data?.sdp ?? '') })
       const answer = await pc.createAnswer()
       await pc.setLocalDescription(answer)
+      await flushIce(from)
       postSignal('answer', from, { sdp: answer.sdp })
     },
     async handleAnswer(from: number, data: Signal['data']) {
@@ -700,11 +721,16 @@ function GroupCall({
       if (!peer?.pc) return
       await peer.pc.setRemoteDescription({ type: 'answer', sdp: String(data?.sdp ?? '') })
       peer.hasAnswer = true
+      await flushIce(from)
     },
     async handleIce(from: number, data: Signal['data']) {
       const candidate = data?.candidate
       const peer = peersRef.current.get(from)
       if (!peer?.pc || !candidate) return
+      if (!peer.pc.remoteDescription) {
+        peer.iceBuffer.push(candidate)
+        return
+      }
       try {
         await peer.pc.addIceCandidate(candidate)
       } catch {
@@ -723,36 +749,37 @@ function GroupCall({
       peersRef.current.delete(from)
       setRemoteStreams((prev) => prev.filter((s) => s.userId !== from))
     },
-    async handleRing(from: number) {
-      // Responder receiving a ring: connect to caller by sending an offer.
-      const pc = createPeer(from)
-      if (!pc) return
-      await attachLocal(pc)
-      const offer = await pc.createOffer()
-      await pc.setLocalDescription(offer)
-      postSignal('offer', from, { sdp: offer.sdp })
-    },
     createPeer,
     attachLocal,
     postSignal,
     getLocal,
+    flushIce,
   }
 
-  // Initialize local media
+  // Initialize local media and bind the preview element when it exists
   useEffect(() => {
-    void (async () => {
-      const local = await getLocal()
-      if (local && localRef.current) localRef.current.srcObject = local
-    })()
+    if (selfStream && localRef.current) localRef.current.srcObject = selfStream
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selfStream])
+
+  // Kick off media acquisition once
+  useEffect(() => {
+    void getLocal()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Signalling loop
   useEffect(() => {
     let alive = true
+    let bootstrapped = false
     const iv = setInterval(async () => {
       try {
         const { signals } = await api<{ signals: Signal[] }>(`/api/groups/${groupId}/calls?since=${sinceRef.current}`)
+        if (!bootstrapped) {
+          bootstrapped = true
+          for (const s of signals) if (s.id > sinceRef.current) sinceRef.current = s.id
+          return
+        }
         for (const s of signals) {
           if (s.id > sinceRef.current) sinceRef.current = s.id
           const h = apiRef.current
@@ -761,7 +788,6 @@ function GroupCall({
           else if (s.kind === 'ice') await h.handleIce(s.from, s.data)
           else if (s.kind === 'decline') await h.handleDecline(s.from)
           else if (s.kind === 'hangup') await h.handleHangup(s.from)
-          else if (s.kind === 'ring') await h.handleRing(s.from)
         }
         if (!alive) return
       } catch {
@@ -864,9 +890,8 @@ function GroupCall({
             const m = members.find((x) => x.id === r.userId)
             return (
               <div key={r.userId} className="call-tile">
-                {showVideo ? (
-                  <StreamVideo stream={r.stream} hidden={false} />
-                ) : (
+                <StreamVideo stream={r.stream} hidden={!showVideo} />
+                {!showVideo && (
                   <div className="call-avatar-fallback">
                     <Avatar user={m ? { ...m, online: true } : { id: r.userId, name: '', username: '', avatar: '', online: true }} size={72} />
                   </div>
