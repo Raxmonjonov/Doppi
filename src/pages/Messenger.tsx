@@ -482,6 +482,12 @@ function SendUserPanel({ candidates, q, setQ, onPick }: PanelProps) {
   )
 }
 
+function formatCallTime(total: number): string {
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
 interface Peer {
   pc: RTCPeerConnection | null
   hasAnswer: boolean
@@ -524,6 +530,7 @@ function ThreadCall({
   const sinceRef = useRef(0)
   const endedRef = useRef(false)
   const [endReason, setEndReason] = useState<'declined' | 'ended' | null>(null)
+  const [callSeconds, setCallSeconds] = useState(0)
 
   const kind = call.kind
 
@@ -650,6 +657,7 @@ function ThreadCall({
       peerRef.current = { pc: null, hasAnswer: false, iceBuffer: [] }
       remoteStreamRef.current = null
       setRemoteStream(null)
+      endedRef.current = true
       setEndReason('declined')
     },
     async handleHangup(_from: number) {
@@ -658,6 +666,7 @@ function ThreadCall({
       peerRef.current = { pc: null, hasAnswer: false, iceBuffer: [] }
       remoteStreamRef.current = null
       setRemoteStream(null)
+      endedRef.current = true
       setEndReason('ended')
     },
     createPeer,
@@ -737,6 +746,19 @@ function ThreadCall({
     selfStream?.getVideoTracks().forEach((tr) => (tr.enabled = !camOff))
   }, [selfStream, camOff])
 
+  useEffect(() => {
+    if (!endReason) return
+    const to = setTimeout(onEnded, 2500)
+    return () => clearTimeout(to)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [endReason])
+
+  useEffect(() => {
+    if (!remoteStream) return
+    const iv = setInterval(() => setCallSeconds((s) => s + 1), 1000)
+    return () => clearInterval(iv)
+  }, [remoteStream])
+
   const hangup = () => {
     if (endedRef.current) return
     endedRef.current = true
@@ -793,7 +815,9 @@ function ThreadCall({
       <div className="call-stage">
         <div className="call-head">
           <div className="call-title">{t(kind === 'video' ? 'groups.videoCall' : 'groups.voiceCall')}</div>
-          <div className="call-sub">{remoteStream ? t('groups.callConnected') : t('groups.callRinging')}</div>
+          <div className="call-sub">
+            {remoteStream ? `${t('groups.callConnected')} · ${formatCallTime(callSeconds)}` : t('groups.callRinging')}
+          </div>
         </div>
 
         <div className="call-grid">
