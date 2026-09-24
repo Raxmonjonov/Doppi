@@ -706,6 +706,222 @@ app.delete('/api/threads/:id', authMiddleware, async (req, res) => {
   }
 })
 
+/* ---------- Groups ---------- */
+
+const MAX_GROUPS = 3
+
+async function memberIdsOf(groupId) {
+  const { rows } = await pool.query(`SELECT user_id FROM group_members WHERE group_id = $1`, [groupId])
+  return rows.map((r) => r.user_id)
+}
+
+async function groupResponse(g) {
+  const ids = await memberIdsOf(g.id)
+  const members = []
+  for (const uid of ids) {
+    const { rows } = await pool.query(`SELECT * FROM users WHERE id = $1`, [uid])
+    if (rows[0]) members.push(publicUser(rows[0]))
+  }
+  const { rows: msgs } = await pool.query(
+    `SELECT id, sender_id, text, image, time FROM group_messages WHERE group_id = $1 ORDER BY id`,
+    [g.id],
+  )
+  const messages = msgs.map((m) => {
+    const base = { id: m.id, from: m.sender_id, text: m.text, time: m.time }
+    if (m.image) base.image = m.image
+    return base
+  })
+  return {
+    id: g.id,
+    name: g.name,
+    cover: g.cover ?? '',
+    creatorId: g.created_by,
+    members,
+    messages,
+  }
+}
+
+async function isGroupMember(groupId, userId) {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2`,
+    [groupId, userId],
+  )
+  return rows.length > 0
+}
+
+app.get('/api/groups', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT g.* FROM groups g
+       JOIN group_members gm ON gm.group_id = g.id
+       WHERE gm.user_id = $1
+       ORDER BY g.id DESC`,
+      [req.user.id],
+    )
+    const out = []
+    for (const g of rows) out.push(await groupResponse(g))
+    res.json({ groups: out })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+app.post('/api/groups', authMiddleware, async (req, res) => {
+  try {
+    const mine = await pool.query(
+      `SELECT 1 FROM groups g JOIN group_members gm ON gm.group_id = g.id
+       WHERE gm.user_id = $1 AND g.created_by = $1`,
+      [req.user.id],
+    )
+    if (mine.rows.length >= MAX_GROUPS) {
+      return res.status(403).json({ error: 'Siz ko\'pi bilan 3 ta guruh yaratishingiz mumkin.' })
+    }
+    const name = String(req.body?.name ?? '').trim()
+    if (!name) return res.status(400).json({ error: 'Guruh nomini kiriting.' })
+    const cover = typeof req.body?.cover === 'string' ? req.body.cover : ''
+    const id = Date.now()
+    await pool.query(
+      `INSERT INTO groups (id, name, cover, joined, created_by) VALUES ($1,$2,$3,true,$4)`,
+      [id, name, cover, req.user.id],
+    )
+    await pool.query(
+      `INSERT INTO group_members (group_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+      [id, req.user.id],
+    )
+    const { rows } = await pool.query(`SELECT * FROM groups WHERE id = $1`, [id])
+    res.json({ group: await groupResponse(rows[0]) })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+app.get('/api/groups/:id', authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    const ok = await isGroupMember(id, req.user.id)
+    if (!ok) return res.status(404).json({ error: 'Guruh topilmadi.' })
+    const { rows } = await pool.query(`SELECT * FROM groups WHERE id = $1`, [id])
+    if (rows.length === 0) return res.status(404).json({ error: 'Guruh topilmadi.' })
+    res.json({ group: await groupResponse(rows[0]) })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+app.post('/api/groups/:id/members', authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    const { rows } = await pool.query(`SELECT * FROM groups WHERE id = $1`, [id])
+    const g = rows[0]
+    if (!g) return res.status(404).json({ error: 'Guruh topilmadi.' })
+    if (g.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'Faqat guruh yaratuvchisi a\'zo qo\'shishi mumkin.' })
+    }
+    const userId = Number(req.body?.userId)
+    const { rows: users } = await pool.query(`SELECT * FROM users WHERE id = $1`, [userId])
+    if (users.length === 0) return res.status(400).json({ error: 'Foydalanuvchi topilmadi.' })
+    await pool.query(
+      `INSERT INTO group_members (group_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+      [id, userId],
+    )
+    res.json({ group: await groupResponse(g) })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+app.delete('/api/groups/:id/members', authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    const { rows } = await pool.query(`SELECT * FROM groups WHERE id = $1`, [id])
+    const g = rows[0]
+    if (!g) return res.status(404).json({ error: 'Guruh topilmadi.' })
+    if (g.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'Ruxsat yo\'q.' })
+    }
+    await pool.query(
+      `DELETE FROM group_members WHERE group_id = $1 AND user_id = $2`,
+      [id, req.user.id],
+    )
+    res.json({ ok: true })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+app.post('/api/groups/:id/messages', authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    const ok = await isGroupMember(id, req.user.id)
+    if (!ok) return res.status(404).json({ error: 'Guruh topilmadi.' })
+    const text = String(req.body?.text ?? '').trim()
+    if (!text) return res.status(400).json({ error: "Xabar bo'sh bo'lishi mumkin emas." })
+    const mid = Date.now()
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const image = typeof req.body?.image === 'string' ? req.body.image : ''
+    await pool.query(
+      `INSERT INTO group_messages (id, group_id, sender_id, text, image, time) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [mid, id, req.user.id, text, image, time],
+    )
+    const out = { id: mid, from: req.user.id, text, time }
+    if (image) out.image = image
+    res.json({ message: out })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+app.post('/api/groups/:id/calls', authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    const ok = await isGroupMember(id, req.user.id)
+    if (!ok) return res.status(404).json({ error: 'Guruh topilmadi.' })
+    const kind = String(req.body?.kind ?? '')
+    const to = Number(req.body?.to ?? 0)
+    const payload = req.body?.data ?? null
+    const sid = Date.now()
+    await pool.query(
+      `INSERT INTO group_call_signals (id, group_id, sender_id, recipient_id, kind, payload)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [sid, id, req.user.id, to, kind, JSON.stringify(payload ?? {})],
+    )
+    await pool.query(`DELETE FROM group_call_signals WHERE id < (SELECT MAX(id) - 500 FROM group_call_signals LIMIT 1)`)
+    res.json({ signal: { id: sid, groupId: id, from: req.user.id, to, kind, data: payload } })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+app.get('/api/groups/:id/calls', authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    const ok = await isGroupMember(id, req.user.id)
+    if (!ok) return res.status(404).json({ error: 'Guruh topilmadi.' })
+    const since = Number(req.query.since ?? 0)
+    const { rows } = await pool.query(
+      `SELECT * FROM group_call_signals
+       WHERE group_id = $1 AND id > $2 AND sender_id <> $3 AND (recipient_id = 0 OR recipient_id = $3)
+       ORDER BY id`,
+      [id, since, req.user.id],
+    )
+    const signals = rows.map((s) => {
+      const out = { id: s.id, groupId: s.group_id, from: s.sender_id, to: s.recipient_id, kind: s.kind, data: s.payload }
+      return out
+    })
+    res.json({ signals })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
 /* ---------- SPA (built frontend) ---------- */
 
 const DIST_PATH = path.join(__dirname, '..', 'dist')

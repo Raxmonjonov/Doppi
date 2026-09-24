@@ -124,6 +124,30 @@ CREATE TABLE IF NOT EXISTS groups (
   created_by BIGINT REFERENCES users(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS group_members (
+  group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (group_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS group_messages (
+  id BIGINT PRIMARY KEY,
+  group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  sender_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  text TEXT NOT NULL DEFAULT '',
+  image TEXT NOT NULL DEFAULT '',
+  time TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS group_call_signals (
+  id BIGINT PRIMARY KEY,
+  group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  sender_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  recipient_id BIGINT NOT NULL DEFAULT 0,
+  kind TEXT NOT NULL DEFAULT '',
+  payload JSONB NOT NULL DEFAULT '{}'
+);
+
 CREATE TABLE IF NOT EXISTS follows (
   follower_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   followee_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -139,3 +163,6 @@ CREATE INDEX IF NOT EXISTS idx_comments_post ON post_comments(post_id);
 CREATE INDEX IF NOT EXISTS idx_reel_comments ON reel_comments(reel_id);
 CREATE INDEX IF NOT EXISTS idx_thread_members ON threads(member_a, member_b);
 CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id);
+CREATE INDEX IF NOT EXISTS idx_group_members ON group_members(group_id);
+CREATE INDEX IF NOT EXISTS idx_group_messages ON group_messages(group_id);
+CREATE INDEX IF NOT EXISTS idx_group_signals ON group_call_signals(group_id, id);
