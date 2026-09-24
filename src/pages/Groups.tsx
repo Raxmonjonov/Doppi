@@ -741,12 +741,14 @@ function GroupCall({
       const peer = peersRef.current.get(from)
       peer?.pc?.close()
       peersRef.current.delete(from)
+      remoteStreamsRef.delete(from)
       setRemoteStreams((prev) => prev.filter((s) => s.userId !== from))
     },
     async handleHangup(from: number) {
       const peer = peersRef.current.get(from)
       peer?.pc?.close()
       peersRef.current.delete(from)
+      remoteStreamsRef.delete(from)
       setRemoteStreams((prev) => prev.filter((s) => s.userId !== from))
     },
     createPeer,
@@ -835,6 +837,7 @@ function GroupCall({
     postSignal('hangup', 0, null)
     for (const [, peer] of peersRef.current) peer.pc?.close()
     peersRef.current.clear()
+    remoteStreamsRef.clear()
     setRemoteStreams([])
     selfStreamRef.current?.getTracks().forEach((tr) => tr.stop())
     selfStreamRef.current = null
