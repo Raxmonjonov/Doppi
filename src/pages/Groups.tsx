@@ -578,8 +578,6 @@ interface Peer {
   iceBuffer: RTCIceCandidateInit[]
 }
 
-const remoteStreamsRef = new Map<number, MediaStream>()
-
 function StreamVideo({ stream, hidden }: { stream: MediaStream; hidden: boolean }) {
   const ref = useRef<HTMLVideoElement>(null)
   useEffect(() => {
@@ -605,6 +603,7 @@ function GroupCall({
 }) {
   const { t } = useI18n()
   const peersRef = useRef<Map<number, Peer>>(new Map())
+  const remoteStreamsRef = useRef<Map<number, MediaStream>>(new Map())
   const selfStreamRef = useRef<MediaStream | null>(null)
   const localRef = useRef<HTMLVideoElement>(null)
   const [selfStream, setSelfStream] = useState<MediaStream | null>(null)
@@ -655,7 +654,7 @@ function GroupCall({
       if (!ev.streams?.[0] && !ev.track) return
       const stream = ev.streams?.[0] ?? new MediaStream()
       if (ev.track) stream.addTrack(ev.track)
-      remoteStreamsRef.set(userId, stream)
+      remoteStreamsRef.current.set(userId, stream)
       setRemoteStreams((prev) => [...prev.filter((s) => s.userId !== userId), { userId, stream }])
     }
     pc.onconnectionstatechange = () => {
@@ -741,14 +740,14 @@ function GroupCall({
       const peer = peersRef.current.get(from)
       peer?.pc?.close()
       peersRef.current.delete(from)
-      remoteStreamsRef.delete(from)
+      remoteStreamsRef.current.delete(from)
       setRemoteStreams((prev) => prev.filter((s) => s.userId !== from))
     },
     async handleHangup(from: number) {
       const peer = peersRef.current.get(from)
       peer?.pc?.close()
       peersRef.current.delete(from)
-      remoteStreamsRef.delete(from)
+      remoteStreamsRef.current.delete(from)
       setRemoteStreams((prev) => prev.filter((s) => s.userId !== from))
     },
     createPeer,
@@ -837,7 +836,7 @@ function GroupCall({
     postSignal('hangup', 0, null)
     for (const [, peer] of peersRef.current) peer.pc?.close()
     peersRef.current.clear()
-    remoteStreamsRef.clear()
+    remoteStreamsRef.current.clear()
     setRemoteStreams([])
     selfStreamRef.current?.getTracks().forEach((tr) => tr.stop())
     selfStreamRef.current = null
