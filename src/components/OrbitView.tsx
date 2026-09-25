@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { X, ZoomIn, ZoomOut, Orbit } from 'lucide-react'
 import { useI18n } from '../i18n'
+import { LiveClock } from './LiveClock'
 
 const GOLDEN = Math.PI * (3 - Math.sqrt(5))
 const DORMANT_MS = 24 * 60 * 60 * 1000
+const CORE = 208
 
 export interface OrbitItem {
   id: number
@@ -113,6 +115,9 @@ export function OrbitView({ items, title, renderViewer }: Props) {
         }}
       >
         <div className="orbit-field" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})` }}>
+          <div className="orbit-core" style={{ left: CORE, top: CORE }}>
+            <LiveClock />
+          </div>
           {items.length === 0 && <div className="orbit-empty">{t('home.emptyOrbit')}</div>}
           {items.map((n, i) => {
             const pos = layout[i]
@@ -124,7 +129,7 @@ export function OrbitView({ items, title, renderViewer }: Props) {
                 key={n.id}
                 type="button"
                 className={`orbit-node${stale ? ' stale' : ''}`}
-                style={{ left: 208 + x, top: 208 + y, animationDelay: `${pos.delay}ms`, zIndex: i }}
+                style={{ left: CORE + x, top: CORE + y, animationDelay: `${pos.delay}ms`, zIndex: i }}
                 onClick={() => setOpenId(n.id)}
                 aria-label={n.name}
                 title={n.name}
