@@ -161,10 +161,63 @@
   color: var(--fn-text-primary);
 }
 
+/* ---------- View switch (stream / orbit) ---------- */
+.view-switch {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 16px;
+  border-radius: var(--fn-radius-pill);
+  border: 1px solid var(--fn-border);
+  background: var(--fn-surface);
+  width: fit-content;
+  max-width: 100%;
+  box-shadow: var(--fn-shadow);
+}
+
+.view-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--fn-radius-pill);
+  background: transparent;
+  color: var(--fn-text-secondary);
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    transform 140ms ease;
+}
+
+.view-switch button:hover {
+  color: var(--fn-text-primary);
+  transform: translateY(-1px);
+}
+
+.view-switch button.active {
+  background: var(--fn-primary);
+  color: #fff;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--fn-primary) 35%, transparent);
+}
+
 /* ---------- Post card ---------- */
 .post-card {
   margin-bottom: 20px;
   overflow: hidden;
+  transition:
+    transform 220ms ease,
+    box-shadow 220ms ease,
+    border-color 220ms ease;
+}
+
+.post-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--fn-shadow-lg);
+  border-color: var(--fn-border-strong);
 }
 
 .post-head {
@@ -338,6 +391,7 @@
   font-weight: 600;
   font-size: 14px;
   color: var(--fn-text-secondary);
+  position: relative;
   transition:
     background-color 180ms ease,
     color 180ms ease,
@@ -350,11 +404,22 @@
 }
 
 .pb-action.liked {
-  color: var(--fn-accent);
+  color: var(--fn-danger);
+  animation: fn-pop 380ms cubic-bezier(0.22, 0.9, 0.35, 1);
 }
 
 .pb-action.liked svg {
-  animation: fn-pop 300ms ease;
+  animation: fn-pop 380ms cubic-bezier(0.22, 0.9, 0.35, 1);
+}
+
+.pb-action.liked::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px dashed var(--fn-danger);
+  pointer-events: none;
+  animation: doppi-stitch 620ms ease-out forwards;
 }
 
 /* comments */
