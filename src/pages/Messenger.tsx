@@ -58,7 +58,7 @@ async function loadThreads(): Promise<RawThread[]> {
   }
 }
 
-function MsgBubble({ m, mine, onReveal }: { m: Message; mine: boolean; onReveal: () => void }) {
+export function MsgBubble({ m, mine, onReveal }: { m: Message; mine: boolean; onReveal: () => void }) {
   const { t } = useI18n()
   const [now, setNow] = useState(() => Date.now())
   const sealed = m.sealUntil != null

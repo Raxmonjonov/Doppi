@@ -645,6 +645,7 @@ export async function handleRequest(method, pathname, query, req, store) {
           time: m.time,
         }
         if (m.image) base.image = m.image
+        if (m.sealUntil) base.sealUntil = Number(m.sealUntil)
         return base
       })
     return {
@@ -737,10 +738,14 @@ export async function handleRequest(method, pathname, query, req, store) {
     const time = nowTime()
     const msg = { id: mid, groupId: id, senderId: me.id, text, time }
     if (body.image) msg.image = String(body.image)
+    if (body.sealUntil) msg.sealUntil = Number(body.sealUntil)
     doc.groupMessages = doc.groupMessages ?? []
     doc.groupMessages.push(msg)
     await store.saveDoc(doc)
-    return send(200, { message: { id: mid, from: me.id, sender: { id: me.id, name: me.name, username: me.username, avatar: me.avatar ?? '' }, text, time, image: msg.image } })
+    const out = { id: mid, from: me.id, sender: { id: me.id, name: me.name, username: me.username, avatar: me.avatar ?? '' }, text, time }
+    if (msg.image) out.image = msg.image
+    if (msg.sealUntil) out.sealUntil = msg.sealUntil
+    return send(200, { message: out })
   }
 
   /* ---------- Group calls (WebRTC signalling relay) ---------- */

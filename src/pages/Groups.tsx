@@ -18,8 +18,10 @@ import {
   MessageSquare,
   UserX,
   LogOut,
+  Hourglass,
 } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
+import { MsgBubble } from './Messenger'
 import { api } from '../api/client'
 import { useMe } from '../data/useMe'
 import { useAuth } from '../data/auth'
@@ -41,6 +43,7 @@ interface GroupMessage {
   text: string
   time: string
   image?: string
+  sealUntil?: number
 }
 
 interface Group {
@@ -309,6 +312,9 @@ function GroupDetail({
   const [draft, setDraft] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [sealMs, setSealMs] = useState<number | null>(null)
+  const [, setRev] = useState(0)
+  const bump = useCallback(() => setRev((r) => r + 1), [])
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null)
   const [incoming, setIncoming] = useState<{ from: number; name: string; kind: 'video' | 'audio' } | null>(null)
   const chatMessagesRef = useRef<HTMLDivElement>(null)
@@ -394,13 +400,22 @@ function GroupDetail({
   const send = async () => {
     const text = draft.trim()
     if (!text) return
-    const optimistic: GroupMessage = { id: Date.now(), from: meId, sender: null, text, time: t('common.now') }
+    const sealAt = sealMs ? Date.now() + sealMs : undefined
+    const optimistic: GroupMessage = {
+      id: Date.now(),
+      from: meId,
+      sender: null,
+      text,
+      time: t('common.now'),
+      ...(sealAt ? { sealUntil: sealAt } : {}),
+    }
     setMessages((prev) => [...prev, optimistic])
     setDraft('')
+    setSealMs(null)
     try {
       const { message } = await api<{ message: GroupMessage }>(`/api/groups/${group.id}/messages`, {
         method: 'POST',
-        body: { text },
+        body: { text, ...(sealAt ? { sealUntil: sealAt } : {}) },
       })
       setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? message : m)))
     } catch {
@@ -538,21 +553,29 @@ function GroupDetail({
         <section className="card chat-panel">
           <div className="chat-messages" ref={chatMessagesRef}>
             {messages.map((m) => (
-              <div key={m.id} className={`msg ${isOwn(m, meId) ? 'mine' : 'theirs'}`}>
+              <div key={m.id}>
                 {!isOwn(m, meId) && m.sender && (
                   <div className="msg-author">
                     <Avatar user={{ ...m.sender, online: true }} size={20} /> {m.sender.name}
                   </div>
                 )}
-                {m.image && <img className="msg-image" src={m.image} alt="" loading="lazy" />}
-                {m.text && <span className={m.image ? 'msg-text' : ''}>{m.text}</span>}
-                <span className="time">{m.time}</span>
+                <MsgBubble m={m} mine={isOwn(m, meId)} onReveal={bump} />
               </div>
             ))}
             {messages.length === 0 && <div className="chat-empty-hint">{t('groups.chatEmpty')}</div>}
           </div>
 
           <footer className="chat-input">
+            <button
+              type="button"
+              className={`seal-toggle${sealMs ? ' active' : ''}`}
+              aria-label={sealMs ? t('messenger.sealWillOpen') : t('messenger.sealToggle')}
+              title={sealMs ? t('messenger.sealWillOpen') : t('messenger.sealToggle')}
+              onClick={() => setSealMs((prev) => (prev === null ? 3600000 : prev === 3600000 ? 86400000 : null))}
+            >
+              <Hourglass size={18} />
+              {sealMs && <span className="seal-toggle-tag">{sealMs === 3600000 ? '1' : '24'}</span>}
+            </button>
             <input
               type="text"
               placeholder={t('groups.chatPlaceholder')}
