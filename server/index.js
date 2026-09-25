@@ -369,7 +369,9 @@ app.get('/api/data', authMiddleware, async (req, res) => {
         u.id AS au_id, u.name AS au_name, u.username AS au_username, u.avatar AS au_avatar, u.about AS au_about,
         (SELECT COUNT(*)::int FROM post_likes pl WHERE pl.post_id = p.id) AS likes,
         (SELECT COUNT(*)::int FROM post_shares ps WHERE ps.post_id = p.id) AS shared,
-        EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $1) AS liked_by_me
+        (SELECT COUNT(*)::int FROM seal_shields ss WHERE ss.post_id = p.id) AS shields,
+        EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $1) AS liked_by_me,
+        EXISTS(SELECT 1 FROM seal_shields ss WHERE ss.post_id = p.id AND ss.user_id = $1) AS shielded_by_me
        FROM posts p JOIN users u ON u.id = p.author_id ORDER BY p.id DESC`,
       [userId],
     ),
@@ -440,6 +442,8 @@ app.get('/api/data', authMiddleware, async (req, res) => {
     ...(p.live ? { live: true } : {}),
     ...(p.seal_until ? { sealUntil: Number(p.seal_until) } : {}),
     likedByMe: !!p.liked_by_me,
+    ...(p.shields ? { shields: p.shields } : {}),
+    ...(p.shielded_by_me ? { shieldedByMe: true } : {}),
   }))
 
   const stories = await Promise.all(
@@ -659,6 +663,66 @@ app.post('/api/posts/:id/share', authMiddleware, async (req, res) => {
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+const SHIELD_EXTEND_MS = 30 * 60 * 1000
+const SHIELD_MAX = 3
+
+app.post('/api/posts/:id/shield', authMiddleware, async (req, res) => {
+  const id = Number(req.params.id)
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const item = await client.query(
+      `SELECT p.author_id, p.seal_until FROM posts p WHERE p.id = $1 FOR UPDATE`,
+      [id],
+    )
+    if (item.rows.length === 0) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ error: 'Post topilmadi.' })
+    }
+    const row = item.rows[0]
+    if (!row.seal_until || Number(row.seal_until) <= Date.now()) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ error: "Muhr allaqachon ochilgan — qalqon qo'yib bo'lmaydi." })
+    }
+    if (Number(row.author_id) === req.user.id) {
+      await client.query('ROLLBACK')
+      return res.status(403).json({ error: "O'z postingizni himoya qila olmaysiz." })
+    }
+    const dup = await client.query(
+      `SELECT 1 FROM seal_shields WHERE post_id = $1 AND user_id = $2`,
+      [id, req.user.id],
+    )
+    if (dup.rows.length > 0) {
+      await client.query('ROLLBACK')
+      return res.status(409).json({ error: 'Siz bu postni allaqachon himoya qilgansiz.' })
+    }
+    const shieldR = await client.query(
+      `SELECT COUNT(*)::int AS n FROM seal_shields WHERE post_id = $1`,
+      [id],
+    )
+    if (shieldR.rows[0].n >= SHIELD_MAX) {
+      await client.query('ROLLBACK')
+      return res.status(409).json({ error: 'Bu post allaqachon maksimal himoyalangan.' })
+    }
+    await client.query(
+      `INSERT INTO seal_shields (post_id, user_id) VALUES ($1,$2)`,
+      [id, req.user.id],
+    )
+    const upd = await client.query(
+      `UPDATE posts SET seal_until = seal_until + $1 WHERE id = $2 RETURNING seal_until`,
+      [SHIELD_EXTEND_MS, id],
+    )
+    await client.query('COMMIT')
+    res.json({ sealUntil: Number(upd.rows[0].seal_until), shields: shieldR.rows[0].n + 1 })
+  } catch (e) {
+    await client.query('ROLLBACK')
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  } finally {
+    client.release()
   }
 })
 

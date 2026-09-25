@@ -11,6 +11,7 @@ export function emptyDoc() {
     postLikes: [],
     postComments: [],
     postShares: [],
+    sealShields: [],
     stories: [],
     storyViews: [],
     reels: [],
@@ -337,6 +338,8 @@ export async function handleRequest(method, pathname, query, req, store) {
         const likes = doc.postLikes.filter((l) => l.postId === p.id).length
         const shared = doc.postShares.filter((s) => s.postId === p.id).length
         const likedByMe = doc.postLikes.some((l) => l.postId === p.id && l.userId === me.id)
+        const shields = doc.sealShields.filter((s) => s.postId === p.id).length
+        const shieldedByMe = doc.sealShields.some((s) => s.postId === p.id && s.userId === me.id)
         return {
           id: p.id,
           author: userForContent(au),
@@ -353,6 +356,8 @@ export async function handleRequest(method, pathname, query, req, store) {
           shared,
           ...(p.live ? { live: true } : {}),
           likedByMe: !!likedByMe,
+          ...(shields ? { shields } : {}),
+          ...(shieldedByMe ? { shieldedByMe: true } : {}),
         }
       })
       .sort((a, b) => b.id - a.id)
@@ -544,6 +549,27 @@ export async function handleRequest(method, pathname, query, req, store) {
     const shared = doc.postShares.filter((s) => s.postId === id).length
     await store.saveDoc(doc)
     return send(200, { shared })
+  }
+
+  if (method === 'POST' && first === 'posts' && third === 'shield') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const id = Number(second)
+    const post = doc.posts.find((p) => p.id === id)
+    if (!post) return send(404, { error: 'Post topilmadi.' })
+    if (!post.sealUntil || Number(post.sealUntil) <= Date.now())
+      return send(400, { error: "Muhr allaqachon ochilgan — qalqon qo'yib bo'lmaydi." })
+    if (Number(post.authorId) === me.id)
+      return send(403, { error: "O'z postingizni himoya qila olmaysiz." })
+    if (doc.sealShields.some((s) => s.postId === id && s.userId === me.id))
+      return send(409, { error: 'Siz bu postni allaqachon himoya qilgansiz.' })
+    const shields = doc.sealShields.filter((s) => s.postId === id).length
+    if (shields >= 3)
+      return send(409, { error: 'Bu post allaqachon maksimal himoyalangan.' })
+    post.sealUntil = Number(post.sealUntil) + 30 * 60 * 1000
+    doc.sealShields.push({ postId: id, userId: me.id, createdAt: Date.now() })
+    await store.saveDoc(doc)
+    return send(200, { sealUntil: post.sealUntil, shields: shields + 1 })
   }
 
   /* ---------- Reels ---------- */
