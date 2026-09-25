@@ -1,0 +1,340 @@
+/* =========================================================
+   Orbit — fazoviy navigatsiya
+   ========================================================= */
+
+.orbit-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.orbit-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--fn-radius-card);
+  border: 1px solid var(--fn-border);
+  background: var(--fn-surface);
+  box-shadow: var(--fn-shadow);
+  flex-wrap: wrap;
+}
+
+.orbit-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--fn-font-head);
+  font-weight: 700;
+  color: var(--fn-primary);
+  font-size: 16px;
+}
+
+.orbit-title em {
+  font-style: normal;
+  font-family: var(--fn-font-body);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--fn-accent);
+  background: var(--fn-primary-tint);
+  border-radius: var(--fn-radius-pill);
+  padding: 2px 8px;
+}
+
+.orbit-title svg {
+  color: var(--fn-accent);
+}
+
+.orbit-hint {
+  flex: 1;
+  min-width: 180px;
+  font-size: 12.5px;
+  color: var(--fn-text-muted);
+}
+
+.orbit-zoom {
+  display: flex;
+  gap: 6px;
+}
+
+.orbit-zoom .icon-btn {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--fn-radius-btn);
+  border: 1px solid var(--fn-border);
+  background: var(--fn-surface);
+  color: var(--fn-text-secondary);
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    transform 140ms ease;
+}
+
+.orbit-zoom .icon-btn:hover {
+  background: var(--fn-primary-tint);
+  border-color: var(--fn-border-strong);
+  transform: scale(1.06);
+}
+
+.orbit-stage {
+  position: relative;
+  height: 560px;
+  border-radius: var(--fn-radius-card);
+  border: 1px solid var(--fn-border);
+  background:
+    radial-gradient(circle at 50% 42%, var(--fn-primary-tint) 0%, transparent 58%),
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--fn-accent) 22%, transparent) 0%, transparent 72%),
+    var(--fn-surface);
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+
+.orbit-stage:active {
+  cursor: grabbing;
+}
+
+.orbit-field {
+  position: absolute;
+  inset: 0;
+  transition: none;
+  will-change: transform;
+}
+
+.orbit-node {
+  position: absolute;
+  width: 56px;
+  height: 56px;
+  margin-left: -28px;
+  margin-top: -28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 50%;
+  animation: doppi-orbit-in 640ms cubic-bezier(0.22, 0.9, 0.35, 1) backwards;
+  outline: none;
+  transition: transform 160ms ease, filter 160ms ease;
+}
+
+.orbit-node img,
+.orbit-node-fallback {
+  position: absolute;
+  inset: 3px;
+  width: calc(100% - 6px);
+  height: calc(100% - 6px);
+  border-radius: 50%;
+  object-fit: cover;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 20px;
+  color: #fff;
+  background: var(--fn-story-gradient);
+}
+
+.orbit-node-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--fn-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fn-bg) 80%, transparent);
+  transition: border-color 160ms ease;
+}
+
+.orbit-node-likes {
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--fn-text-primary);
+  background: var(--fn-surface);
+  border: 1px solid var(--fn-border);
+  border-radius: var(--fn-radius-pill);
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+.orbit-node-live {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--fn-danger);
+  border: 2px solid var(--fn-surface);
+  animation: fn-ping 1.6s ease-in-out infinite;
+}
+
+.orbit-node-stale {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--fn-text-muted);
+  border: 2px solid var(--fn-surface);
+}
+
+.orbit-node.stale img,
+.orbit-node.stale .orbit-node-fallback {
+  filter: grayscale(0.75) contrast(0.92);
+  opacity: 0.55;
+}
+
+.orbit-node.stale .orbit-node-ring {
+  border-style: dashed;
+  border-color: var(--fn-text-muted);
+}
+
+.orbit-node.stale .orbit-node-likes {
+  opacity: 0.6;
+}
+
+.orbit-node:hover {
+  transform: scale(1.35);
+  z-index: 999 !important;
+}
+
+.orbit-node:hover .orbit-node-ring {
+  border-color: var(--fn-primary);
+  box-shadow: 0 0 0 3px var(--fn-primary-tint);
+}
+
+@keyframes doppi-orbit-in {
+  0% {
+    transform: scale(0) translateY(40px) rotate(90deg);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.15) translateY(-6px) rotate(-8deg);
+    opacity: 1;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes fn-ping {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--fn-danger) 55%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+.orbit-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fn-text-muted);
+  font-family: var(--fn-font-head);
+  font-size: 18px;
+}
+
+/* ---------- Orbit viewer ---------- */
+.orbit-viewer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.orbit-viewer-inner {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: 92vh;
+  overflow-y: auto;
+  animation: doppi-viewer-in 340ms cubic-bezier(0.22, 0.9, 0.35, 1);
+}
+
+.orbit-viewer-close {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  float: right;
+  width: 36px;
+  height: 36px;
+  margin: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--fn-border);
+  background: var(--fn-surface);
+  color: var(--fn-text-primary);
+  cursor: pointer;
+  box-shadow: var(--fn-shadow);
+}
+
+@keyframes doppi-viewer-in {
+  0% {
+    transform: scale(0.9) rotate(1.5deg);
+    opacity: 0;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* ---------- Vaqt to'lqini (dormant wave) ---------- */
+.wave-stale {
+  position: relative;
+  transition: opacity 300ms ease;
+}
+
+.wave-stale .card {
+  filter: grayscale(0.65) contrast(0.95);
+  opacity: 0.58;
+}
+
+.wave-stale .card:hover {
+  opacity: 0.85;
+}
+
+.wave-tag {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fn-surface);
+  background: color-mix(in srgb, var(--fn-text-muted) 78%, transparent);
+  border-radius: var(--fn-radius-pill);
+  padding: 3px 10px;
+  backdrop-filter: blur(4px);
+}
+
+.wave-tag::before {
+  content: '~';
+  font-size: 13px;
+  line-height: 1;
+}
+
+@media (max-width: 640px) {
+  .orbit-stage {
+    height: 460px;
+  }
+  .orbit-hint {
+    display: none;
+  }
+}

@@ -15,8 +15,10 @@ body {
 }
 
 body {
-  font-family: 'Plus Jakarta Sans', 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: var(--fn-bg);
+  font-family: var(--fn-font-body);
+  background-color: var(--fn-bg);
+  background-image: var(--fn-texture);
+  background-attachment: fixed;
   color: var(--fn-text-primary);
   font-size: 15px;
   line-height: 1.5;
@@ -34,6 +36,12 @@ h4 {
   font-weight: 700;
   line-height: 1.25;
   color: var(--fn-text-primary);
+}
+
+h1,
+h2 {
+  font-family: var(--fn-font-head);
+  letter-spacing: 0.2px;
 }
 
 p {
@@ -125,7 +133,7 @@ ol {
   justify-content: center;
   font-weight: 700;
   color: #fff;
-  background: linear-gradient(135deg, var(--fn-primary), #7c3aed);
+  background: var(--fn-story-gradient);
   user-select: none;
 }
 
@@ -325,6 +333,54 @@ ol {
 
 .fade-in {
   animation: fn-fade-in 150ms ease;
+}
+
+/* =========================================================
+   Do'ppi imzo animatsiyalari — mato ochilishi (unfold),
+   "tish tikish" like efekti
+   ========================================================= */
+
+@keyframes doppi-unfurl {
+  0% {
+    clip-path: inset(0 7% 3% 7%);
+    opacity: 0;
+    transform: translateY(14px) scale(0.988);
+    filter: saturate(0.35) blur(2px);
+  }
+  60% {
+    clip-path: inset(0 0.5% 0.4% 0.5%);
+  }
+  100% {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+.fn-route {
+  animation: doppi-unfurl 640ms cubic-bezier(0.22, 0.9, 0.28, 1) both;
+}
+
+@keyframes doppi-stitch {
+  0% {
+    transform: scale(0.55) rotate(0deg);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scale(1.85) rotate(20deg);
+    opacity: 0;
+  }
+}
+
+@keyframes doppi-tilt {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-2px) scale(1.004);
+  }
 }
 
 /* ---------- Links flush with icons ---------- */

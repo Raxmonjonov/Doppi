@@ -1,20 +1,56 @@
 import { Link } from 'react-router-dom'
-import { Play } from 'lucide-react'
+import { Play, List, Orbit } from 'lucide-react'
 import { HomeComposer } from '../components/CreatePost'
 import { StoriesRow } from '../components/StoriesRow'
 import { PostCard } from '../components/PostCard'
+import { OrbitView } from '../components/OrbitView'
 import { useData } from '../data/store'
 import { useI18n } from '../i18n'
+import { useState } from 'react'
+
+const DORMANT_MS = 24 * 60 * 60 * 1000
 
 export function Home() {
   const { t } = useI18n()
   const posts = useData((d) => d.posts)
   const reels = useData((d) => d.reels)
+  const [view, setView] = useState<'stream' | 'orbit'>(() =>
+    localStorage.getItem('doppi-view-v1') === 'orbit' ? 'orbit' : 'stream',
+  )
+
+  const switchView = (v: 'stream' | 'orbit') => {
+    setView(v)
+    localStorage.setItem('doppi-view-v1', v)
+  }
+
+  const now = Date.now()
+  const isStale = (p: { id: number }) => now - Number(p.id) > DORMANT_MS
 
   return (
     <div>
       <HomeComposer />
       <StoriesRow />
+
+      {posts.length > 0 && (
+        <div className="view-switch" role="group" aria-label="view">
+          <button
+            type="button"
+            className={view === 'stream' ? 'active' : ''}
+            onClick={() => switchView('stream')}
+          >
+            <List size={16} />
+            <span>{t('home.viewStream')}</span>
+          </button>
+          <button
+            type="button"
+            className={view === 'orbit' ? 'active' : ''}
+            onClick={() => switchView('orbit')}
+          >
+            <Orbit size={16} />
+            <span>{t('home.viewOrbit')}</span>
+          </button>
+        </div>
+      )}
 
       {reels.length > 0 && (
         <div className="card" style={{ marginBottom: 20 }}>
@@ -43,8 +79,19 @@ export function Home() {
           <div className="empty-state-title">{t('home.emptyPostsTitle')}</div>
           <div className="empty-state-sub">{t('home.emptyPostsSub')}</div>
         </div>
+      ) : view === 'orbit' ? (
+        <OrbitView posts={posts} />
       ) : (
-        posts.map((p) => <PostCard key={p.id} post={p} />)
+        posts.map((p) =>
+          isStale(p) ? (
+            <div key={p.id} className="wave-stale">
+              <span className="wave-tag">{t('home.dormantWave')}</span>
+              <PostCard post={p} />
+            </div>
+          ) : (
+            <PostCard key={p.id} post={p} />
+          ),
+        )
       )}
     </div>
   )
