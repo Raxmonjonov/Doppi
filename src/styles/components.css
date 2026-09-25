@@ -3384,3 +3384,108 @@
 .msg.mine .msg-sealed-rest {
   color: #ffd98a;
 }
+
+/* ---------- Time machine (vaqt mashinasi) ---------- */
+.time-machine {
+  margin-bottom: 20px;
+  padding: 14px 18px;
+}
+
+.time-machine-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.time-machine-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--fn-font-head);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fn-text-primary);
+}
+
+.time-machine-title svg {
+  color: var(--fn-accent);
+}
+
+.time-machine-now {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fn-text-muted);
+}
+
+.time-machine-reset {
+  border: 1px solid var(--fn-accent);
+  background: transparent;
+  color: var(--fn-accent);
+  border-radius: var(--fn-radius-pill);
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.time-machine-reset:hover {
+  background: var(--fn-accent);
+  color: #fff;
+}
+
+.time-machine-range {
+  width: 100%;
+  margin-top: 12px;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--fn-primary), var(--fn-accent));
+  outline: none;
+  cursor: pointer;
+}
+
+.time-machine-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  rotate: 45deg;
+  background: var(--fn-story-gradient);
+  border: 2px solid var(--fn-surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fn-accent) 45%, transparent);
+}
+
+.time-machine-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  rotate: 45deg;
+  background: var(--fn-story-gradient);
+  border: 2px solid var(--fn-surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fn-accent) 45%, transparent);
+}
+
+.time-machine-caption {
+  margin-top: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fn-accent);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.sealed-rewind-badge {
+  margin-top: 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fn-text-muted);
+  border: 1px dashed var(--fn-border-strong);
+  border-radius: var(--fn-radius-pill);
+  padding: 4px 12px;
+}

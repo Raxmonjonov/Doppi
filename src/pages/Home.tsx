@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Play, List, Orbit, Waves, Lock, Clock } from 'lucide-react'
+import { Play, List, Orbit, Waves, Lock, Clock, History } from 'lucide-react'
 import { HomeComposer } from '../components/CreatePost'
 import { StoriesRow } from '../components/StoriesRow'
 import { PostCard } from '../components/PostCard'
@@ -71,6 +71,12 @@ export function Home() {
   }
 
   const now = Date.now()
+  const [rewind, setRewind] = useState(0)
+  const asOf = now - rewind
+  const rewinding = rewind > 0
+  const maxRewind = Math.min(Math.max(...posts.map((p) => now - Number(p.id)), 0), 30 * 24 * 3600 * 1000)
+  const inTime = (p: { id: number }) => Number(p.id) <= asOf
+  const ageAt = (p: { id: number }) => asOf - Number(p.id)
   const ageOf = (p: { id: number }) => now - Number(p.id)
   const isFresh = (p: { id: number }) => ageOf(p) <= FRESH_MS
   const isStale = (p: { id: number }) => ageOf(p) > DORMANT_MS
@@ -116,6 +122,36 @@ export function Home() {
           </button>
         </div>
       )}
+
+      <div className="card time-machine">
+        <div className="time-machine-head">
+          <span className="time-machine-title">
+            <History size={14} />
+            {t('home.rewindTitle')}
+          </span>
+          {rewinding ? (
+            <button type="button" className="time-machine-reset" onClick={() => setRewind(0)}>
+              {t('home.rewindNow')}
+            </button>
+          ) : (
+            <span className="time-machine-now">{t('home.rewindNowTxt')}</span>
+          )}
+        </div>
+        <input
+          type="range"
+          className="time-machine-range"
+          min={0}
+          max={maxRewind}
+          step={60000}
+          value={rewind}
+          onChange={(e) => setRewind(Number(e.target.value))}
+        />
+        <div className="time-machine-caption">
+          {rewinding ? t('home.rewindAt', { rest: formatRest(rewind) }) : t('home.rewindHint')}
+        </div>
+      </div>
+
+      <WaveWall events={waveEvents} />
 
       <WaveWall events={waveEvents} />
 
@@ -164,8 +200,28 @@ export function Home() {
         />
       ) : (
         <>
-          {posts.map((p) =>
-            isStale(p) ? (
+          {posts.map((p) => {
+            if (rewinding && !inTime(p)) return null
+            if (rewinding) {
+              const age = ageAt(p)
+              const sealedNow = !!p.sealUntil && asOf < p.sealUntil
+              const freshNow = age <= FRESH_MS && !sealedNow
+              const staleNow = age > DORMANT_MS
+              if (staleNow) {
+                return (
+                  <div key={p.id} className="wave-stale">
+                    <span className="wave-tag">{t('home.dormantWave')}</span>
+                    <PostCard post={p} asOf={asOf} />
+                  </div>
+                )
+              }
+              return (
+                <div key={p.id} className={freshNow ? 'post-fresh' : undefined}>
+                  <PostCard post={p} asOf={asOf} />
+                </div>
+              )
+            }
+            return isStale(p) ? (
               <div key={p.id} className="wave-stale">
                 <span className="wave-tag">{t('home.dormantWave')}</span>
                 <PostCard post={p} />
@@ -174,8 +230,8 @@ export function Home() {
               <div key={p.id} className={isFresh(p) && !isSealed(p) ? 'post-fresh' : undefined}>
                 <PostCard post={p} />
               </div>
-            ),
-          )}
+            )
+          })}
 
           {dormant.length > 0 && (
             <div className="card horizon-card">
