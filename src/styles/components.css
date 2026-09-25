@@ -3210,3 +3210,77 @@
 .wave-wall-item.sink .wave-wall-time {
   color: var(--fn-text-muted);
 }
+
+/* ---------- Muhr devori (seal wall) ---------- */
+.seal-wall-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 16px;
+}
+
+.seal-wall-card {
+  position: relative;
+  border-radius: var(--fn-radius-card);
+  background-color: var(--fn-surface);
+  background-image: var(--fn-texture);
+  border: 1px dashed color-mix(in srgb, var(--fn-accent) 45%, var(--fn-border));
+  padding: 22px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.seal-wall-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--fn-accent) 22%, transparent);
+}
+
+.seal-wall-medallion {
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  background: var(--fn-story-gradient);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid color-mix(in srgb, var(--fn-accent) 65%, transparent);
+  box-shadow: 0 0 0 5px var(--fn-primary-tint);
+  animation: doppi-tassel 8s linear infinite;
+}
+
+.seal-wall-rest {
+  font-family: var(--fn-font-head);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--fn-accent);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.seal-wall-author {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fn-text-primary);
+  max-width: 100%;
+}
+
+.seal-wall-author span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.seal-wall-caption {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fn-text-muted);
+}

@@ -5,6 +5,7 @@ import BottomNav from './components/BottomNav'
 import { CreatePost } from './components/CreatePost'
 import { Home } from './pages/Home'
 import { Reels } from './pages/Reels'
+import SealWall from './pages/SealWall'
 import { Photos } from './pages/Photos'
 import { Profile } from './pages/Profile'
 import { Groups } from './pages/Groups'
@@ -41,6 +42,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/reels" element={<Reels />} />
+              <Route path="/seals" element={<SealWall />} />
               <Route path="/photos" element={<Photos />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/groups" element={<Groups />} />
