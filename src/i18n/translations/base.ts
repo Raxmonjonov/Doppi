@@ -9,6 +9,7 @@ export const uz: Dict = {
   'navbar.searchPlaceholder': 'Foydalanuvchilarni qidirish',
   'navbar.searchNoResults': 'Hech kim topilmadi',
   'navbar.searchPrompt': 'Qidirish uchun yozing',
+  'navbar.nextSeal': 'Keyingi muhr',
   'sidebar.labelHome': 'Uy',
   'sidebar.labelSeals': "Muhr devori",
   'sealWall.title': "Muhr devori",

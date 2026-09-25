@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Search } from 'lucide-react'
+import { Search, Hourglass } from 'lucide-react'
 import { useAuth } from '../data/auth'
+import { useData } from '../data/store'
 import { useI18n } from '../i18n'
 import { Avatar } from './Avatar'
 import { LiveClock } from './LiveClock'
@@ -9,8 +10,10 @@ import { LiveClock } from './LiveClock'
 export function Navbar() {
   const { t } = useI18n()
   const { accounts, user } = useAuth()
+  const posts = useData((d) => d.posts)
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
+  const [tick, setTick] = useState(() => Date.now())
   const wrapRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
 
@@ -22,6 +25,26 @@ export function Navbar() {
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
+
+  useEffect(() => {
+    const id = setInterval(() => setTick(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  let minUntil = Infinity
+  let nextSeal: (typeof posts)[number] | undefined
+  for (const p of posts) {
+    if (p.sealUntil && p.sealUntil > tick && p.sealUntil < minUntil) {
+      minUntil = p.sealUntil
+      nextSeal = p
+    }
+  }
+
+  const sealRest = nextSeal && nextSeal.sealUntil && nextSeal.sealUntil > tick ? nextSeal.sealUntil - tick : 0
+  const sealText =
+    sealRest > 0
+      ? `${Math.floor(sealRest / 3600000)}:${String(Math.floor((sealRest % 3600000) / 60000)).padStart(2, '0')}:${String(Math.floor((sealRest % 60000) / 1000)).padStart(2, '0')}`
+      : ''
 
   const q = query.trim().toLowerCase()
   const results = q
@@ -72,6 +95,15 @@ export function Navbar() {
           </div>
         )}
       </div>
+
+      {nextSeal && (
+        <Link to="/seals" className="fn-soat-chip" title={`${t('navbar.nextSeal')} · ${nextSeal.author.name}`}>
+          <span className="fn-soat-ic">
+            <Hourglass size={14} />
+          </span>
+          <span className="fn-soat-text">{sealText}</span>
+        </Link>
+      )}
 
       <LiveClock />
     </header>
