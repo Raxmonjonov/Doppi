@@ -1715,15 +1715,49 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  background-color: var(--fn-surface-alt);
+  background-image: var(--fn-texture);
 }
 
 .msg {
+  position: relative;
   max-width: 72%;
-  padding: 10px 14px;
-  border-radius: 18px;
+  padding: 10px 14px 8px;
   font-size: 14px;
   line-height: 1.45;
-  animation: fn-fade-in 180ms ease;
+  animation: doppi-msg-in 300ms cubic-bezier(0.22, 0.9, 0.35, 1);
+}
+
+@keyframes doppi-msg-in {
+  0% {
+    transform: translateY(10px) rotate(1deg) scale(0.97);
+    opacity: 0;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.msg::before {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border: 1px dashed color-mix(in srgb, var(--fn-accent) 42%, transparent);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.msg::after {
+  content: '';
+  position: absolute;
+  bottom: 16px;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  rotate: 45deg;
+  background: var(--fn-accent);
+  pointer-events: none;
 }
 
 .msg .msg-image {
@@ -1824,16 +1858,39 @@
 
 .msg.mine {
   align-self: flex-end;
-  background: var(--fn-primary);
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.06) 0 2px, transparent 2px 7px),
+    linear-gradient(135deg, var(--fn-primary), var(--fn-primary-hover));
   color: #fff;
-  border-bottom-right-radius: 6px;
+  border-radius: 16px 8px 18px 20px;
+  border-bottom-right-radius: 12px;
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--fn-primary) 30%, transparent);
+}
+
+.msg.mine::before {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.msg.mine::after {
+  right: 7px;
+  background: var(--fn-accent);
 }
 
 .msg.theirs {
   align-self: flex-start;
-  background: var(--fn-surface-alt);
+  background:
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--fn-primary) 6%, transparent) 0 2px, transparent 2px 7px),
+    var(--fn-surface);
   color: var(--fn-text-primary);
-  border-bottom-left-radius: 6px;
+  border-radius: 8px 16px 20px 18px;
+  border-bottom-left-radius: 12px;
+  border: 1px solid var(--fn-border);
+  box-shadow: var(--fn-shadow);
+}
+
+.msg.theirs::after {
+  left: 7px;
+  background: var(--fn-primary);
 }
 
 .msg .time {
