@@ -27,6 +27,52 @@ function formatRest(ms: number) {
   return `${total % 60}s`
 }
 
+interface TrailItem {
+  id: number
+  kind: 'post' | 'album'
+  name: string
+  sub: string
+  sealUntil: number
+  dur: number
+}
+
+function trailDur(h: number) {
+  return h < 24 ? `${h}so` : `${Math.round(h / 24)}k`
+}
+
+function RevealTrail({ items }: { items: TrailItem[] }) {
+  const { t } = useI18n()
+  if (items.length === 0) return null
+  return (
+    <div className="card trail-wall">
+      <div className="trail-wall-head">
+        <Clock size={15} />
+        <span>{t('home.trailTitle')}</span>
+        <em>{t('home.trailSub')}</em>
+      </div>
+      <div className="trail-wall-items">
+        {items.map((it) => {
+          const just = Date.now() - it.sealUntil < 60 * 1000
+          return (
+            <div className={`trail-item${just ? ' just' : ''}`} key={`${it.kind}-${it.id}`}>
+              <span className="trail-item-med">
+                <Lock size={13} />
+              </span>
+              <span className="trail-item-main">
+                <b>{it.name}</b>
+                <p>{it.sub}</p>
+              </span>
+              <span className="trail-item-meta">
+                {just ? <b className="trail-item-just">{t('home.trailJustOpen')}</b> : <em>{trailDur(it.dur)}</em>}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function WaveWall({ events }: { events: WaveEvent[] }) {
   const { t } = useI18n()
   if (events.length === 0) return null
@@ -61,6 +107,7 @@ export function Home() {
   const { t } = useI18n()
   const posts = useData((d) => d.posts)
   const reels = useData((d) => d.reels)
+  const albums = useData((d) => d.albums)
   const [view, setView] = useState<'stream' | 'orbit'>(() =>
     localStorage.getItem('doppi-view-v1') === 'stream' ? 'stream' : 'orbit',
   )
@@ -96,6 +143,31 @@ export function Home() {
     }, [])
     .sort((a, b) => a.at - b.at)
     .slice(0, 5)
+
+  const trailItems: TrailItem[] = [
+    ...posts
+      .filter((p) => p.sealUntil && p.sealUntil <= now)
+      .map((p) => ({
+        id: p.id,
+        kind: 'post' as const,
+        name: p.author.name,
+        sub: p.text || (p.images[0] ? t('home.horizonPhoto') : ''),
+        sealUntil: p.sealUntil!,
+        dur: (p.sealUntil! - Number(p.id)) / 3600000,
+      })),
+    ...albums
+      .filter((a) => a.sealUntil && a.sealUntil <= now)
+      .map((a) => ({
+        id: a.id,
+        kind: 'album' as const,
+        name: a.title || t('photos.defaultAlbumTitle'),
+        sub: t('photos.photoCount', { count: a.count }),
+        sealUntil: a.sealUntil!,
+        dur: (a.sealUntil! - Number(a.id)) / 3600000,
+      })),
+  ]
+    .sort((a, b) => b.sealUntil - a.sealUntil)
+    .slice(0, 6)
 
   return (
     <div>
@@ -153,7 +225,7 @@ export function Home() {
 
       <WaveWall events={waveEvents} />
 
-      <WaveWall events={waveEvents} />
+      <RevealTrail items={trailItems} />
 
       {reels.length > 0 && (
         <div className="card" style={{ marginBottom: 20 }}>
