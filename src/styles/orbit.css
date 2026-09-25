@@ -199,6 +199,32 @@
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
+.orbit-node-seal::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    color-mix(in srgb, var(--fn-accent) 70%, transparent) 40deg,
+    transparent 110deg
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1px));
+  animation: doppi-seal-sweep 2.4s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes doppi-seal-sweep {
+  from {
+    rotate: 0deg;
+  }
+  to {
+    rotate: 360deg;
+  }
+}
+
 .orbit-node.stale img,
 .orbit-node.stale .orbit-node-fallback {
   filter: grayscale(0.75) contrast(0.92);

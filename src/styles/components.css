@@ -3489,3 +3489,89 @@
   border-radius: var(--fn-radius-pill);
   padding: 4px 12px;
 }
+
+/* ---------- Seal reveal ceremony ---------- */
+.post-card {
+  position: relative;
+}
+
+.post-reveal {
+  animation: doppi-reveal-ring 1.1s ease-out;
+}
+
+@keyframes doppi-reveal-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--fn-accent) 55%, transparent);
+    transform: scale(0.985);
+  }
+  60% {
+    box-shadow: 0 0 0 14px color-mix(in srgb, var(--fn-accent) 22%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 26px transparent;
+    transform: scale(1);
+  }
+}
+
+.reveal-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--fn-surface) 88%, transparent);
+  background-image: var(--fn-texture);
+  font-family: var(--fn-font-head);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--fn-primary);
+  letter-spacing: 0.5px;
+  animation: reveal-flash-in 2.6s ease forwards;
+  pointer-events: none;
+}
+
+.reveal-ic {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: var(--fn-story-gradient);
+  font-size: 20px;
+  animation: reveal-flash-spin 2.6s ease-in-out forwards;
+}
+
+@keyframes reveal-flash-in {
+  0% {
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes reveal-flash-spin {
+  0% {
+    rotate: 0deg;
+    transform: scale(0.6);
+  }
+  20% {
+    transform: scale(1.15);
+  }
+  100% {
+    rotate: 360deg;
+    transform: scale(1);
+  }
+}

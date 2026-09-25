@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Heart, MessageCircle, Share2, MoreHorizontal, Send, Link as LinkIcon, UserRound, Lock } from 'lucide-react'
 import { useI18n } from '../i18n'
@@ -34,6 +34,19 @@ export function PostCard({ post, asOf }: { post: Post; asOf?: number }) {
   const rewound = asOf != null
   const nowMs = rewound ? asOf : liveNow
   const sealed = !!post.sealUntil && nowMs < post.sealUntil
+  const [justRevealed, setJustRevealed] = useState(false)
+  const wasSealedRef = useRef(sealed)
+
+  useEffect(() => {
+    if (wasSealedRef.current && !sealed && !rewound) {
+      setJustRevealed(true)
+      const id = window.setTimeout(() => setJustRevealed(false), 2600)
+      wasSealedRef.current = sealed
+      return () => window.clearTimeout(id)
+    }
+    wasSealedRef.current = sealed
+    return
+  }, [sealed, rewound])
 
   useEffect(() => {
     if (!sealed || rewound) return
@@ -66,7 +79,13 @@ export function PostCard({ post, asOf }: { post: Post; asOf?: number }) {
   }
 
   return (
-    <article className="card post-card fade-in">
+    <article className={`card post-card fade-in${justRevealed ? ' post-reveal' : ''}`}>
+      {justRevealed && (
+        <div className="reveal-flash">
+          <span className="reveal-ic">✦</span>
+          <span>{t('postCard.revealFlash')}</span>
+        </div>
+      )}
       <div className="post-head">
         <Avatar user={post.author} size={42} />
         <div className="meta" style={{ flex: 1 }}>
