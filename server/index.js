@@ -397,7 +397,7 @@ app.get('/api/data', authMiddleware, async (req, res) => {
       `SELECT rc.id, rc.reel_id, rc.text, rc.time, u.id AS au_id, u.name AS au_name, u.username AS au_username, u.avatar AS au_avatar FROM reel_comments rc JOIN users u ON u.id = rc.author_id ORDER BY rc.id`,
     ),
     pool.query(
-      `SELECT a.id, a.title, a.photos,
+      `SELECT a.id, a.title, a.photos, a.seal_until,
         (SELECT COUNT(*)::int FROM album_likes al WHERE al.album_id = a.id) AS likes
        FROM albums a ORDER BY a.id DESC`,
     ),
@@ -470,13 +470,17 @@ app.get('/api/data', authMiddleware, async (req, res) => {
     likedByMe: !!r.liked_by_me,
   }))
 
-  const albums = albumsR.rows.map((a) => ({
-    id: a.id,
-    title: a.title,
-    count: Array.isArray(a.photos) ? a.photos.length : 0,
-    likes: a.likes ?? 0,
-    photos: Array.isArray(a.photos) ? a.photos : [],
-  }))
+  const albums = albumsR.rows.map((a) => {
+    const base = {
+      id: a.id,
+      title: a.title,
+      count: Array.isArray(a.photos) ? a.photos.length : 0,
+      likes: a.likes ?? 0,
+      photos: Array.isArray(a.photos) ? a.photos : [],
+    }
+    if (a.seal_until) base.sealUntil = Number(a.seal_until)
+    return base
+  })
 
   const groups = groupsR.rows.map((g) => ({
     id: g.id,
@@ -575,11 +579,12 @@ app.put('/api/data', authMiddleware, async (req, res) => {
     }
 
     for (const a of incomingAlbums) {
+      const seal = Number(a.sealUntil) || null
       await client.query(
-        `INSERT INTO albums (id, title, photos)
-         VALUES ($1,$2,$3)
-         ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, photos = EXCLUDED.photos`,
-        [Number(a.id), String(a.title ?? ''), JSON.stringify(Array.isArray(a.photos) ? a.photos : [])],
+        `INSERT INTO albums (id, title, photos, seal_until)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, photos = EXCLUDED.photos, seal_until = EXCLUDED.seal_until`,
+        [Number(a.id), String(a.title ?? ''), JSON.stringify(Array.isArray(a.photos) ? a.photos : []), seal],
       )
     }
 
