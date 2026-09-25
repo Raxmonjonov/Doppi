@@ -97,6 +97,7 @@ export const en: Dict = {
   'home.rewindNow': 'Back to now',
   'home.rewindAt': '{rest} ago',
   'postCard.rewindSeal': 'At this moment: still sealed',
+  'postCard.revealFlash': 'Seal opened',
   'home.horizonPhoto': 'Photo',
   'auth.passwordMismatch': 'Passwords do not match.',
   'auth.tagline': 'Connect with your friends',

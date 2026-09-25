@@ -90,6 +90,7 @@ export const uz: Dict = {
   'home.rewindNow': 'Hozirga qaytish',
   'home.rewindAt': '{rest} oldin',
   'postCard.rewindSeal': 'Shu lahza: hali muhrlangan edi',
+  'postCard.revealFlash': 'Muhr ochildi',
   'home.horizonPhoto': 'Fotosurat',
   'auth.passwordMismatch': 'Parollar bir-biriga mos emas.',
   'auth.tagline': "Do'stlaringiz bilan ulanish",
