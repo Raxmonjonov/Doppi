@@ -88,6 +88,7 @@ export interface Message {
   text: string
   time: string
   image?: string
+  sealUntil?: number
 }
 
 export interface Thread {

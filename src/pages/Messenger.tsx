@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Send, Image, Search, Pin, PinOff, Trash2, X, Phone, Video, PhoneOff, Mic, MicOff, Camera, CameraOff } from 'lucide-react'
+import { Send, Image, Search, Pin, PinOff, Trash2, X, Phone, Video, PhoneOff, Mic, MicOff, Camera, CameraOff, Hourglass } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
 import type { Message } from '../data/mock'
 import { useMe } from '../data/useMe'
@@ -13,7 +13,7 @@ interface RawThread {
   id: number
   user: { id: number; name: string; username: string; avatar: string; online: boolean }
   online: boolean
-  messages: { id: number; from: number; text: string; time: string; image?: string }[]
+  messages: { id: number; from: number; text: string; time: string; image?: string; sealUntil?: number }[]
 }
 
 interface Thread {
@@ -58,6 +58,56 @@ async function loadThreads(): Promise<RawThread[]> {
   }
 }
 
+function MsgBubble({ m, mine, onReveal }: { m: Message; mine: boolean; onReveal: () => void }) {
+  const { t } = useI18n()
+  const [now, setNow] = useState(() => Date.now())
+  const sealed = m.sealUntil != null
+
+  useEffect(() => {
+    if (!sealed) return
+    const iv = setInterval(() => {
+      if ((m.sealUntil ?? 0) - Date.now() <= 0) {
+        clearInterval(iv)
+        setNow(Date.now())
+        onReveal()
+        return
+      }
+      setNow(Date.now())
+    }, 1000)
+    return () => clearInterval(iv)
+  }, [sealed, m.sealUntil, onReveal])
+
+  if (sealed && (m.sealUntil ?? 0) > now) {
+    const rest = m.sealUntil! - now
+    const fmt =
+      rest >= 3600000
+        ? `${Math.floor(rest / 3600000)}:${String(Math.floor((rest % 3600000) / 60000)).padStart(2, '0')}:${String(
+            Math.floor((rest % 60000) / 1000),
+          ).padStart(2, '0')}`
+        : `${String(Math.floor(rest / 60000)).padStart(2, '0')}:${String(Math.floor((rest % 60000) / 1000)).padStart(2, '0')}`
+    return (
+      <div className={`msg msg-sealed${mine ? ' mine' : ' theirs'}`} title={t('messenger.sealedHint')}>
+        <span className="msg-sealed-ic">
+          <Hourglass size={15} />
+        </span>
+        <span className="msg-sealed-meta">
+          <span className="msg-sealed-label">{t('messenger.sealedTag')}</span>
+          <span className="msg-sealed-rest">{fmt}</span>
+        </span>
+        <span className="time">{m.time}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className={`msg ${mine ? 'mine' : 'theirs'}`}>
+      {m.image && <img className="msg-image" src={m.image} alt="" loading="lazy" />}
+      {m.text && <span className={m.image ? 'msg-text' : ''}>{m.text}</span>}
+      <span className="time">{m.time}</span>
+    </div>
+  )
+}
+
 export function Messenger() {
   const { t } = useI18n()
   const me = useMe()
@@ -90,6 +140,12 @@ export function Messenger() {
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null)
   const [incoming, setIncoming] = useState<{ threadId: number; from: number; name: string; kind: 'video' | 'audio' } | null>(null)
   const ringsSinceRef = useRef(0)
+  const [sealMs, setSealMs] = useState<number | null>(null)
+  const [, setRev] = useState(0)
+  const bump = useCallback(() => setRev((r) => r + 1), [])
+
+  const cycleSeal = () =>
+    setSealMs((prev) => (prev === null ? 3600000 : prev === 3600000 ? 86400000 : null))
 
   const activeCallRef = useRef<ActiveCall | null>(null)
   activeCallRef.current = activeCall
@@ -303,15 +359,22 @@ export function Messenger() {
     const target = activeThreadId
     if ((!text && !imageToSend) || !target) return
     const msgId = Date.now()
+    const sealAt = sealMs ? Date.now() + sealMs : undefined
     const msg: Message = { id: msgId, from: me.id, text, time: t('common.now') }
     if (imageToSend) msg.image = imageToSend
+    if (sealAt) msg.sealUntil = sealAt
     setThreads((prev) => prev.map((t) => (t.id === target ? { ...t, messages: [...t.messages, msg] } : t)))
     setDraft('')
     setImageToSend(null)
+    setSealMs(null)
     try {
       const { message } = await api<{ message: Message }>(`/api/threads/${target}/messages`, {
         method: 'POST',
-        body: imageToSend ? { text, image: imageToSend } : { text },
+        body: {
+          text,
+          ...(imageToSend ? { image: imageToSend } : {}),
+          ...(sealAt ? { sealUntil: sealAt } : {}),
+        },
       })
       setThreads((prev) =>
         prev.map((t) =>
@@ -473,13 +536,9 @@ export function Messenger() {
           </header>
 
           <div className="chat-messages" ref={messagesRef}>
-            {active.messages.map((m) => (
-              <div key={m.id} className={`msg ${isOwnMessage(m.from, me.id) ? 'mine' : 'theirs'}`}>
-                {m.image && <img className="msg-image" src={m.image} alt="" loading="lazy" />}
-                {m.text && <span className={m.image ? 'msg-text' : ''}>{m.text}</span>}
-                <span className="time">{m.time}</span>
-              </div>
-            ))}
+{active.messages.map((m) => (
+                <MsgBubble key={m.id} m={m} mine={isOwnMessage(m.from, me.id)} onReveal={bump} />
+              ))}
             {active.messages.length === 0 && (
               <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--fn-text-muted)', padding: '12px 0' }}>
                 {t('messenger.emptyChatHint')}
@@ -488,6 +547,16 @@ export function Messenger() {
           </div>
 
           <footer className="chat-input">
+            <button
+              type="button"
+              className={`seal-toggle${sealMs ? ' active' : ''}`}
+              aria-label={sealMs ? t('messenger.sealWillOpen') : t('messenger.sealToggle')}
+              title={sealMs ? t('messenger.sealWillOpen') : t('messenger.sealToggle')}
+              onClick={cycleSeal}
+            >
+              <Hourglass size={18} />
+              {sealMs && <span className="seal-toggle-tag">{sealMs === 3600000 ? '1' : '24'}</span>}
+            </button>
             <button type="button" className="icon-btn" aria-label={t('messenger.attachImage')} onClick={() => imageRef.current?.click()}>
               <Image size={20} />
             </button>

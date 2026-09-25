@@ -825,6 +825,7 @@ export async function handleRequest(method, pathname, query, req, store) {
       .map((m) => {
         const base = { id: m.id, from: m.senderId, text: m.text, time: m.time }
         if (m.image) base.image = m.image
+        if (m.sealUntil) base.sealUntil = Number(m.sealUntil)
         return base
       })
     return { id: t.id, user: other ? publicUser(other) : null, online: true, messages }
@@ -887,10 +888,12 @@ export async function handleRequest(method, pathname, query, req, store) {
     const time = nowTime()
     const msg = { id: mid, threadId: id, senderId: me.id, text, time }
     if (body.image) msg.image = String(body.image)
+    if (body.sealUntil) msg.sealUntil = Number(body.sealUntil)
     doc.messages.push(msg)
     await store.saveDoc(doc)
     const out = { id: mid, from: me.id, text, time }
     if (msg.image) out.image = msg.image
+    if (msg.sealUntil) out.sealUntil = msg.sealUntil
     return send(200, { message: out })
   }
 

@@ -746,6 +746,13 @@ app.post('/api/stories/:id/view', authMiddleware, async (req, res) => {
 
 /* ---------- Messages ---------- */
 
+function msgRow(m) {
+  const base = { id: m.id, from: m.from, text: m.text, time: m.time }
+  if (m.image) base.image = m.image
+  if (m.seal_until) base.sealUntil = Number(m.seal_until)
+  return base
+}
+
 function threadResponse(t, other, messages) {
   return {
     id: t.id,
@@ -787,10 +794,10 @@ app.get('/api/threads', authMiddleware, async (req, res) => {
       const other = users[0]
       if (!other) continue
       const { rows: msgs } = await pool.query(
-        `SELECT id, sender_id AS from, text, image, time FROM messages WHERE thread_id = $1 ORDER BY id`,
+        `SELECT id, sender_id AS from, text, image, time, seal_until FROM messages WHERE thread_id = $1 ORDER BY id`,
         [t.id],
       )
-      threads.push(threadResponse(t, other, msgs))
+      threads.push(threadResponse(t, other, msgs.map(msgRow)))
     }
     res.json({ threads })
   } catch (e) {
@@ -821,10 +828,10 @@ app.post('/api/threads', authMiddleware, async (req, res) => {
     const { rows: users } = await pool.query(`SELECT * FROM users WHERE id = $1`, [otherId])
     const other = users[0]
     const { rows: msgs } = await pool.query(
-      `SELECT id, sender_id AS from, text, image, time FROM messages WHERE thread_id = $1 ORDER BY id`,
+      `SELECT id, sender_id AS from, text, image, time, seal_until FROM messages WHERE thread_id = $1 ORDER BY id`,
       [thread.id],
     )
-    res.json({ thread: threadResponse(thread, other, msgs) })
+    res.json({ thread: threadResponse(thread, other, msgs.map(msgRow)) })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Server xatosi.' })
@@ -844,12 +851,14 @@ app.post('/api/threads/:id/messages', authMiddleware, async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ error: 'Suhbat topilmadi.' })
     const mid = Date.now()
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const seal = Number(req.body?.sealUntil) || null
     await pool.query(
-      `INSERT INTO messages (id, thread_id, sender_id, text, image, time) VALUES ($1,$2,$3,$4,$5,$6)`,
-      [mid, id, req.user.id, text, image, time],
+      `INSERT INTO messages (id, thread_id, sender_id, text, image, time, seal_until) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [mid, id, req.user.id, text, image, time, seal],
     )
     const out = { id: mid, from: req.user.id, text, time }
     if (image) out.image = image
+    if (seal) out.sealUntil = seal
     res.json({ message: out })
   } catch (e) {
     console.error(e)
