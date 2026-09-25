@@ -2495,6 +2495,16 @@
   border-bottom: 1px solid var(--fn-border);
 }
 
+.member-remove {
+  margin-left: auto;
+  color: var(--fn-text-muted);
+}
+
+.member-remove:hover {
+  color: var(--fn-danger, #e5484d);
+  background: rgba(229, 72, 77, 0.1);
+}
+
 .dash-user-row:last-child {
   border-bottom: none;
 }

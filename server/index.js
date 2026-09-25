@@ -939,14 +939,18 @@ app.delete('/api/groups/:id/members', authMiddleware, async (req, res) => {
     const { rows } = await pool.query(`SELECT * FROM groups WHERE id = $1`, [id])
     const g = rows[0]
     if (!g) return res.status(404).json({ error: 'Guruh topilmadi.' })
-    if (g.created_by !== req.user.id) {
+    const target = Number(req.body?.userId) || req.user.id
+    if (target === g.created_by) {
+      return res.status(400).json({ error: "Guruh yaratuvchisini chiqarib bo'lmaydi." })
+    }
+    if (g.created_by !== req.user.id && target !== req.user.id) {
       return res.status(403).json({ error: 'Ruxsat yo\'q.' })
     }
     await pool.query(
       `DELETE FROM group_members WHERE group_id = $1 AND user_id = $2`,
-      [id, req.user.id],
+      [id, target],
     )
-    res.json({ ok: true })
+    res.json({ group: await groupResponse(g, req.user.id) })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Server xatosi.' })
