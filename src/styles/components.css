@@ -3771,3 +3771,37 @@
     opacity: 0.45;
   }
 }
+
+/* ---------- Seal wall divider ---------- */
+.seal-wall-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 22px 4px 10px;
+}
+
+.seal-wall-divider span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fn-accent);
+  white-space: nowrap;
+}
+
+.seal-wall-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--fn-accent) 35%, transparent), transparent);
+}
+
+.seal-wall-divider em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--fn-muted);
+  white-space: nowrap;
+}
