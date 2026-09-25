@@ -1215,7 +1215,34 @@
   height: 190px;
   border-radius: var(--fn-radius-card);
   overflow: hidden;
-  background: linear-gradient(135deg, var(--fn-primary), #7c3aed 55%, #db2777);
+  background:
+    radial-gradient(circle at 50% 130%, color-mix(in srgb, var(--fn-accent) 55%, transparent), transparent 62%),
+    repeating-linear-gradient(45deg, var(--fn-primary) 0 9px, var(--fn-primary-hover) 9px 18px),
+    var(--fn-story-gradient);
+}
+
+.profile-cover::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--fn-texture);
+  opacity: 0.4;
+}
+
+.profile-cover::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -46px;
+  transform: translateX(-50%);
+  width: 320px;
+  height: 140px;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.28) 0 2px, transparent 2px 9px),
+    repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0 2px, transparent 2px 9px);
+  -webkit-mask: radial-gradient(50% 50% at 50% 50%, #000 0%, transparent 70%);
+  mask: radial-gradient(50% 50% at 50% 50%, #000 0%, transparent 70%);
+  pointer-events: none;
 }
 
 .profile-cover img {
@@ -1248,7 +1275,8 @@
 }
 
 .profile-meta .p-name {
-  font-size: 22px;
+  font-family: var(--fn-font-head);
+  font-size: 24px;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -1335,11 +1363,25 @@
   content: '';
   position: absolute;
   bottom: -1px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--fn-primary);
-  border-radius: 2px;
+  left: 14px;
+  right: 14px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--fn-story-gradient);
+  box-shadow: 0 1px 6px color-mix(in srgb, var(--fn-accent) 40%, transparent);
+}
+
+.profile-tabs button.active::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
+  transform: translateX(-50%) rotate(45deg);
+  background: var(--fn-surface);
+  border: 2px solid var(--fn-accent);
+  z-index: 1;
 }
 
 .fr-stack {
