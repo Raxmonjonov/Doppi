@@ -955,7 +955,7 @@ async function groupResponse(g, meId) {
   }
   const memberById = new Map(members.map((m) => [m.id, m]))
   const { rows: msgs } = await pool.query(
-    `SELECT id, sender_id, text, image, time FROM group_messages WHERE group_id = $1 ORDER BY id`,
+    `SELECT id, sender_id, text, image, time, seal_until FROM group_messages WHERE group_id = $1 ORDER BY id`,
     [g.id],
   )
   const messages = msgs.map((m) => {
@@ -963,6 +963,7 @@ async function groupResponse(g, meId) {
     const sender = memberById.get(m.sender_id)
     if (sender) base.sender = sender
     if (m.image) base.image = m.image
+    if (m.seal_until) base.sealUntil = Number(m.seal_until)
     return base
   })
   return {
@@ -1103,12 +1104,14 @@ app.post('/api/groups/:id/messages', authMiddleware, async (req, res) => {
     if (!text && !image) return res.status(400).json({ error: "Xabar bo'sh bo'lishi mumkin emas." })
     const mid = Date.now()
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const seal = Number(req.body?.sealUntil) || null
     await pool.query(
-      `INSERT INTO group_messages (id, group_id, sender_id, text, image, time) VALUES ($1,$2,$3,$4,$5,$6)`,
-      [mid, id, req.user.id, text, image, time],
+      `INSERT INTO group_messages (id, group_id, sender_id, text, image, time, seal_until) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [mid, id, req.user.id, text, image, time, seal],
     )
     const out = { id: mid, from: req.user.id, sender: { id: req.user.id, name: req.user.name, username: req.user.username, avatar: req.user.avatar ?? '' }, text, time }
     if (image) out.image = image
+    if (seal) out.sealUntil = seal
     res.json({ message: out })
   } catch (e) {
     console.error(e)

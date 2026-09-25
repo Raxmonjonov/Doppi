@@ -149,6 +149,8 @@ CREATE TABLE IF NOT EXISTS group_messages (
   time TEXT NOT NULL DEFAULT ''
 );
 
+ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS seal_until BIGINT;
+
 CREATE TABLE IF NOT EXISTS group_call_signals (
   id BIGINT PRIMARY KEY,
   group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
