@@ -3113,3 +3113,100 @@
   font-variant-numeric: tabular-nums;
   animation: fn-pop 900ms ease;
 }
+
+/* ---------- To''lqin taqvimi (wave calendar) ---------- */
+.wave-wall {
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+
+.wave-wall-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px 10px;
+  font-family: var(--fn-font-head);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fn-text-primary);
+}
+
+.wave-wall-head svg {
+  color: var(--fn-accent);
+}
+
+.wave-wall-body {
+  display: flex;
+  flex-direction: column;
+  padding: 0 14px 14px;
+}
+
+.wave-wall-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  transition: background 160ms ease;
+}
+
+.wave-wall-item:hover {
+  background: var(--fn-surface-alt);
+}
+
+.wave-wall-item.seal {
+  border-left: 3px solid var(--fn-accent);
+}
+
+.wave-wall-item.sink {
+  border-left: 3px solid var(--fn-text-muted);
+}
+
+.wave-wall-ic {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.wave-wall-item.seal .wave-wall-ic {
+  background: var(--fn-story-gradient);
+  color: #fff;
+  rotate: 45deg;
+}
+
+.wave-wall-item.seal .wave-wall-ic svg {
+  rotate: -45deg;
+}
+
+.wave-wall-item.sink .wave-wall-ic {
+  background: var(--fn-surface-alt);
+  border: 1px dashed var(--fn-border-strong);
+  color: var(--fn-text-muted);
+}
+
+.wave-wall-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--fn-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 30%;
+}
+
+.wave-wall-time {
+  margin-left: auto;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fn-accent);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.wave-wall-item.sink .wave-wall-time {
+  color: var(--fn-text-muted);
+}

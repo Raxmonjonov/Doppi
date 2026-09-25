@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Play, List, Orbit, Waves } from 'lucide-react'
+import { Play, List, Orbit, Waves, Lock, Clock } from 'lucide-react'
 import { HomeComposer } from '../components/CreatePost'
 import { StoriesRow } from '../components/StoriesRow'
 import { PostCard } from '../components/PostCard'
@@ -11,6 +11,51 @@ import { useState } from 'react'
 
 const FRESH_MS = 60 * 60 * 1000
 const DORMANT_MS = 24 * 60 * 60 * 1000
+
+interface WaveEvent {
+  at: number
+  kind: 'seal' | 'sink'
+  name: string
+}
+
+function formatRest(ms: number) {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  if (h > 0) return `${h}so${String(m).padStart(2, '0')}m`
+  if (m > 0) return `${m}m`
+  return `${total % 60}s`
+}
+
+function WaveWall({ events }: { events: WaveEvent[] }) {
+  const { t } = useI18n()
+  if (events.length === 0) return null
+  return (
+    <div className="card wave-wall">
+      <div className="wave-wall-head">
+        <Clock size={15} />
+        <span>{t('home.waveWallTitle')}</span>
+      </div>
+      <div className="wave-wall-body">
+        {events.map((e, i) => {
+          const rest = e.at - Date.now()
+          return (
+            <div className={`wave-wall-item ${e.kind}`} key={i}>
+              <span className="wave-wall-ic">
+                {e.kind === 'seal' ? <Lock size={13} /> : <Waves size={13} />}
+              </span>
+              <span className="wave-wall-name">{e.name}</span>
+              <span className="wave-wall-time">
+                {e.kind === 'seal' ? t('home.waveSealOpens') : t('home.waveSinks')} ·{' '}
+                {t('home.waveIn', { rest: formatRest(rest) })}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 export function Home() {
   const { t } = useI18n()
@@ -31,6 +76,20 @@ export function Home() {
   const isStale = (p: { id: number }) => ageOf(p) > DORMANT_MS
   const isSealed = (p: { id: number; sealUntil?: number }) => !!p.sealUntil && now < p.sealUntil
   const dormant = posts.filter(isStale)
+
+  const waveEvents: WaveEvent[] = posts
+    .reduce<WaveEvent[]>((acc, p) => {
+      if (p.sealUntil && now < p.sealUntil) {
+        acc.push({ at: p.sealUntil, kind: 'seal', name: p.author.name })
+      }
+      const sinkAt = Number(p.id) + DORMANT_MS
+      if (sinkAt > now) {
+        acc.push({ at: sinkAt, kind: 'sink', name: p.author.name })
+      }
+      return acc
+    }, [])
+    .sort((a, b) => a.at - b.at)
+    .slice(0, 5)
 
   return (
     <div>
@@ -57,6 +116,8 @@ export function Home() {
           </button>
         </div>
       )}
+
+      <WaveWall events={waveEvents} />
 
       {reels.length > 0 && (
         <div className="card" style={{ marginBottom: 20 }}>
