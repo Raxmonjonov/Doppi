@@ -61,6 +61,7 @@ export interface Album {
   likes: number
   photos: AlbumPhoto[]
   likedByMe?: boolean
+  sealUntil?: number
 }
 
 export interface Group {
