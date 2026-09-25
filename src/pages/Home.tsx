@@ -17,7 +17,7 @@ export function Home() {
   const posts = useData((d) => d.posts)
   const reels = useData((d) => d.reels)
   const [view, setView] = useState<'stream' | 'orbit'>(() =>
-    localStorage.getItem('doppi-view-v1') === 'orbit' ? 'orbit' : 'stream',
+    localStorage.getItem('doppi-view-v1') === 'stream' ? 'stream' : 'orbit',
   )
 
   const switchView = (v: 'stream' | 'orbit') => {

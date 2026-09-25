@@ -49,26 +49,32 @@ export function StoriesRow() {
     <div className="card" style={{ marginBottom: 20 }}>
       <div className="stories">
         <button type="button" className="story story-add" aria-label={t('stories.add')} onClick={pick}>
-          <div className="story-add-body">
+          <span className="story-medallion">
             <span className="plus">
-              <Plus size={26} strokeWidth={3} />
+              <Plus size={22} strokeWidth={3} />
             </span>
-            <span className="story-add-title">{t('stories.add')}</span>
-          </div>
+          </span>
+          <span className="story-name">{t('stories.add')}</span>
         </button>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onFile} />
 
-        {stories.map((s) => (
-          <button type="button" className="story" key={s.id} aria-label={t('stories.storyAriaLabel', { name: s.author.name })} onClick={() => openStory(s)}>
-            <img src={s.image} alt="" loading="lazy" />
-            <span className={s.viewed ? 'story-ring-viewed' : 'story-ring-unseen'} />
+        {stories.map((s, i) => (
+          <button
+            type="button"
+            className="story"
+            key={s.id}
+            style={{ animationDelay: `${Math.min(i * 60, 720)}ms` }}
+            aria-label={t('stories.storyAriaLabel', { name: s.author.name })}
+            onClick={() => openStory(s)}
+          >
+            <span className={`story-medallion${s.viewed ? ' ring-viewed' : ' ring-unseen'}`}>
+              <img src={s.image} alt="" loading="lazy" />
+            </span>
             <span className="story-name">{s.author.name}</span>
           </button>
         ))}
 
-        {stories.length === 0 && (
-          <span className="story-empty">{t('stories.empty')}</span>
-        )}
+        {stories.length === 0 && <span className="story-empty">{t('stories.empty')}</span>}
       </div>
 
       {openUrl && (

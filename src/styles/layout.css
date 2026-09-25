@@ -23,6 +23,47 @@
   z-index: 100;
 }
 
+.fn-navbar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 5px;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      var(--fn-primary) 0 10px,
+      color-mix(in srgb, var(--fn-primary) 55%, var(--fn-bg)) 10px 14px,
+      var(--fn-accent) 14px 26px,
+      color-mix(in srgb, var(--fn-accent) 55%, var(--fn-bg)) 26px 30px
+    );
+  pointer-events: none;
+}
+
+.fn-logo::before {
+  content: '';
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--fn-story-gradient);
+  box-shadow: 0 0 0 2px var(--fn-surface), 0 0 0 3px color-mix(in srgb, var(--fn-accent) 45%, transparent);
+  animation: doppi-tassel 7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes doppi-tassel {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.08);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
 .fn-logo {
   display: flex;
   align-items: center;

@@ -294,7 +294,7 @@ export function Reels() {
   const [error, setError] = useState<string | null>(null)
   const [active, setActive] = useState(0)
   const [view, setView] = useState<'vertical' | 'orbit'>(() =>
-    localStorage.getItem('doppi-view-reels-v1') === 'orbit' ? 'orbit' : 'vertical',
+    localStorage.getItem('doppi-view-reels-v1') === 'vertical' ? 'vertical' : 'orbit',
   )
   const fileRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
