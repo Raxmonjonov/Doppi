@@ -1,13 +1,15 @@
 import { Link } from 'react-router-dom'
-import { Play, List, Orbit } from 'lucide-react'
+import { Play, List, Orbit, Waves } from 'lucide-react'
 import { HomeComposer } from '../components/CreatePost'
 import { StoriesRow } from '../components/StoriesRow'
 import { PostCard } from '../components/PostCard'
 import { OrbitView } from '../components/OrbitView'
+import { Avatar } from '../components/Avatar'
 import { useData } from '../data/store'
 import { useI18n } from '../i18n'
 import { useState } from 'react'
 
+const FRESH_MS = 60 * 60 * 1000
 const DORMANT_MS = 24 * 60 * 60 * 1000
 
 export function Home() {
@@ -24,7 +26,10 @@ export function Home() {
   }
 
   const now = Date.now()
-  const isStale = (p: { id: number }) => now - Number(p.id) > DORMANT_MS
+  const ageOf = (p: { id: number }) => now - Number(p.id)
+  const isFresh = (p: { id: number }) => ageOf(p) <= FRESH_MS
+  const isStale = (p: { id: number }) => ageOf(p) > DORMANT_MS
+  const dormant = posts.filter(isStale)
 
   return (
     <div>
@@ -95,16 +100,45 @@ export function Home() {
           }}
         />
       ) : (
-        posts.map((p) =>
-          isStale(p) ? (
-            <div key={p.id} className="wave-stale">
-              <span className="wave-tag">{t('home.dormantWave')}</span>
-              <PostCard post={p} />
+        <>
+          {posts.map((p) =>
+            isStale(p) ? (
+              <div key={p.id} className="wave-stale">
+                <span className="wave-tag">{t('home.dormantWave')}</span>
+                <PostCard post={p} />
+              </div>
+            ) : (
+              <div key={p.id} className={isFresh(p) ? 'post-fresh' : undefined}>
+                <PostCard post={p} />
+              </div>
+            ),
+          )}
+
+          {dormant.length > 0 && (
+            <div className="card horizon-card">
+              <details className="horizon-details">
+                <summary>
+                  <Waves size={18} />
+                  <span className="horizon-title">{t('home.horizonTitle')}</span>
+                  <b className="horizon-count">{dormant.length}</b>
+                  <span className="horizon-chev" />
+                </summary>
+                <div className="horizon-list">
+                  {dormant.map((p) => (
+                    <div className="horizon-item" key={p.id}>
+                      <Avatar user={p.author} size={34} />
+                      <div className="horizon-item-main">
+                        <b>{p.author.name}</b>
+                        <p>{p.text || (p.images[0] ? t('home.horizonPhoto') : '')}</p>
+                      </div>
+                      <span className="horizon-item-time">{p.time}</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
             </div>
-          ) : (
-            <PostCard key={p.id} post={p} />
-          ),
-        )
+          )}
+        </>
       )}
     </div>
   )

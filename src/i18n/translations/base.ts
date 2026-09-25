@@ -63,6 +63,8 @@ export const uz: Dict = {
   'home.zoomOut': 'Uzoqlashtirish',
   'home.emptyOrbit': "Orbit hozircha bo'sh — birinchi yulduz bo'ling!",
   'home.dormantWave': "So'ngan to'lqin",
+  'home.horizonTitle': "Ufq — so'ngan to'lqinlar arxivi",
+  'home.horizonPhoto': 'Fotosurat',
   'auth.passwordMismatch': 'Parollar bir-biriga mos emas.',
   'auth.tagline': "Do'stlaringiz bilan ulanish",
   'auth.tabLogin': 'Kirish',

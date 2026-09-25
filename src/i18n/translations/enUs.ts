@@ -70,6 +70,8 @@ export const en: Dict = {
   'home.zoomOut': 'Zoom out',
   'home.emptyOrbit': "The orbit is empty — be the first star!",
   'home.dormantWave': 'Dormant wave',
+  'home.horizonTitle': 'Horizon — dormant wave archive',
+  'home.horizonPhoto': 'Photo',
   'auth.passwordMismatch': 'Passwords do not match.',
   'auth.tagline': 'Connect with your friends',
   'auth.tabLogin': 'Log in',
