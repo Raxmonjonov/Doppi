@@ -344,6 +344,7 @@ export async function handleRequest(method, pathname, query, req, store) {
           text: p.text ?? '',
           images: Array.isArray(p.images) ? p.images : [],
           ...(p.video ? { video: p.video } : {}),
+          ...(p.sealUntil ? { sealUntil: p.sealUntil } : {}),
           likes,
           comments: doc.postComments
             .filter((c) => c.postId === p.id)
@@ -441,6 +442,7 @@ export async function handleRequest(method, pathname, query, req, store) {
         images: Array.isArray(p.images) ? p.images : [],
         video: p.video ?? null,
         live: !!p.live,
+        ...(p.sealUntil ? { sealUntil: Number(p.sealUntil) } : {}),
       })
     }
 

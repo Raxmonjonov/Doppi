@@ -19,6 +19,7 @@ export interface Post {
   shared?: number
   live?: boolean
   likedByMe?: boolean
+  sealUntil?: number
 }
 
 export interface Comment {
