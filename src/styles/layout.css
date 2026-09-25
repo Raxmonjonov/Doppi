@@ -420,16 +420,37 @@
   color: var(--fn-primary);
 }
 
+.fn-bottomnav a.active::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  rotate: 45deg;
+  background: var(--fn-accent);
+}
+
 .bottom-post {
   width: 38px;
   height: 38px;
-  border-radius: 50%;
-  background: var(--fn-primary);
+  border-radius: 9px;
+  background: var(--fn-story-gradient);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: var(--fn-shadow);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--fn-primary) 40%, transparent);
+  rotate: 45deg;
+  transition: transform 200ms ease;
+}
+
+.bottom-post > svg {
+  rotate: -45deg;
+}
+
+.bottom-post:hover {
+  transform: scale(1.14);
 }
 
 /* ---------- Row helper (navbar dropdown) ---------- */
