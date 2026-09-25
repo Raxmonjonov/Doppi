@@ -713,10 +713,13 @@ export async function handleRequest(method, pathname, query, req, store) {
     const id = Number(second)
     const g = doc.groups.find((x) => x.id === id)
     if (!g) return send(404, { error: 'Guruh topilmadi.' })
-    if (g.createdBy !== me.id && me.id !== Number(third)) return send(403, { error: 'Ruxsat yo\'q.' })
-    g.memberIds = (g.memberIds ?? []).filter((x) => x !== me.id)
+    const body = await readBody(req)
+    const target = Number(body.userId) || me.id
+    if (target === g.createdBy) return send(400, { error: "Guruh yaratuvchisini chiqarib bo'lmaydi." })
+    if (g.createdBy !== me.id && target !== me.id) return send(403, { error: 'Ruxsat yo\'q.' })
+    g.memberIds = (g.memberIds ?? []).filter((x) => x !== target)
     await store.saveDoc(doc)
-    return send(200, { ok: true })
+    return send(200, { group: groupResponse(g, me.id) })
   }
 
   if (method === 'POST' && first === 'groups' && third === 'messages') {

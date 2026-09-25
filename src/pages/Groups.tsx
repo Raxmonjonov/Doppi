@@ -16,6 +16,8 @@ import {
   Camera,
   CameraOff,
   MessageSquare,
+  UserX,
+  LogOut,
 } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
 import { api } from '../api/client'
@@ -406,6 +408,39 @@ function GroupDetail({
     }
   }
 
+  const removeMember = async (targetId: number) => {
+    const target = members.find((m) => m.id === targetId)
+    if (!target || !window.confirm(t('groups.removeConfirm', { name: target.name }))) return
+    try {
+      const { group: g } = await api<{ group: Group }>(`/api/groups/${group.id}/members`, {
+        method: 'DELETE',
+        body: { userId: targetId },
+      })
+      setMembers(g.members)
+      setMessages((prev) => {
+        const serverIds = new Set(g.messages.map((m) => String(m.id)))
+        const extra = prev.filter((m) => !serverIds.has(String(m.id)))
+        return extra.length ? [...g.messages, ...extra] : g.messages
+      })
+      onGroupChanged(g)
+    } catch {
+      window.alert(t('groups.errorGeneral'))
+    }
+  }
+
+  const leaveGroup = async () => {
+    if (!window.confirm(t('groups.leaveConfirm'))) return
+    try {
+      await api(`/api/groups/${group.id}/members`, {
+        method: 'DELETE',
+        body: { userId: meId },
+      })
+      onBack()
+    } catch {
+      window.alert(t('groups.errorGeneral'))
+    }
+  }
+
   const acceptCall = () => {
     if (!incoming) return
     setActiveCall({ mode: 'responder', peerId: incoming.from, kind: incoming.kind })
@@ -450,6 +485,11 @@ function GroupDetail({
           <button type="button" className="icon-btn call-btn call-audio" onClick={() => setActiveCall({ mode: 'caller', kind: 'audio' })} title={t('groups.voiceCall')}>
             <Phone size={20} />
           </button>
+          {!group.isAdmin && (
+            <button type="button" className="icon-btn call-btn call-end" onClick={() => void leaveGroup()} title={t('groups.leaveGroup')} aria-label={t('groups.leaveGroup')}>
+              <LogOut size={20} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -478,6 +518,17 @@ function GroupDetail({
                   </div>
                   <div className="dash-user-sub">@{m.username}</div>
                 </div>
+                {group.isAdmin && m.id !== group.createdBy && (
+                  <button
+                    type="button"
+                    className="icon-btn member-remove"
+                    onClick={() => void removeMember(m.id)}
+                    aria-label={t('groups.removeMember')}
+                    title={t('groups.removeMember')}
+                  >
+                    <UserX size={16} />
+                  </button>
+                )}
               </div>
             ))}
             {members.length === 0 && <div className="send-user-empty">{t('groups.emptyMembers')}</div>}
