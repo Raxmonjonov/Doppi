@@ -20,24 +20,26 @@ function formatRemaining(ms: number) {
   return `${s}s`
 }
 
-export function PostCard({ post }: { post: Post }) {
+export function PostCard({ post, asOf }: { post: Post; asOf?: number }) {
   const [showComments, setShowComments] = useState(false)
   const [commentText, setCommentText] = useState('')
   const [shareOpen, setShareOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [nowMs, setNowMs] = useState(() => Date.now())
+  const [liveNow, setLiveNow] = useState(() => Date.now())
   const me = useMe()
   const navigate = useNavigate()
   const { t } = useI18n()
 
+  const rewound = asOf != null
+  const nowMs = rewound ? asOf : liveNow
   const sealed = !!post.sealUntil && nowMs < post.sealUntil
 
   useEffect(() => {
-    if (!sealed) return
-    const id = window.setInterval(() => setNowMs(Date.now()), 1000)
+    if (!sealed || rewound) return
+    const id = window.setInterval(() => setLiveNow(Date.now()), 1000)
     return () => window.clearInterval(id)
-  }, [sealed])
+  }, [sealed, rewound])
 
   const addComment = () => {
     const text = commentText.trim()
@@ -104,6 +106,7 @@ export function PostCard({ post }: { post: Post }) {
           <div className="sealed-countdown">
             {t('postCard.sealOpensIn', { rest: formatRemaining((post.sealUntil ?? 0) - nowMs) })}
           </div>
+          {rewound && <div className="sealed-rewind-badge">{t('postCard.rewindSeal')}</div>}
         </div>
       ) : (
         <>
