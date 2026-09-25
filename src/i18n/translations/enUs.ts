@@ -7,6 +7,7 @@ export const en: Dict = {
   'navbar.searchPlaceholder': 'Search people',
   'navbar.searchNoResults': 'No one found',
   'navbar.searchPrompt': 'Type to search',
+  'navbar.nextSeal': 'Next seal',
   'sidebar.labelHome': 'Home',
   'sidebar.labelReels': 'Reels',
   'sidebar.labelSeals': 'Seal Wall',
