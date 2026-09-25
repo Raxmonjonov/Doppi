@@ -80,7 +80,20 @@ export function Home() {
           <div className="empty-state-sub">{t('home.emptyPostsSub')}</div>
         </div>
       ) : view === 'orbit' ? (
-        <OrbitView posts={posts} />
+        <OrbitView
+          items={posts.map((p) => ({
+            id: p.id,
+            thumb: p.images[0],
+            name: p.author.name,
+            likes: p.likes,
+            live: p.live,
+            createdAt: p.id,
+          }))}
+          renderViewer={(item) => {
+            const p = posts.find((x) => x.id === item.id)
+            return p ? <PostCard post={p} /> : null
+          }}
+        />
       ) : (
         posts.map((p) =>
           isStale(p) ? (

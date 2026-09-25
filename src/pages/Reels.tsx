@@ -10,6 +10,7 @@ import {
   Send,
   Play,
   Check,
+  Orbit,
 } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
 import type { Reel, User } from '../data/mock'
@@ -20,6 +21,7 @@ import { fileToDataUrl } from '../lib/upload'
 import { formatCount } from '../lib/format'
 import { addReelComment, shareReel, sendReelToUser, toggleReelLike } from '../data/interactions'
 import { useI18n } from '../i18n'
+import { OrbitView } from '../components/OrbitView'
 
 interface ReelItemProps {
   reel: Reel
@@ -27,7 +29,7 @@ interface ReelItemProps {
   peers: User[]
 }
 
-function ReelItem({ reel, active, peers }: ReelItemProps) {
+export function ReelItem({ reel, active, peers }: ReelItemProps) {
   const { t } = useI18n()
   const qualities = [
     { key: 'super', label: t('reels.qualitySuper') },
@@ -291,8 +293,16 @@ export function Reels() {
   const reels = useData((d) => d.reels)
   const [error, setError] = useState<string | null>(null)
   const [active, setActive] = useState(0)
+  const [view, setView] = useState<'vertical' | 'orbit'>(() =>
+    localStorage.getItem('doppi-view-reels-v1') === 'orbit' ? 'orbit' : 'vertical',
+  )
   const fileRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  const switchView = (v: 'vertical' | 'orbit') => {
+    setView(v)
+    localStorage.setItem('doppi-view-reels-v1', v)
+  }
 
   const upload = () => fileRef.current?.click()
 
@@ -338,6 +348,27 @@ export function Reels() {
 
       {error && <div className="upload-error">{error}</div>}
 
+      {reels.length > 0 && (
+        <div className="view-switch" role="group" aria-label="reels view">
+          <button
+            type="button"
+            className={view === 'vertical' ? 'active' : ''}
+            onClick={() => switchView('vertical')}
+          >
+            <Clapperboard size={16} />
+            <span>{t('reels.viewVertical')}</span>
+          </button>
+          <button
+            type="button"
+            className={view === 'orbit' ? 'active' : ''}
+            onClick={() => switchView('orbit')}
+          >
+            <Orbit size={16} />
+            <span>{t('reels.viewOrbit')}</span>
+          </button>
+        </div>
+      )}
+
       {reels.length === 0 ? (
         <div className="card empty-state">
           <div className="empty-state-title">{t('reels.emptyTitle')}</div>
@@ -346,15 +377,30 @@ export function Reels() {
             <Clapperboard size={18} /> {t('reels.uploadVideo')}
           </button>
         </div>
+      ) : view === 'orbit' ? (
+        <OrbitView
+          items={reels.map((r) => ({
+            id: r.id,
+            thumb: r.image,
+            name: r.author.name,
+            likes: r.likes,
+            createdAt: r.id,
+          }))}
+          title={t('reels.orbitTitle')}
+          renderViewer={(item) => {
+            const r = reels.find((x) => x.id === item.id)
+            return r ? (
+              <div className="orbit-reel">
+                <ReelItem reel={r} active peers={users} />
+              </div>
+            ) : null
+          }}
+        />
       ) : (
         <div className="reels-scroll" ref={scrollRef} onScroll={onScroll}>
           {reels.map((r) => (
             <div className="reels-view" key={r.id}>
-              <ReelItem
-                reel={r}
-                active={reels[active]?.id === r.id}
-                peers={users}
-              />
+              <ReelItem reel={r} active={reels[active]?.id === r.id} peers={users} />
             </div>
           ))}
         </div>
