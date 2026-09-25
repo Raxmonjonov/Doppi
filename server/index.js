@@ -159,7 +159,14 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: "Parol noto'g'ri." })
     }
     const token = makeToken()
-    await pool.query(`INSERT INTO sessions (token, user_id) VALUES ($1,$2)`, [token, user.id])
+    const now = Date.now()
+    const nowIso = new Date(now).toISOString()
+    await pool.query(
+      `INSERT INTO sessions (token, user_id, last_seen) VALUES ($1,$2,$3)
+       ON CONFLICT (token) DO UPDATE SET last_seen = EXCLUDED.last_seen`,
+      [token, user.id, now],
+    )
+    await pool.query(`UPDATE users SET last_login_at = $1 WHERE id = $2`, [nowIso, user.id])
     res.json({ token, user: publicUser(user) })
   } catch (e) {
     console.error(e)
@@ -169,6 +176,7 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.post('/api/auth/logout', authMiddleware, async (req, res) => {
   await pool.query(`DELETE FROM sessions WHERE token = $1`, [req.token])
+  await pool.query(`UPDATE users SET last_logout_at = $1 WHERE id = $2`, [new Date().toISOString(), req.user.id])
   res.json({ ok: true })
 })
 
@@ -190,6 +198,123 @@ app.patch('/api/auth/me', authMiddleware, async (req, res) => {
     if (rows[0]) req.user = rows[0]
   }
   res.json({ user: publicUser(req.user) })
+})
+
+/* ---------- Presence ---------- */
+
+app.post('/api/ping', authMiddleware, async (req, res) => {
+  try {
+    await pool.query(`UPDATE sessions SET last_seen = $1 WHERE token = $2`, [Date.now(), req.token])
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+/* ---------- Admin ---------- */
+
+const ADMIN_USER = process.env.ADMIN_USERNAME ?? 'Admin'
+const ADMIN_PASS = process.env.ADMIN_PASSWORD ?? 'Admin.Do\'ppi.Uzbekitan.66'
+const adminTokens = new Map()
+
+function adminBearer(req) {
+  const h = req.headers.authorization || ''
+  return h.startsWith('Bearer ') ? h.slice(7) : null
+}
+
+app.post('/api/admin/login', async (req, res) => {
+  const { username, password } = req.body ?? {}
+  if (String(username ?? '') === ADMIN_USER && String(password ?? '') === ADMIN_PASS) {
+    const token = makeToken()
+    adminTokens.set(token, Date.now())
+    return res.json({ token })
+  }
+  res.status(401).json({ error: 'Foydalanuvchi nomi yoki parol xato.' })
+})
+
+app.post('/api/admin/logout', async (req, res) => {
+  adminTokens.delete(adminBearer(req) ?? '')
+  res.json({ ok: true })
+})
+
+app.get('/api/dashboard', async (req, res) => {
+  const token = adminBearer(req)
+  if (!token || !adminTokens.has(token)) {
+    return res.status(401).json({ error: 'Admin kirishi talab qilinadi.' })
+  }
+  adminTokens.set(token, Date.now())
+  const now = Date.now()
+  const ONLINE_MS = 60 * 1000
+  try {
+    const [usersR, onlineR, postsR, commentsR, reelsR, messagesR, threadsR, groupsR, albumsR, storiesR, followsR] = await Promise.all([
+      pool.query(`SELECT id, name, username, avatar, created_at, last_login_at, last_logout_at FROM users`),
+      pool.query(`SELECT DISTINCT user_id FROM sessions WHERE last_seen > $1`, [now - ONLINE_MS]),
+      pool.query(`SELECT COUNT(*)::int AS n FROM posts`),
+      pool.query(`SELECT COUNT(*)::int AS n FROM post_comments`),
+      pool.query(`SELECT COUNT(*)::int AS n FROM reels`),
+      pool.query(`SELECT COUNT(*)::int AS n FROM messages`),
+      pool.query(`SELECT COUNT(*)::int AS n FROM threads`),
+      pool.query(`SELECT COUNT(*)::int AS n FROM groups`),
+      pool.query(`SELECT COUNT(*)::int AS n FROM albums`),
+      pool.query(`SELECT COUNT(*)::int AS n FROM stories`),
+      pool.query(`SELECT COUNT(*)::int AS n FROM follows`),
+    ])
+    const users = usersR.rows
+    const onlineIds = new Set(onlineR.rows.map((r) => Number(r.user_id)))
+    const userById = new Map(users.map((u) => [Number(u.id), u]))
+    const uBase = (u) => ({ id: Number(u.id), name: u.name, username: u.username, avatar: u.avatar ?? '' })
+    const lastLogout = users
+      .filter((u) => u.last_logout_at)
+      .sort((a, b) => new Date(b.last_logout_at).getTime() - new Date(a.last_logout_at).getTime())[0]
+    const recent = [...users]
+      .sort((a, b) => {
+        const at = (u) => new Date(u.last_login_at || u.created_at).getTime() || 0
+        return at(b) - at(a)
+      })
+      .slice(0, 6)
+    const dayMs = 24 * 60 * 60 * 1000
+    const growth = []
+    for (let i = 13; i >= 0; i--) {
+      const start = new Date(now - i * dayMs)
+      start.setHours(0, 0, 0, 0)
+      const end = start.getTime() + dayMs
+      const count = users.filter((u) => {
+        const t = new Date(u.created_at).getTime() || 0
+        return t >= start.getTime() && t < end
+      }).length
+      growth.push({ day: start.toISOString().slice(0, 10), count })
+    }
+    res.json({
+      totals: {
+        users: users.length,
+        online: [...onlineIds].filter((id) => userById.has(id)).length,
+        offline: users.length - [...onlineIds].filter((id) => userById.has(id)).length,
+        posts: postsR.rows[0].n,
+        comments: commentsR.rows[0].n,
+        reels: reelsR.rows[0].n,
+        messages: messagesR.rows[0].n,
+        threads: threadsR.rows[0].n,
+        groups: groupsR.rows[0].n,
+        albums: albumsR.rows[0].n,
+        stories: storiesR.rows[0].n,
+        follows: followsR.rows[0].n,
+      },
+      growth,
+      lastLogout: lastLogout ? { ...uBase(lastLogout), at: new Date(lastLogout.last_logout_at).getTime() } : null,
+      lastOnline: [...onlineIds]
+        .map((id) => userById.get(id))
+        .filter((u) => !!u)
+        .map((u) => uBase(u)),
+      recentUsers: recent.map((u) => ({
+        ...uBase(u),
+        lastLoginAt: u.last_login_at || u.created_at,
+        createdAt: u.created_at,
+      })),
+    })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
 })
 
 /* ---------- Users ---------- */
