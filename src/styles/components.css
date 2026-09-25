@@ -3575,3 +3575,81 @@
     transform: scale(1);
   }
 }
+
+/* ---------- Sealed albums (muhrli fotodevor) ---------- */
+.album-cover-sealed {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background-color: var(--fn-surface-alt);
+  background-image: var(--fn-texture);
+}
+
+.album-cover-seal-ic {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: var(--fn-story-gradient);
+  animation: doppi-tassel 8s linear infinite;
+}
+
+.album-cover-seal-rest {
+  font-family: var(--fn-font-head);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--fn-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.album-seal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--fn-accent);
+  font-weight: 700;
+}
+
+.album-seal-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.album-seal-hero .seal-wall-medallion {
+  width: 76px;
+  height: 76px;
+  border-radius: 18px;
+}
+
+.album-seal-title {
+  font-family: var(--fn-font-head);
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--fn-text-primary);
+}
+
+.album-seal-sub {
+  font-size: 13.5px;
+  color: var(--fn-text-secondary);
+  max-width: 400px;
+}
+
+.album-seal-hero .seal-wall-rest {
+  font-size: 32px;
+}
+
+.album-media-wrap {
+  position: relative;
+  padding: 12px;
+}
