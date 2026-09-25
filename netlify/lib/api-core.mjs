@@ -897,6 +897,7 @@ export async function handleRequest(method, pathname, query, req, store) {
     if (!t) return send(404, { error: 'Suhbat topilmadi.' })
     doc.threads = doc.threads.filter((x) => x.id !== id)
     doc.messages = doc.messages.filter((m) => m.threadId !== id)
+    doc.threadCallSignals = doc.threadCallSignals.filter((s) => s.threadId !== id)
     await store.saveDoc(doc)
     return send(200, { ok: true })
   }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Send, Image, Search, Pin, PinOff, Trash2, X, Phone, Video, PhoneOff, Mic, MicOff, Camera, CameraOff } from 'lucide-react'
@@ -79,6 +79,14 @@ export function Messenger() {
   const [menuThreadId, setMenuThreadId] = useState<number | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const imageRef = useRef<HTMLInputElement>(null)
+  const messagesRef = useRef<HTMLDivElement>(null)
+  const [lastRead, setLastRead] = useState<Record<number, number>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('doppi-lastread-v1') || '{}') as Record<number, number>
+    } catch {
+      return {}
+    }
+  })
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null)
   const [incoming, setIncoming] = useState<{ threadId: number; from: number; name: string; kind: 'video' | 'audio' } | null>(null)
   const ringsSinceRef = useRef(0)
@@ -127,6 +135,56 @@ export function Messenger() {
     if (activeThreadId === null) return
     setImagesToSend((d) => ({ ...d, [activeThreadId]: v }))
   }
+
+  const markThreadRead = (tid: number) => {
+    const th = threads.find((x) => x.id === tid)
+    const lastId = th?.messages[th.messages.length - 1]?.id
+    if (lastId == null) return
+    setLastRead((prev) => {
+      if ((prev[tid] ?? 0) >= lastId) return prev
+      const next = { ...prev, [tid]: lastId }
+      try {
+        localStorage.setItem('doppi-lastread-v1', JSON.stringify(next))
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }
+
+  useEffect(() => {
+    if (active?.id == null) return
+    markThreadRead(active.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.id, active?.messages.length])
+
+  const sortedThreads = useMemo(
+    () =>
+      [...threads].sort((a, b) => {
+        const pa = pinned.includes(a.id) ? 1 : 0
+        const pb = pinned.includes(b.id) ? 1 : 0
+        if (pa !== pb) return pb - pa
+        const la = a.messages[a.messages.length - 1]?.id ?? 0
+        const lb = b.messages[b.messages.length - 1]?.id ?? 0
+        return lb - la
+      }),
+    [threads, pinned],
+  )
+
+  const unread = useMemo(() => {
+    const out: Record<number, number> = {}
+    for (const t of threads) {
+      const read = lastRead[t.id] ?? 0
+      const n = t.messages.filter((m) => !isOwnMessage(m.from, me.id) && m.id > read).length
+      if (n > 0) out[t.id] = n
+    }
+    return out
+  }, [threads, lastRead, me.id])
+
+  useEffect(() => {
+    const el = messagesRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [active?.id, active?.messages.length])
 
   useEffect(() => {
     let alive = true
@@ -331,13 +389,7 @@ export function Messenger() {
           />
         )}
         <div style={{ overflowY: 'auto', position: 'relative' }}>
-          {[...threads]
-            .sort((a, b) => {
-              const pa = pinned.includes(a.id) ? 1 : 0
-              const pb = pinned.includes(b.id) ? 1 : 0
-              return pb - pa
-            })
-            .map((thread) => {
+          {sortedThreads.map((thread) => {
               const last = thread.messages[thread.messages.length - 1]
               return (
                 <div key={thread.id} className={`thread-wrap${pinned.includes(thread.id) ? ' pinned' : ''}`}>
@@ -356,8 +408,11 @@ export function Messenger() {
                         {pinned.includes(thread.id) && <Pin size={12} className="pin-icon" />}
                         {thread.user.name}
                       </div>
-                      <div className="last">{last?.text}</div>
+                      <div className={unread[thread.id] ? 'last unread' : 'last'}>
+                        {last?.text || (last?.image ? <img src={last.image} alt="" className="last-thumb" /> : '')}
+                      </div>
                     </div>
+                    {unread[thread.id] != null && <span className="thread-unread">{unread[thread.id] > 99 ? '99+' : unread[thread.id]}</span>}
                   </button>
                   {menuThreadId === thread.id && (
                     <div className="thread-menu" ref={menuRef}>
@@ -417,7 +472,7 @@ export function Messenger() {
             </div>
           </header>
 
-          <div className="chat-messages">
+          <div className="chat-messages" ref={messagesRef}>
             {active.messages.map((m) => (
               <div key={m.id} className={`msg ${isOwnMessage(m.from, me.id) ? 'mine' : 'theirs'}`}>
                 {m.image && <img className="msg-image" src={m.image} alt="" loading="lazy" />}

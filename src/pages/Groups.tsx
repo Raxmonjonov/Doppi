@@ -309,6 +309,12 @@ function GroupDetail({
   const [query, setQuery] = useState('')
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null)
   const [incoming, setIncoming] = useState<{ from: number; name: string; kind: 'video' | 'audio' } | null>(null)
+  const chatMessagesRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = chatMessagesRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [messages.length])
 
   const sinceRef = useRef(0)
 
@@ -479,7 +485,7 @@ function GroupDetail({
         </aside>
 
         <section className="card chat-panel">
-          <div className="chat-messages">
+          <div className="chat-messages" ref={chatMessagesRef}>
             {messages.map((m) => (
               <div key={m.id} className={`msg ${isOwn(m, meId) ? 'mine' : 'theirs'}`}>
                 {!isOwn(m, meId) && m.sender && (
