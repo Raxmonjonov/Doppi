@@ -8,6 +8,7 @@ import {
   MessageCircle,
   UserPlus,
   Shield,
+  Hourglass,
   type LucideIcon,
 } from 'lucide-react'
 import { Avatar } from './Avatar'
@@ -23,6 +24,7 @@ interface Item {
 const items: Item[] = [
   { to: '/', icon: Home, label: 'sidebar.labelHome' },
   { to: '/reels', icon: Play, label: 'sidebar.labelReels' },
+  { to: '/seals', icon: Hourglass, label: 'sidebar.labelSeals' },
   { to: '/groups', icon: Users, label: 'sidebar.labelGroups' },
   { to: '/photos', icon: Map, label: 'sidebar.labelAlbums' },
   { to: '/messenger', icon: MessageCircle, label: 'sidebar.labelMessages' },
