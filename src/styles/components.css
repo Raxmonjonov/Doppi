@@ -1538,6 +1538,33 @@
   width: 160px;
 }
 
+.thread-row .last.unread {
+  color: var(--fn-text);
+  font-weight: 700;
+}
+
+.thread-unread {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--fn-primary);
+  color: var(--fn-on-primary, #fff);
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.last-thumb {
+  width: 16px;
+  height: 16px;
+  object-fit: cover;
+  border-radius: 4px;
+  vertical-align: text-bottom;
+}
+
 .chat-panel {
   border-radius: var(--fn-radius-card);
   overflow: hidden;
