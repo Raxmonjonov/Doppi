@@ -2958,3 +2958,101 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- Do''ppi soati (sealed post) ---------- */
+.seal-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 2px 0 6px;
+}
+
+.seal-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fn-text-secondary);
+}
+
+.seal-row-label svg {
+  color: var(--fn-accent);
+}
+
+.seal-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.seal-pill {
+  border: 1px solid var(--fn-border-strong);
+  background: var(--fn-surface-alt);
+  color: var(--fn-text-secondary);
+  border-radius: var(--fn-radius-pill);
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease, transform 140ms ease;
+}
+
+.seal-pill:hover {
+  border-color: var(--fn-accent);
+  transform: translateY(-1px);
+}
+
+.seal-pill.active {
+  background: var(--fn-accent);
+  border-color: var(--fn-accent);
+  color: #fff;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--fn-accent) 40%, transparent);
+}
+
+.sealed-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 26px 20px 30px;
+  text-align: center;
+}
+
+.sealed-medallion {
+  width: 58px;
+  height: 58px;
+  border-radius: 12px;
+  background: var(--fn-story-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  border: 2px solid color-mix(in srgb, var(--fn-accent) 60%, transparent);
+  box-shadow: 0 0 0 5px var(--fn-primary-tint);
+  animation: doppi-tassel 8s linear infinite;
+}
+
+.sealed-title {
+  font-family: var(--fn-font-head);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--fn-text-primary);
+}
+
+.sealed-sub {
+  font-size: 13px;
+  color: var(--fn-text-secondary);
+  max-width: 340px;
+}
+
+.sealed-countdown {
+  margin-top: 6px;
+  font-family: var(--fn-font-head);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--fn-accent);
+  font-variant-numeric: tabular-nums;
+  animation: fn-pop 900ms ease;
+}

@@ -365,7 +365,7 @@ app.get('/api/data', authMiddleware, async (req, res) => {
   const storyCutoff = Date.now() - 24 * 60 * 60 * 1000
   const [postsR, commentsR, storiesR, reelsR, reelCommentsR, albumsR, groupsR, followsR] = await Promise.all([
     pool.query(
-      `SELECT p.id, p.time, p.text, p.images, p.video, p.live,
+      `SELECT p.id, p.time, p.text, p.images, p.video, p.live, p.seal_until,
         u.id AS au_id, u.name AS au_name, u.username AS au_username, u.avatar AS au_avatar, u.about AS au_about,
         (SELECT COUNT(*)::int FROM post_likes pl WHERE pl.post_id = p.id) AS likes,
         (SELECT COUNT(*)::int FROM post_shares ps WHERE ps.post_id = p.id) AS shared,
@@ -438,6 +438,7 @@ app.get('/api/data', authMiddleware, async (req, res) => {
     comments: commentsByPost.get(p.id) ?? [],
     shared: p.shared ?? 0,
     ...(p.live ? { live: true } : {}),
+    ...(p.seal_until ? { sealUntil: Number(p.seal_until) } : {}),
     likedByMe: !!p.liked_by_me,
   }))
 
@@ -502,16 +503,17 @@ app.put('/api/data', authMiddleware, async (req, res) => {
       const exists = await client.query(`SELECT id FROM users WHERE id = $1`, [authorId])
       if (exists.rows.length === 0) continue
       await client.query(
-        `INSERT INTO posts (id, author_id, time, text, images, video, live)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
+        `INSERT INTO posts (id, author_id, time, text, images, video, live, seal_until)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
          ON CONFLICT (id) DO UPDATE SET
            author_id = EXCLUDED.author_id,
            time = EXCLUDED.time,
            text = EXCLUDED.text,
            images = EXCLUDED.images,
            video = EXCLUDED.video,
-           live = EXCLUDED.live`,
-        [Number(p.id), authorId, String(p.time ?? ''), String(p.text ?? ''), JSON.stringify(p.images ?? []), p.video ?? null, !!p.live],
+           live = EXCLUDED.live,
+           seal_until = EXCLUDED.seal_until`,
+        [Number(p.id), authorId, String(p.time ?? ''), String(p.text ?? ''), JSON.stringify(p.images ?? []), p.video ?? null, !!p.live, Number(p.sealUntil) || null],
       )
     }
 

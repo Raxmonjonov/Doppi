@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Heart, MessageCircle, Share2, MoreHorizontal, Send, Link as LinkIcon, UserRound } from 'lucide-react'
+import { Heart, MessageCircle, Share2, MoreHorizontal, Send, Link as LinkIcon, UserRound, Lock } from 'lucide-react'
 import { useI18n } from '../i18n'
 import type { Post, User } from '../data/mock'
 import { Avatar } from './Avatar'
@@ -10,15 +10,34 @@ import { formatCount } from '../lib/format'
 import { useMe } from '../data/useMe'
 import { addPostComment, sendPostToUser, togglePostLike } from '../data/interactions'
 
+function formatRemaining(ms: number) {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}`
+  if (m > 0) return `${m}:${String(s).padStart(2, '0')}`
+  return `${s}s`
+}
+
 export function PostCard({ post }: { post: Post }) {
   const [showComments, setShowComments] = useState(false)
   const [commentText, setCommentText] = useState('')
   const [shareOpen, setShareOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [nowMs, setNowMs] = useState(() => Date.now())
   const me = useMe()
   const navigate = useNavigate()
   const { t } = useI18n()
+
+  const sealed = !!post.sealUntil && nowMs < post.sealUntil
+
+  useEffect(() => {
+    if (!sealed) return
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [sealed])
 
   const addComment = () => {
     const text = commentText.trim()
@@ -75,7 +94,20 @@ export function PostCard({ post }: { post: Post }) {
         </div>
       </div>
 
-      {post.text && <p className="post-text" style={{ fontStretch: 'normal' }}>{post.text}</p>}
+      {sealed ? (
+        <div className="sealed-body">
+          <div className="sealed-medallion">
+            <Lock size={28} />
+          </div>
+          <div className="sealed-title">{t('postCard.sealedTag')}</div>
+          <div className="sealed-sub">{t('postCard.sealedHint')}</div>
+          <div className="sealed-countdown">
+            {t('postCard.sealOpensIn', { rest: formatRemaining((post.sealUntil ?? 0) - nowMs) })}
+          </div>
+        </div>
+      ) : (
+        <>
+          {post.text && <p className="post-text" style={{ fontStretch: 'normal' }}>{post.text}</p>}
       <MediaGrid images={post.images} video={post.video} />
 
       <div className="post-stats">
@@ -140,6 +172,8 @@ export function PostCard({ post }: { post: Post }) {
           </div>
         </div>
       </div>
+        </>
+      )}
     </article>
   )
 }

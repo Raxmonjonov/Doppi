@@ -186,6 +186,19 @@
   border: 2px solid var(--fn-surface);
 }
 
+.orbit-node-seal {
+  position: absolute;
+  bottom: 16px;
+  right: 12px;
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  rotate: 45deg;
+  background: var(--fn-story-gradient);
+  border: 2px solid var(--fn-surface);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
 .orbit-node.stale img,
 .orbit-node.stale .orbit-node-fallback {
   filter: grayscale(0.75) contrast(0.92);

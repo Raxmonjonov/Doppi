@@ -12,6 +12,7 @@ export interface OrbitItem {
   name: string
   likes: number
   live?: boolean
+  sealed?: boolean
   createdAt: number
 }
 
@@ -136,6 +137,7 @@ export function OrbitView({ items, title, renderViewer }: Props) {
                 <span className="orbit-node-ring" />
                 <span className="orbit-node-likes">{n.likes}</span>
                 {n.live && <span className="orbit-node-live" />}
+                {n.sealed && <span className="orbit-node-seal" />}
                 {stale && <span className="orbit-node-stale" />}
               </button>
             )

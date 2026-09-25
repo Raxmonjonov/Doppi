@@ -29,6 +29,7 @@ export function Home() {
   const ageOf = (p: { id: number }) => now - Number(p.id)
   const isFresh = (p: { id: number }) => ageOf(p) <= FRESH_MS
   const isStale = (p: { id: number }) => ageOf(p) > DORMANT_MS
+  const isSealed = (p: { id: number; sealUntil?: number }) => !!p.sealUntil && now < p.sealUntil
   const dormant = posts.filter(isStale)
 
   return (
@@ -88,10 +89,11 @@ export function Home() {
         <OrbitView
           items={posts.map((p) => ({
             id: p.id,
-            thumb: p.images[0],
+            thumb: isSealed(p) ? undefined : p.images[0],
             name: p.author.name,
             likes: p.likes,
             live: p.live,
+            sealed: isSealed(p),
             createdAt: p.id,
           }))}
           renderViewer={(item) => {
@@ -108,7 +110,7 @@ export function Home() {
                 <PostCard post={p} />
               </div>
             ) : (
-              <div key={p.id} className={isFresh(p) ? 'post-fresh' : undefined}>
+              <div key={p.id} className={isFresh(p) && !isSealed(p) ? 'post-fresh' : undefined}>
                 <PostCard post={p} />
               </div>
             ),

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { ImagePlus, Video, Smile, X, Send, Upload } from 'lucide-react'
+import { ImagePlus, Video, Smile, X, Send, Upload, Lock } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { Avatar } from './Avatar'
 import { Lightbox } from './Lightbox'
@@ -8,6 +8,13 @@ import { useMe } from '../data/useMe'
 import type { Post } from '../data/mock'
 import { updateData } from '../data/store'
 import { fileToDataUrl } from '../lib/upload'
+
+const SEAL_OPTIONS: { key: 'none' | 'hour1' | 'day1' | 'week1'; ms: number }[] = [
+  { key: 'none', ms: 0 },
+  { key: 'hour1', ms: 60 * 60 * 1000 },
+  { key: 'day1', ms: 24 * 60 * 60 * 1000 },
+  { key: 'week1', ms: 7 * 24 * 60 * 60 * 1000 },
+]
 
 function dispatch(kind: 'image' | 'video' | null) {
   if (kind) window.dispatchEvent(new CustomEvent('fn:pick-media', { detail: kind }))
@@ -52,6 +59,7 @@ export function CreatePost() {
   const [video, setVideo] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [seal, setSeal] = useState<'none' | 'hour1' | 'day1' | 'week1'>('none')
   const imageRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLInputElement>(null)
 
@@ -82,6 +90,7 @@ export function CreatePost() {
     setText('')
     setImage(null)
     setVideo(null)
+    setSeal('none')
   }, [pathname])
 
   useEffect(() => {
@@ -109,6 +118,7 @@ export function CreatePost() {
   const submit = () => {
     const trimmed = text.trim()
     if (!trimmed && !image && !video) return
+    const sealMs = SEAL_OPTIONS.find((o) => o.key === seal)?.ms ?? 0
     const post: Post = {
       id: Date.now(),
       author: me,
@@ -119,6 +129,7 @@ export function CreatePost() {
       likes: 0,
       comments: [],
       shared: 0,
+      ...(sealMs > 0 ? { sealUntil: Date.now() + sealMs } : {}),
     }
     updateData((d) => {
       d.posts = [post, ...d.posts]
@@ -126,6 +137,7 @@ export function CreatePost() {
     setText('')
     setImage(null)
     setVideo(null)
+    setSeal('none')
     setOpen(false)
   }
 
@@ -168,6 +180,23 @@ export function CreatePost() {
                 <button type="button" className="btn btn-outline btn-sm" onClick={() => videoRef.current?.click()}>
                   <Video size={15} /> {t('createPost.uploadVideo')}
                 </button>
+              </div>
+              <div className="seal-row">
+                <span className="seal-row-label">
+                  <Lock size={14} /> {t('createPost.sealLabel')}
+                </span>
+                <div className="seal-pills">
+                  {SEAL_OPTIONS.map((o) => (
+                    <button
+                      key={o.key}
+                      type="button"
+                      className={`seal-pill${seal === o.key ? ' active' : ''}`}
+                      onClick={() => setSeal(o.key)}
+                    >
+                      {t(`createPost.seal.${o.key}`)}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="post-form-footer">
                 <button type="button" className="btn btn-outline" onClick={() => setOpen(false)}>
