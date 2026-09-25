@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Heart, MessageCircle, Share2, MoreHorizontal, Send, Link as LinkIcon, UserRound, Lock } from 'lucide-react'
+import { Heart, MessageCircle, Share2, MoreHorizontal, Send, Link as LinkIcon, UserRound, Lock, ShieldHalf } from 'lucide-react'
 import { useI18n } from '../i18n'
 import type { Post, User } from '../data/mock'
 import { Avatar } from './Avatar'
@@ -8,7 +8,7 @@ import { MediaGrid } from './MediaGrid'
 import { ShareDialog } from './ShareDialog'
 import { formatCount } from '../lib/format'
 import { useMe } from '../data/useMe'
-import { addPostComment, sendPostToUser, togglePostLike } from '../data/interactions'
+import { addPostComment, sendPostToUser, togglePostLike, shieldPost } from '../data/interactions'
 
 function formatRemaining(ms: number) {
   const total = Math.max(0, Math.floor(ms / 1000))
@@ -27,6 +27,8 @@ export function PostCard({ post, asOf }: { post: Post; asOf?: number }) {
   const [moreOpen, setMoreOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const [liveNow, setLiveNow] = useState(() => Date.now())
+  const [shieldBusy, setShieldBusy] = useState(false)
+  const [shieldMsg, setShieldMsg] = useState('')
   const me = useMe()
   const navigate = useNavigate()
   const { t } = useI18n()
@@ -125,6 +127,30 @@ export function PostCard({ post, asOf }: { post: Post; asOf?: number }) {
           <div className="sealed-countdown">
             {t('postCard.sealOpensIn', { rest: formatRemaining((post.sealUntil ?? 0) - nowMs) })}
           </div>
+          {!rewound && me && post.author.id !== me.id && post.sealUntil && (post.shields ?? 0) < 3 && (
+            <div className="sealed-shield">
+              <button
+                type="button"
+                className={`shield-btn${shieldBusy ? ' busy' : ''}${post.shieldedByMe ? ' shielded' : ''}`}
+                onClick={() => {
+                  if (shieldBusy || post.shieldedByMe) return
+                  setShieldBusy(true)
+                  setShieldMsg('')
+                  shieldPost(post)
+                    .then(() => setShieldMsg(t('postCard.shieldDone')))
+                    .catch((e: Error) => setShieldMsg(e.message || t('postCard.shieldFail')))
+                    .finally(() => setShieldBusy(false))
+                }}
+                disabled={shieldBusy}
+                title={post.shieldedByMe ? t('postCard.shielded') : t('postCard.shieldHint')}
+              >
+                <ShieldHalf size={15} />
+                <span>{post.shieldedByMe ? t('postCard.shielded') : t('postCard.shield')}</span>
+                {(post.shields ?? 0) > 0 && <b>{post.shields}</b>}
+              </button>
+              <em className={`shield-live${shieldMsg ? ' show' : ''}`}>{shieldMsg}</em>
+            </div>
+          )}
           {rewound && <div className="sealed-rewind-badge">{t('postCard.rewindSeal')}</div>}
         </div>
       ) : (

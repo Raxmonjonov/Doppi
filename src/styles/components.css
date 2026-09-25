@@ -3805,3 +3805,95 @@
   color: var(--fn-muted);
   white-space: nowrap;
 }
+
+/* ---------- Seal shield ---------- */
+.sealed-shield {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.shield-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--fn-accent) 45%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--fn-accent) 18%, var(--fn-surface)), var(--fn-surface));
+  color: var(--fn-accent);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+}
+
+.shield-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--fn-accent) 28%, transparent);
+}
+
+.shield-btn b {
+  min-width: 18px;
+  height: 18px;
+  line-height: 18px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fn-accent) 22%, transparent);
+  font-size: 11px;
+  text-align: center;
+}
+
+.shield-btn.shielded {
+  cursor: default;
+  filter: saturate(0.5);
+  opacity: 0.85;
+}
+
+.shield-btn.busy {
+  cursor: wait;
+  animation: shield-blink 900ms ease infinite;
+}
+
+@keyframes shield-blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.shield-live {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--fn-muted);
+  min-height: 14px;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.shield-live.show {
+  opacity: 1;
+  color: var(--fn-accent);
+}
+
+/* Seal wall shield counter */
+.seal-wall-shields {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--fn-accent);
+  background: color-mix(in srgb, var(--fn-surface) 92%, var(--fn-accent));
+  border: 1px solid color-mix(in srgb, var(--fn-accent) 40%, transparent);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.12);
+}

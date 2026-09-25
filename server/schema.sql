@@ -54,6 +54,15 @@ CREATE TABLE IF NOT EXISTS post_shares (
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS seal_shields (
+  post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (post_id, user_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_seal_shields_one ON seal_shields(post_id, user_id);
+
 CREATE TABLE IF NOT EXISTS stories (
   id BIGINT PRIMARY KEY,
   author_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Hourglass, Clock } from 'lucide-react'
+import { Hourglass, Clock, ShieldHalf } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
 import { useData } from '../data/store'
 import { useI18n } from '../i18n'
@@ -26,7 +26,7 @@ function formatAge(ms: number) {
   return `${total % 60}s`
 }
 
-function SealCard({ id, name, avatar, until }: { id: number; name: string; avatar: string; until: number }) {
+function SealCard({ id, name, avatar, until, shields }: { id: number; name: string; avatar: string; until: number; shields?: number }) {
   const { t } = useI18n()
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -43,6 +43,12 @@ function SealCard({ id, name, avatar, until }: { id: number; name: string; avata
       <div className="seal-wall-medallion">
         <Hourglass size={26} />
       </div>
+      {!!shields && (
+        <div className="seal-wall-shields" title={t('sealWall.shieldCount', { n: shields })}>
+          <ShieldHalf size={11} />
+          {shields}
+        </div>
+      )}
       <div className="seal-wall-rest">{formatRest(rest)}</div>
       <div className="seal-wall-author">
         <Avatar user={{ id, name, avatar, online: true, username: '', about: '' }} size={20} />
@@ -108,7 +114,14 @@ export default function SealWall() {
       ) : (
         <div className="seal-wall-grid">
           {sealed.map((p) => (
-            <SealCard key={p.id} id={p.author.id} name={p.author.name} avatar={p.author.avatar} until={p.sealUntil as number} />
+            <SealCard
+              key={p.id}
+              id={p.author.id}
+              name={p.author.name}
+              avatar={p.author.avatar}
+              until={p.sealUntil as number}
+              shields={p.shields}
+            />
           ))}
         </div>
       )}

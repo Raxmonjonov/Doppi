@@ -20,6 +20,8 @@ export interface Post {
   live?: boolean
   likedByMe?: boolean
   sealUntil?: number
+  shields?: number
+  shieldedByMe?: boolean
 }
 
 export interface Comment {

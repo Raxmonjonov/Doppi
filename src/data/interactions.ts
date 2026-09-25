@@ -117,6 +117,17 @@ export async function sharePost(post: Post): Promise<void> {
   }
 }
 
+export async function shieldPost(post: Post): Promise<void> {
+  const r = await api<{ sealUntil: number; shields: number }>(`/api/posts/${post.id}/shield`, { method: 'POST' })
+  updateData((d) => {
+    d.posts = d.posts.map((p) =>
+      p.id === post.id
+        ? { ...p, sealUntil: r.sealUntil, shields: r.shields, shieldedByMe: true }
+        : p,
+    )
+  })
+}
+
 export async function toggleReelLike(reel: Reel): Promise<void> {
   updateData((d) => {
     d.reels = d.reels.map((r) =>
