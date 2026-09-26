@@ -61,13 +61,14 @@ const SOUND_KEY = 'doppi-notify-sound-v1'
 const SW_URL = '/sw.js'
 
 /* Service worker orqali yopiq brauzerga yetkazish. Brauzer yopiq yoki
-   boshqa qurilmada bo'lsa faqat shu yo'l ishlaydi. */
-export const pushSupported =
+   boshqa qurilmada bo'lsa faqat shu yo'l ishlaydi. Modul darajasida
+   qo'ldiriladi: qiymat o'zgarmaydi, shuning uchun hook deps da
+   ko'rsatilmaydi. */
+const pushSupported =
   typeof window !== 'undefined' &&
   'serviceWorker' in navigator &&
   'PushManager' in window &&
   typeof Notification !== 'undefined'
-
 function urlB64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
@@ -395,7 +396,9 @@ export function NotificationsProvider({ children, enabled }: { children: ReactNo
   }, [joinRequest])
 
   // SW xabari bilan bo'lish uchun barqaror murojaat
-  markReadRef.current = markRead
+  useEffect(() => {
+    markReadRef.current = markRead
+  }, [markRead])
 
   const value = useMemo<NotificationsValue>(
     () => ({

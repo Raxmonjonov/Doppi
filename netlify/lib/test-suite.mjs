@@ -333,10 +333,15 @@ export async function runSuite(store, label) {
   ok('forgot has 6-digit code', /^\d{6}$/.test(String(forgot.json.debugCode ?? '')), `code=${forgot.json.debugCode}`)
   const unknownForgot = await call('POST', '/api/auth/forgot', { username: 'bunday-user-yoq' })
   ok('forgot does not leak user existence', unknownForgot.status === 200 && !unknownForgot.json.debugCode)
+  // pochta bombasi himoyasi: 60 s ichida qayta so'rov yangi kod yubormaydi
+  const againForgot = await call('POST', '/api/auth/forgot', { username: 'nftest1' })
+  ok('repeat forgot is throttled', againForgot.status === 200 && againForgot.json.throttled === true, `throttled=${againForgot.json.throttled}`)
+  ok('throttled forgot issues no new code', !againForgot.json.debugCode, `code=${againForgot.json.debugCode}`)
   const badCode = await call('POST', '/api/auth/reset', { username: 'nftest1', code: '000000', password: 'newpass1' })
   ok('reset with wrong code -> 400', badCode.status === 400, `status=${badCode.status}`)
+  // throttled so'rovdan keyin birinchi kod hamon ishlaydi -> kod almashmagan
   const goodCode = await call('POST', '/api/auth/reset', { username: 'nftest1', code: forgot.json.debugCode, password: 'newpass1' })
-  ok('reset with valid code', goodCode.status === 200 && goodCode.json.ok === true, `status=${goodCode.status}`)
+  ok('original code survives a throttled repeat request', goodCode.status === 200 && goodCode.json.ok === true, `status=${goodCode.status}`)
   const oldPw = await call('POST', '/api/auth/login', { username: 'nftest1', password: 'pass123' })
   ok('old password rejected', oldPw.status === 401, `status=${oldPw.status}`)
   const newPw = await call('POST', '/api/auth/login', { username: 'nftest1', password: 'newpass1' })

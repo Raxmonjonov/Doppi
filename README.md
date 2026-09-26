@@ -14,7 +14,7 @@ Ishlatishdan oldin kamida quyidagilarni qo'shing:
 |---|------|--------|
 | 1 | **Parol saqlash** | `netlify/lib/api-core.mjs` (hashPassword) va `server/index.js` da parollar `scrypt` bilan hash qilinadi. Login/register/admin-login/media uchun **rate-limit** bor (10 urinish/15 daqiqa, register 10/soat, media 120/soat, `Retry-After` bilan 429). Chegara jarayon xotirasida saqlanadi — serverless'da bir necha soatga yoyilishi, ko'p instance'li da tayyor himoya bo'lmasligi mumkin. |
 | 2 | **Rate limiting** | Login (10/15 daqiqa, IP+login bo'yicha), register (10/soat), admin-login (10/15 daqiqa), parol tiklash (5/15 daqiqa + 10/15 daqiqa) va media yuklash (120/soat) chegaralangan — `Retry-After` bilan 429. Post yaratish, xabar yuborish, ping va ma'lumotni saqlash (`PUT /api/data`) **chegaralanmagan**. Chegara jarayon xotirasida, ko'p instance'li serverless'da to'liq ishlaydi. |
-| 3 | **Parol tiklash** | `POST /api/auth/forgot` 6 raqamli kod beradi (10 daqiqa, 5 urinish, eski kod bekor qilinadi), `POST /api/auth/reset` parolni yangilaydi va **barcha sessiyalarni bekor qiladi**. Yetkazib berish kanali (email/Telegram bot) **hali ulanmagan**: kod faqat server logiga yoziladi va `NODE_ENV=production` da javobda qaytarilmaydi — ya'ni ishlab chiqarishda bu oqim hali ishlatilmaydi. |
+| 3 | **Parol tiklash** | `POST /api/auth/forgot` 6 raqamli kod beradi (10 daqiqa, 5 urinish, eski kod bekor qilinadi), `POST /api/auth/reset` parolni yangilaydi va **barcha sessiyalarni bekor qiladi**. Kod **real kanal orqali yetkaziladi** (`netlify/lib/delivery.mjs`: Resend yoki Telegram-botga moslashtirilgan webhook — quyida). Ishlab chiqarishda `APP_URL` berilishi shart, aks holda havola tuzilmaydi. Bir marta so'rashda bitta kod yuboriladi (60 soniyali kutish), mavjud foydalanuvchi oshkor qilinmaydi. |
 | 4 | **2FA / sessiya boshqaruvi** | Sessiyalar 30 kunlik **sliding TTL** bilan ishlaydi (faol bo'lganda yangilanadi, muddati o'tgani `401` bilan rad etiladi va tozalanadi). Parol tiklanganda yoki `POST /api/auth/logout-all` da **barcha qurilmalardagi sessiyalar** yopiladi; Settings'da faol sessiyalar ro'yxati ko'rinadi (brauzer, oxirgi faollik, muddati). 2FA va qurilma tanib olish (IP/geolokatsiya) **yo'q**. |
 | 5 | **Google Identity skripti** | `index.html` da `accounts.google.com/gsi/client` yuklanadi, lekin login/registerda ishlatilmaydi (foydasiz yuk). |
 | 6 | **Media** | Rasmlar/video alohida `POST /api/media` orqali **haqiqiy fayl** sifatida saqlanadi (Postgres `bytea` yoki Blobs), hujjatda faqat URL turadi. Rasm brauzerda 1600px/WebP'gacha siqiladi. Qoldiqlar: CDN/thumbnail yo'q, video siqilmaydi, media URL'i tokensiz ochiq (faqat tasodifiy 12-baytli id bilan). Eski `data:` URL lar admin panelidan bir tugma bilan faylga ko'chiriladi. |
@@ -84,6 +84,28 @@ ikki marta chiqardi. Bildirishnoma `actions` bilan ko'rsatiladi, ya'ni tizim dar
 `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` env orqali beriladi; bermasangiz kalit avtomatik
 generatsiya qilinib saqlanadi (core: `doc.vapid`, server: `app_settings`).
 
+**Parol tiklash kodini yetkazish** (`netlify/lib/delivery.mjs`) — Netlify'da SMTP port yo'q, shu
+uchun faqat HTTP provayderlar qo'llaniladi. `MAIL_MODE` tanlanadi:
+
+| `MAIL_MODE` | Nima qiladi | Kerakli env |
+| --- | --- | --- |
+| `resend` | Resend orqali email yuboradi (eng oddiy yo'l) | `RESEND_API_KEY`, `MAIL_FROM` |
+| `webhook` | Tanlagan xizmatga `{to, subject, text, html, code, username}` JSON yuboradi — masalan Telegram bot orqali | `DELIVERY_WEBHOOK_URL`, `DELIVERY_WEBHOOK_TOKEN` (ixtiyoriy) |
+| `log` | Faqat server logiga yozadi (lokal ishlash uchun) | — |
+| `off` | Umuman yubormaydi | — |
+
+Bo'sh bo'lsa `MAIL_MODE=auto`: `RESEND_API_KEY` bo'lsa `resend`, webhook URL bo'lsa `webhook`,
+aks holda `log`. **Ishlab chiqarishda albatta `resend` yoki `webhook` va `APP_URL` belgilang** —
+`log`/`off`da foydalanuvchi kodni olmaydi. `MAIL_FROM` bo'lmasa default `Do'ppi <no-reply@doppi.app>`.
+Yetkazish xatosi javobni buzmaydi (foydalanuvchi har doim bir xil "yuborildi" javobini oladi) va
+boshqa hech kimga oshkor qilinmaydi. Telegram uchun `webhook` + kichik bot proxy yetarli.
+
+`NODE_ENV=production` da kod javobda qaytarilmaydi (`RESET_CODE_ECHO` bilan lokalda ham
+o'chirilishi mumkin), faqat `xavfsiz` holatda `debugCode` maydoni to'ladi. Xabardagi havola
+`/login?username=...&forgot=1` — shu oyina foydalanuvchi to'g'ridan-to'g'ri kod kiritish
+qadamiga tushadi, username oldindan to'ladi.
+
+
 
 **Bildirishnomadan qo'ng'iroqqa qo'shilish:** o'qilmagan qo'ng'iroq bildirishnomasida **"Qo'ng'iroqqa
 qo'shilish"** tugmasi chiqadi. U suhbat yoki guruhni ochadi va darhol `responder` rejimini
@@ -130,11 +152,12 @@ Sinov foydalanuvchilari: `demo1/demo1`, `demo2/demo2`. Admin panel: `/admin` →
 ## Testlar
 
 ```bash
-npm run test:netlify   # 102 test: api-core business logikasi (fayl store) + 7 sessiya-muddati tekshiruvi
-npm run test:blobs     # 102 test: blobs-store adapter (fake @netlify/blobs)
-npm run test:pg-store  # 102 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
-npm run test:all       # uchalasi (306 test)
-npm run test:live      # 46 test: haqiqiy Express server + Postgres (audio, xabar, bildirishnoma, qo'ng'iroq, push)
+npm run test:netlify   # 104 test: api-core business logikasi (fayl store) + 7 sessiya-muddati tekshiruvi
+npm run test:blobs     # 104 test: blobs-store adapter (fake @netlify/blobs)
+npm run test:pg-store  # 104 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
+npm run test:delivery  # 28 test: parol tiklash kodini yetkazish kanallari
+npm run test:all       # uchalasi + delivery (340 test)
+npm run test:live      # 53 test: haqiqiy Express server + Postgres (audio, xabar, bildirishnoma, qo'ng'iroq, push)
 npm run build          # tsc + vite
 npm run lint           # oxlint
 ```
