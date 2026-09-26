@@ -20,7 +20,7 @@ Ishlatishdan oldin kamida quyidagilarni qo'shing:
 | 6 | **Media** | Rasmlar/video alohida `POST /api/media` orqali **haqiqiy fayl** sifatida saqlanadi (Postgres `bytea` yoki Blobs), hujjatda faqat URL turadi. Rasm brauzerda 1600px/WebP'gacha siqiladi. Qoldiqlar: CDN/thumbnail yo'q, video siqilmaydi, media URL'i tokensiz ochiq (faqat tasodifiy 12-baytli id bilan). Eski `data:` URL lar admin panelidan bir tugma bilan faylga ko'chiriladi. |
 | 7 | **To'lov (premium)** | UI mavjud, backend yo'q. |
 | 8 | **Qonuniy tomon** | Ma'lumotlarni saqlash shartlari, cookie/bildirishnoma siyosati, `delete account` oqili yo'q. |
-| 9 | **Bildirishnoma tizimi** | Xabar, guruh xabari va kiruvchi qo'ng'iroq uchun server tomonda bildirishnoma yaratiladi (`GET /api/notifications?since=`, `POST /api/notifications/read`). Faqat qabul qiluvchida ko'rinadi, har bir foydalanuvchida oxirgi 200 tasi saqlanadi. SPA ochiq tursa global poll (4 s) + brauzer `Notification` API + WebAudio signal ishlaydi. **Qoldiqlar:** service worker/Web Push yo'q — brauzer yopiq bo'lganda yetkazib berilmaydi; ruxsat brauzer sozlamasidan beriladi. |
+| 9 | **Bildirishnoma tizimi** | Xabar, guruh xabari va kiruvchi qo'ng'iroq uchun server tomonda bildirishnoma yaratiladi (`GET /api/notifications?since=`, `POST /api/notifications/read`). Faqat qabul qiluvchida ko'rinadi, har bir foydalanuvchida oxirgi 200 tasi saqlanadi. SPA ochiq tursa global poll (4 s) + brauzer `Notification` API + WebAudio signal ishlaydi. **Web Push** (`/api/push/*` + `public/sw.js`) orqali brauzer yopiq bo'lganda ham yetkaziladi. **Qoldiqlar:** VAPID kaliti env'da berilmasa generatsiya qilinib `app_settings` da saqlanadi (Netlify da `doppi_doc` ichida) — kalitni almashtirsangiz obunalar qaytadan o'rnatilishi kerak; iOS'da push faqat qo'lda "Qo'shish" (Add to Home Screen) qilingan web ilovada ishlaydi. |
 
 > Bu ro'yxatni kamaytirmasdan **real foydalanuvchilarga ochish** — xato qaror. Do'ppi'ni
 > do'stlarga ko'rsatish uchun yetarli, jamoatga ochish uchun hali emas.
@@ -74,6 +74,17 @@ Navbar va mobil pastki panelda **qo'ng'iroqchincha** + o'qilmagan badge; ochilga
 signal, ruxsat berilgan va tab yashiringan holatda esa brauzer `Notification` API.
 Brauzer ruxsati Settings > Bildirishnomalar dan yoqiladi (va ovoz alohida o'chiriladi).
 
+**Yopiq brauzerga yetkazish (Web Push + service worker):** `public/sw.js` registratsiya qilinadi
+va Settings dagi "Yopiq brauzer uchun yetkazish" tugmasi yoqilganda qurilma `PushManager` orqali
+obunadi. Server har bir bildirishnomani yaratganda `push_subscriptions` dagi qurilmalarga yuboradi
+(404/410 bo'lgan obunalar avtomatik o'chiriladi). **Muhim:** foydalanuvchi oxirgi 60 soniyada
+faol bo'lsa (sahifa ochiq, u o'zi poll qilib turgan) push yuborilmaydi — aks holda bildirishnoma
+ikki marta chiqardi. Bildirishnoma `actions` bilan ko'rsatiladi, ya'ni tizim darajasidagi
+"Qo'ng'iroqqa qo'shilish" tugmasi ham ishlaydi. VAPID kaliti `VAPID_PUBLIC_KEY` /
+`VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` env orqali beriladi; bermasangiz kalit avtomatik
+generatsiya qilinib saqlanadi (core: `doc.vapid`, server: `app_settings`).
+
+
 **Bildirishnomadan qo'ng'iroqqa qo'shilish:** o'qilmagan qo'ng'iroq bildirishnomasida **"Qo'ng'iroqqa
 qo'shilish"** tugmasi chiqadi. U suhbat yoki guruhni ochadi va darhol `responder` rejimini
 boshlaydi — shunda **ring signali o'tib ketgan bo'lsa ham** responder o'z `offer` ini
@@ -119,11 +130,11 @@ Sinov foydalanuvchilari: `demo1/demo1`, `demo2/demo2`. Admin panel: `/admin` →
 ## Testlar
 
 ```bash
-npm run test:netlify   # 91 test: api-core business logikasi (fayl store) + 7 sessiya-muddati tekshiruvi
-npm run test:blobs     # 91 test: blobs-store adapter (fake @netlify/blobs)
-npm run test:pg-store  # 91 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
-npm run test:all       # uchalasi (273 test)
-npm run test:live      # 35 test: haqiqiy Express server + Postgres (audio, xabar, bildirishnoma, qo'ng'iroq)
+npm run test:netlify   # 102 test: api-core business logikasi (fayl store) + 7 sessiya-muddati tekshiruvi
+npm run test:blobs     # 102 test: blobs-store adapter (fake @netlify/blobs)
+npm run test:pg-store  # 102 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
+npm run test:all       # uchalasi (306 test)
+npm run test:live      # 46 test: haqiqiy Express server + Postgres (audio, xabar, bildirishnoma, qo'ng'iroq, push)
 npm run build          # tsc + vite
 npm run lint           # oxlint
 ```
@@ -138,7 +149,8 @@ path traversal himoyasi) → media GC (faqat admin, orphan o'chadi, havolali fay
 **parol tiklash (6 raqamli kod → eski parol 401 → yangi parol 200 → eski sessiya o'lgan)** →
 **sessiya muddati (30 kun sliding TTL, o'tgani 401) + "hamma qurilmalardan chiqish"** →
 **ovozli xabar (audio media 201/415/413, xabarda `audio` + `audioDuration`, DM va guruh tarixi)**
-**bildirishnoma (xabar/qo'ng'iroq generatsiyasi, faqat qabul qiluvchida, cursor `since`, mark-read, `hangup`/`decline` da qo'ng'iroq bildirishnomasi yopiladi)** → 
+**bildirishnoma (xabar/qo'ng'iroq generatsiyasi, faqat qabul qiluvchida, cursor `since`, mark-read, `hangup`/`decline` da qo'ng'iroq bildirishnomasi yopiladi)** →
+**Web Push obunasi (`/api/push/key`, subscribe idempotent, noto'g'ri endpoint → 400, auth → 401, obuna bilan xabar yuborish buzilmaydi, unsubscribe)** →
 "qayta ishga tushgandan keyin saqlanish".
 
 `test:pg-store` Neon HTTP'ni bevosita emulyatsiya qilolmaydi (neon faqat HTTP ishlaydi), shuning
@@ -160,5 +172,7 @@ src/
 netlify/        functions/api.mjs, lib/api-core.mjs (business logika), lib/blobs-store.mjs,
                 lib/postgres-store.mjs, lib/test-suite.mjs + uchta *.test.mjs,
                 lib/live-voice-notif.smoke.mjs (haqiqiy server smoke)
-server/         index.js, schema.sql (doppi_doc, doppi_media, notifications, ...)
+server/         index.js, schema.sql (doppi_doc, doppi_media, notifications,
+                push_subscriptions, app_settings, ...)
+public/         favicon.svg, icons.svg, sw.js (Web Push + app shell cache)
 ```

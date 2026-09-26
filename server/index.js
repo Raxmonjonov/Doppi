@@ -4,6 +4,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
+import webpushDefault from 'web-push'
+
+// web-push CommonJS moduli: default import to'g'ri kelishi uchun normallashtiramiz
+const webpush = webpushDefault?.default ?? webpushDefault
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const SCHEMA_PATH = path.join(__dirname, 'schema.sql')
@@ -331,29 +335,169 @@ app.post('/api/auth/reset', async (req, res) => {
 /* ---------- Bildirishnomalar ---------- */
 
 const NOTIFICATION_LIMIT = 200
+const PUSH_SUB_LIMIT = 10
+const PUSH_OFFLINE_MS = 60 * 1000
+
+/* ---------- Web Push (bildirishnomani yopiq brauzerga yetkazish) ----------
+   VAPID kalitlari: VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY env dan olinadi.
+   Yo'q bo'lsa bir marta generatsiya qilinib app_settings da saqlanadi. */
+
+function validSubscription(sub) {
+  return (
+    sub &&
+    typeof sub.endpoint === 'string' &&
+    /^https:\/\//i.test(sub.endpoint) &&
+    sub.endpoint.length < 500 &&
+    sub.keys?.p256dh &&
+    sub.keys?.auth
+  )
+}
+
+function uaLabelOf(uaRaw) {
+  return uaLabel({ headers: { 'user-agent': String(uaRaw ?? '') } })
+}
+
+let vapidCache = null
+
+async function vapidKeys() {
+  if (vapidCache) return vapidCache
+  if (!webpush?.generateVAPIDKeys) return null
+  const pub = process.env.VAPID_PUBLIC_KEY || ''
+  const priv = process.env.VAPID_PRIVATE_KEY || ''
+  if (pub && priv) {
+    vapidCache = { publicKey: pub, privateKey: priv }
+    return vapidCache
+  }
+  try {
+    const { rows } = await pool.query(`SELECT value FROM app_settings WHERE key = 'vapid'`)
+    if (rows[0]?.value) {
+      vapidCache = JSON.parse(rows[0].value)
+      return vapidCache
+    }
+    const generated = webpush.generateVAPIDKeys()
+    await pool.query(
+      `INSERT INTO app_settings (key, value) VALUES ('vapid', $1)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(generated)],
+    )
+    vapidCache = generated
+    return vapidCache
+  } catch (e) {
+    console.error('VAPID kaliti tayyorlanmadi:', e.message)
+    return null
+  }
+}
+
+/* Foydalanuvchi oxirgi daqiqada faol bo'lsa push yubormaymiz — sahifa o'zi
+   poll qilib brauzer Notification API'si bilan ko'rsatadi. */
+async function isRecentlyActive(userId, ms = PUSH_OFFLINE_MS) {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM sessions WHERE user_id = $1 AND last_seen > $2 LIMIT 1`,
+    [userId, Date.now() - ms],
+  )
+  return rows.length > 0
+}
+
+function pushPayloadOf(item) {
+  const isCall = item.kind === 'call'
+  const parts = []
+  if (item.hasAudio) parts.push('ovozli xabar')
+  else if (item.hasImage) parts.push('rasm')
+  else if (item.body) parts.push(String(item.body).slice(0, 90))
+  const payload = {
+    title: isCall ? "Kiruvchi qo'ng'iroq" : 'Yangi xabar',
+    body: isCall
+      ? `${item.actorName} qo'ng'iroq qildi`
+      : `${item.actorName}${parts.length ? ': ' + parts.join(' · ') : ' yangi xabar yubordi'}`,
+    tag: `notif-${item.id}`,
+    notificationId: item.id,
+    kind: item.kind,
+    from: { id: item.actorId, name: item.actorName, username: item.actorUsername, avatar: item.actorAvatar },
+    threadId: item.threadId ?? null,
+    groupId: item.groupId ?? null,
+    callKind: item.callKind ?? '',
+  }
+  if (isCall && !item.closed) {
+    payload.actions = [
+      { action: 'open', title: 'Ochish' },
+      { action: 'join', title: "Qo'ng'iroqqa qo'shilish" },
+    ]
+  }
+  return payload
+}
+
+/* Push yuborish hech qachon asosiy oqimni bloklamaydi. */
+async function sendPush(userId, item) {
+  try {
+    if (!webpush?.sendNotification) return
+    if (await isRecentlyActive(userId)) return
+    const { rows } = await pool.query(`SELECT * FROM push_subscriptions WHERE user_id = $1`, [userId])
+    if (!rows.length) return
+    const keys = await vapidKeys()
+    if (!keys) return
+    webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:admin@doppi.app', keys.publicKey, keys.privateKey)
+    const body = JSON.stringify(pushPayloadOf(item))
+    for (const s of rows) {
+      try {
+        const res = webpush.sendNotification(
+          { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+          body,
+          { TTL: 300, urgency: 'high' },
+        )
+        if (res && typeof res.then === 'function') {
+          res.catch(async (err) => {
+            const code = err?.statusCode
+            if (code === 404 || code === 410) {
+              await pool.query(`DELETE FROM push_subscriptions WHERE endpoint = $1`, [s.endpoint]).catch(() => {})
+            }
+          })
+        }
+      } catch {
+        /* bitta qurilma xatosi boshqalarini to'xtatmasin */
+      }
+    }
+  } catch (e) {
+    console.error('push yuborilmadi:', e.message)
+  }
+}
 
 async function insertNotification(userId, actor, data = {}) {
   if (!userId || Number(userId) === Number(actor?.id)) return null
   const id = Date.now() + Math.floor(Math.random() * 1000)
+  const item = {
+    id,
+    kind: String(data.kind ?? 'message'),
+    actorId: Number(actor?.id ?? 0),
+    actorName: String(actor?.name ?? ''),
+    actorUsername: String(actor?.username ?? ''),
+    actorAvatar: String(actor?.avatar ?? ''),
+    threadId: data.threadId ?? null,
+    groupId: data.groupId ?? null,
+    callKind: String(data.callKind ?? ''),
+    body: String(data.body ?? '').slice(0, 200),
+    hasAudio: !!data.hasAudio,
+    hasImage: !!data.hasImage,
+  }
   try {
     await pool.query(
       `INSERT INTO notifications
         (id, user_id, kind, actor_id, actor_name, actor_username, actor_avatar,
-         thread_id, group_id, call_kind, body, has_audio, read, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,false,$13)`,
+         thread_id, group_id, call_kind, body, has_audio, has_image, read, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,false,$14)`,
       [
         id,
         userId,
-        String(data.kind ?? 'message'),
-        Number(actor?.id ?? 0),
-        String(actor?.name ?? ''),
-        String(actor?.username ?? ''),
-        String(actor?.avatar ?? ''),
-        data.threadId ?? null,
-        data.groupId ?? null,
-        String(data.callKind ?? ''),
-        String(data.body ?? '').slice(0, 200),
-        !!data.hasAudio,
+        item.kind,
+        item.actorId,
+        item.actorName,
+        item.actorUsername,
+        item.actorAvatar,
+        item.threadId,
+        item.groupId,
+        item.callKind,
+        item.body,
+        item.hasAudio,
+        item.hasImage,
         Date.now(),
       ],
     )
@@ -366,6 +510,8 @@ async function insertNotification(userId, actor, data = {}) {
        )`,
       [userId, NOTIFICATION_LIMIT],
     )
+    // sahifa yopiq bo'lsa Web Push bilan yetkazamiz (bildirishnoma saqlangan)
+    void sendPush(userId, item)
     return id
   } catch (e) {
     console.error('bildirishnoma yozilmadi:', e.message)
@@ -415,6 +561,7 @@ function notificationRow(n) {
     callKind: n.call_kind || '',
     body: n.body || '',
     hasAudio: !!n.has_audio,
+    hasImage: !!n.has_image,
     closed: !!n.closed,
     read: !!n.read,
     createdAt: Number(n.created_at || n.id),
@@ -461,6 +608,69 @@ app.post('/api/notifications/read', authMiddleware, async (req, res) => {
       marked = rowCount ?? 0
     }
     res.json({ ok: true, marked })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+/* ---------- Web Push obunasi (yopiq brauzerga yetkazish) ---------- */
+
+app.get('/api/push/key', async (req, res) => {
+  try {
+    const keys = await vapidKeys()
+    if (!keys) return res.json({ enabled: false, publicKey: null })
+    res.json({ enabled: true, publicKey: keys.publicKey })
+  } catch (e) {
+    console.error(e)
+    res.json({ enabled: false, publicKey: null })
+  }
+})
+
+app.post('/api/push/subscribe', authMiddleware, async (req, res) => {
+  try {
+    if (!(await vapidKeys())) return res.status(501).json({ error: 'Push yetkazib berish sozlanmagan.' })
+    const sub = req.body?.subscription
+    if (!validSubscription(sub)) return res.status(400).json({ error: 'Obuna ma’lumotlari noto‘g‘ri.' })
+    const endpoint = sub.endpoint
+    await pool.query(
+      `INSERT INTO push_subscriptions (endpoint, user_id, p256dh, auth, ua, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (endpoint) DO UPDATE
+         SET user_id = EXCLUDED.user_id, p256dh = EXCLUDED.p256dh,
+             auth = EXCLUDED.auth, ua = EXCLUDED.ua, created_at = EXCLUDED.created_at`,
+      [
+        endpoint,
+        req.user.id,
+        String(sub.keys.p256dh).slice(0, 200),
+        String(sub.keys.auth).slice(0, 100),
+        uaLabelOf(req.headers['user-agent']),
+        Date.now(),
+      ],
+    )
+    // bitta qurilmada ko'p obuna bo'lmasin
+    await pool.query(
+      `DELETE FROM push_subscriptions WHERE user_id = $1 AND endpoint NOT IN (
+         SELECT endpoint FROM push_subscriptions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2
+       )`,
+      [req.user.id, PUSH_SUB_LIMIT],
+    )
+    res.json({ ok: true, id: crypto.createHash('sha256').update(endpoint).digest('hex').slice(0, 24) })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+app.post('/api/push/unsubscribe', authMiddleware, async (req, res) => {
+  try {
+    const endpoint = String(req.body?.endpoint ?? '').slice(0, 500)
+    if (!endpoint) return res.status(400).json({ error: 'endpoint talab qilinadi.' })
+    const { rowCount } = await pool.query(
+      `DELETE FROM push_subscriptions WHERE endpoint = $1 AND user_id = $2`,
+      [endpoint, req.user.id],
+    )
+    res.json({ ok: true, removed: rowCount ?? 0 })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Server xatosi.' })
