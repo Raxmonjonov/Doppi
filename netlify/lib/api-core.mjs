@@ -413,6 +413,7 @@ export async function handleRequest(method, pathname, query, req, store) {
         count: Array.isArray(a.photos) ? a.photos.length : 0,
         likes: doc.albumLikes.filter((l) => l.albumId === a.id).length,
         photos: Array.isArray(a.photos) ? a.photos : [],
+        ...(a.sealUntil ? { sealUntil: Number(a.sealUntil) } : {}),
       }))
       .sort((a, b) => b.id - a.id)
 
@@ -502,6 +503,7 @@ export async function handleRequest(method, pathname, query, req, store) {
         id: Number(a.id),
         title: String(a.title ?? ''),
         photos: Array.isArray(a.photos) ? a.photos : [],
+        ...(a.sealUntil ? { sealUntil: Number(a.sealUntil) } : {}),
       })
     }
 

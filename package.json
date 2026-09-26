@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:netlify": "node netlify/lib/api-core.test.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
