@@ -18,7 +18,18 @@ export function Settings() {
   const { theme, toggle } = useTheme()
   const { user, logout } = useAuth()
   const { lang, setLang, t } = useI18n()
-  const { permission, permissionGranted, requestPermission, soundOn, setSoundOn } = useNotifications()
+  const {
+  permission,
+  permissionGranted,
+  requestPermission,
+  soundOn,
+  setSoundOn,
+  pushSupported,
+  pushEnabled,
+  pushBusy,
+  enablePush,
+  disablePush,
+} = useNotifications()
   const [emailNotifs, setEmailNotifs] = useState(() => localStorage.getItem('doppi-email-notifs-v1') !== 'off')
   const [twoFactor, setTwoFactor] = useState(() => localStorage.getItem('doppi-2fa-v1') === 'on')
   const [langOpen, setLangOpen] = useState(false)
@@ -200,6 +211,34 @@ export function Settings() {
           >
             {soundOn ? t('notif.enabled') : t('notif.enable')}
           </button>
+        </div>
+
+        <div className="setting-row">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <BellRing size={20} />
+            <div>
+              <div className="setting-label">{t('notif.pushTitle')}</div>
+              <div className="setting-desc">
+                {!pushSupported
+                  ? t('notif.pushUnsupported')
+                  : pushEnabled
+                    ? t('notif.pushEnabled')
+                    : permission === 'denied'
+                      ? t('notif.blocked')
+                      : t('notif.pushDesc')}
+              </div>
+            </div>
+          </div>
+          {pushSupported && permission !== 'denied' && (
+            <button
+              type="button"
+              className={`btn ${pushEnabled ? 'btn-outline' : 'btn-primary'}`}
+              disabled={pushBusy}
+              onClick={() => void (pushEnabled ? disablePush() : enablePush())}
+            >
+              {pushBusy ? '…' : pushEnabled ? t('notif.pushDisable') : t('notif.pushEnable')}
+            </button>
+          )}
         </div>
       </div>
 

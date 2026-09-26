@@ -1,4 +1,8 @@
 import crypto from 'node:crypto'
+import webpushDefault from 'web-push'
+
+// web-push CommonJS moduli: default import to'g'ri kelishi uchun normallashtiramiz
+const webpush = webpushDefault?.default ?? webpushDefault
 
 const DAY = 24 * 60 * 60 * 1000
 
@@ -27,6 +31,8 @@ export function emptyDoc() {
     groupMessages: [],
     callSignals: [],
     follows: [],
+    notifications: [],
+    pushSubscriptions: [],
   }
 }
 
@@ -417,6 +423,183 @@ export function notify(doc, userId, actor, data = {}) {
     doc.notifications = list.filter((n) => !drop.has(n.id))
   }
   return item
+}
+
+/* ---------- Web Push (bildirishnomani yopiq brauzerga yetkazish) ----------
+   VAPID kalitlari: VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY env dan olinadi.
+   Yo'q bo'lsa generatsiya qilinib hujjatda saqlanadi (qayta ishga tushganda
+   o'zgarmaydi). Kalit yo'q bo'lsa butun push tizimi o'chgan holatda qoladi. */
+export const PUSH_SUB_LIMIT = 10
+export const PUSH_OFFLINE_MS = 60 * 1000
+
+let vapidCache = null
+
+function vapidFor(doc) {
+  if (vapidCache) return vapidCache
+  const pub = process.env.VAPID_PUBLIC_KEY || ''
+  const priv = process.env.VAPID_PRIVATE_KEY || ''
+  if (pub && priv) {
+    vapidCache = { publicKey: pub, privateKey: priv }
+    return vapidCache
+  }
+  // Kalit birinchi ishga tushganda generatsiya qilinadi va hujjatga yoziladi
+  const saved = doc.vapid
+  if (saved?.publicKey && saved?.privateKey) {
+    vapidCache = saved
+    return vapidCache
+  }
+  const subject = process.env.VAPID_SUBJECT || 'mailto:admin@doppi.app'
+  const lib = wp()
+  if (!lib) return null
+  let generated = null
+  try {
+    generated = lib.generateVAPIDKeys()
+    lib.setVapidDetails(subject, generated.publicKey, generated.privateKey)
+  } catch {
+    return null
+  }
+  doc.vapid = generated
+  vapidCache = generated
+  return vapidCache
+}
+
+let cachedWebpush = null
+function wp() {
+  if (cachedWebpush === null) cachedWebpush = typeof webpush?.generateVAPIDKeys === 'function' ? webpush : false
+  return cachedWebpush || null
+}
+
+/* Foydalanuvchi oxirgi daqiqada faol bo'lsa (SPA ochiq) push yubormaymiz —
+   sahifa o'zi poll qilib, brauzer Notification API'si bilan ko'rsatadi.
+   Faqat yopiq/background holatdagi qurilmalarga yuboriladi. */
+export function isRecentlyActive(doc, userId, ms = PUSH_OFFLINE_MS) {
+  const now = Date.now()
+  return doc.sessions.some((s) => s.userId === userId && now - Number(s.lastSeen ?? 0) < ms)
+}
+
+function validSubscription(sub) {
+  return (
+    sub &&
+    typeof sub.endpoint === 'string' &&
+    /^https:\/\//i.test(sub.endpoint) &&
+    sub.endpoint.length < 500 &&
+    sub.keys?.p256dh &&
+    sub.keys?.auth
+  )
+}
+
+export function upsertPushSubscription(doc, userId, sub, uaRaw = '') {
+  if (!validSubscription(sub)) return null
+  const list = doc.pushSubscriptions ?? (doc.pushSubscriptions = [])
+  const row = {
+    id: crypto.randomBytes(12).toString('hex'),
+    userId,
+    endpoint: sub.endpoint,
+    p256dh: String(sub.keys.p256dh).slice(0, 200),
+    auth: String(sub.keys.auth).slice(0, 100),
+    ua: uaLabel({ headers: { 'user-agent': String(uaRaw).slice(0, 200) } }),
+    createdAt: Date.now(),
+  }
+  const at = list.findIndex((s) => s.endpoint === row.endpoint)
+  if (at >= 0) {
+    row.id = list[at].id
+    list[at] = row
+  } else {
+    list.push(row)
+  }
+  // bitta qurilmada ko'p obuna bo'lmasin
+  const mine = list.filter((s) => s.userId === userId)
+  if (mine.length > PUSH_SUB_LIMIT) {
+    const drop = new Set(mine.slice(0, mine.length - PUSH_SUB_LIMIT).map((s) => s.id))
+    doc.pushSubscriptions = list.filter((s) => !drop.has(s.id))
+  }
+  return row
+}
+
+export function removePushSubscription(doc, endpoint) {
+  const list = doc.pushSubscriptions ?? []
+  const before = list.length
+  doc.pushSubscriptions = list.filter((s) => s.endpoint !== endpoint)
+  return before - doc.pushSubscriptions.length
+}
+
+/* Push yuborish — hech qachon xabar yuborishni bloklamaydi.
+   Natija: { sent, failed, removed } (removed = 404/410 bo'lgan obunalar). */
+export function sendPush(doc, userId, payload) {
+  const out = { sent: 0, failed: 0, removed: 0 }
+  const keys = vapidFor(doc)
+  if (!keys) return out
+  const list = (doc.pushSubscriptions ?? []).filter((s) => s.userId === userId)
+  if (!list.length) return out
+  if (isRecentlyActive(doc, userId)) return out
+  const webpush = wp()
+  if (!webpush) return out
+  try {
+    webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:admin@doppi.app', keys.publicKey, keys.privateKey)
+  } catch {
+    return out
+  }
+  const body = JSON.stringify(payload)
+  for (const s of list) {
+    try {
+      const res = webpush.sendNotification(
+        { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+        body,
+        { TTL: 300, urgency: 'high' },
+      )
+      if (res && typeof res.then === 'function') {
+        res.catch((err) => {
+          const code = err?.statusCode
+          if (code === 404 || code === 410) removePushSubscription(doc, s.endpoint)
+        })
+      }
+      out.sent += 1
+    } catch {
+      out.failed += 1
+    }
+  }
+  return out
+}
+
+/* Bildirishnoma yaratadi va agar qurilma yopiq bo'lsa — Web Push yuboradi.
+   Notifikasiya saqlanishi hech qachon push muvaffaqiyatsizligi bilan
+   bog'liq emas: push — qo'shimcha yetkazish kanali. */
+export function notifyAndPush(doc, userId, actor, data = {}) {
+  const item = notify(doc, userId, actor, data)
+  if (!item) return null
+  if (data.kind === 'call' || data.kind === 'message' || data.kind === 'group_message') {
+    sendPush(doc, userId, pushPayload(item))
+  }
+  return item
+}
+
+export function pushPayload(item) {
+  const isCall = item.kind === 'call'
+  const parts = []
+  if (item.hasAudio) parts.push('ovozli xabar')
+  else if (item.hasImage) parts.push('rasm')
+  else if (item.body) parts.push(item.body.slice(0, 90))
+  const body = isCall
+    ? `${item.actor.name} qo'ng'iroq qildi`
+    : `${item.actor.name}${parts.length ? ': ' + parts.join(' · ') : ' yangi xabar yubordi'}`
+  const payload = {
+    title: isCall ? 'Kiruvchi qo\'ng\'iroq' : 'Yangi xabar',
+    body,
+    tag: `notif-${item.id}`,
+    notificationId: item.id,
+    kind: item.kind,
+    from: item.actor,
+    threadId: item.threadId,
+    groupId: item.groupId,
+    callKind: item.callKind,
+  }
+  if (isCall && !item.closed) {
+    payload.actions = [
+      { action: 'open', title: 'Ochish' },
+      { action: 'join', title: "Qo'ng'iroqqa qo'shilish" },
+    ]
+  }
+  return payload
 }
 
 /* Qo'ng'iroq tugaganda (hangup/decline) ochiq qo'ng'iroq bildirishnomalarini
@@ -1220,7 +1403,7 @@ export async function handleRequest(method, pathname, query, req, store) {
     doc.groupMessages = doc.groupMessages ?? []
     doc.groupMessages.push(msg)
     for (const memberId of g.memberIds ?? []) {
-      notify(doc, memberId, me, {
+      notifyAndPush(doc, memberId, me, {
         kind: 'group',
         groupId: id,
         body: msg.audio ? '' : text.slice(0, 120),
@@ -1260,7 +1443,7 @@ export async function handleRequest(method, pathname, query, req, store) {
     if (kind === 'ring') {
       for (const memberId of g.memberIds ?? []) {
         if (memberId === me.id) continue
-        notify(doc, memberId, me, {
+        notifyAndPush(doc, memberId, me, {
           kind: 'call',
           groupId: id,
           callKind: String(payload?.kind ?? 'video'),
@@ -1308,7 +1491,7 @@ export async function handleRequest(method, pathname, query, req, store) {
     }
     if (kind === 'ring') {
       const callee = to || (t.memberA === me.id ? t.memberB : t.memberA)
-      notify(doc, callee, me, {
+      notifyAndPush(doc, callee, me, {
         kind: 'call',
         threadId: id,
         callKind: String(payload?.kind ?? 'video'),
@@ -1415,7 +1598,7 @@ export async function handleRequest(method, pathname, query, req, store) {
     if (body.sealUntil) msg.sealUntil = Number(body.sealUntil)
     doc.messages.push(msg)
     const peerId = t.memberA === me.id ? t.memberB : t.memberA
-    notify(doc, peerId, me, {
+    notifyAndPush(doc, peerId, me, {
       kind: 'message',
       threadId: id,
       body: msg.audio ? '' : text.slice(0, 120),
@@ -1472,6 +1655,40 @@ export async function handleRequest(method, pathname, query, req, store) {
     }
     await store.saveDoc(doc)
     return send(200, { ok: true, marked: n })
+  }
+
+  /* ---------- Web Push obunasi (yopiq brauzerga yetkazish) ---------- */
+
+  if (method === 'GET' && first === 'push' && second === 'key') {
+    const keys = vapidFor(doc)
+    if (!keys) return send(200, { enabled: false, publicKey: null })
+    if (!vapidCache.__persisted) {
+      await store.saveDoc(doc)
+      vapidCache.__persisted = true
+    }
+    return send(200, { enabled: true, publicKey: keys.publicKey })
+  }
+
+  if (method === 'POST' && first === 'push' && second === 'subscribe') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    if (!vapidFor(doc)) return send(501, { error: 'Push yetkazib berish sozlanmagan.' })
+    const body = await readBody(req)
+    const row = upsertPushSubscription(doc, me.id, body.subscription, req?.headers?.['user-agent'] ?? '')
+    if (!row) return send(400, { error: 'Obuna ma’lumotlari noto‘g‘ri.' })
+    await store.saveDoc(doc)
+    return send(200, { ok: true, id: row.id })
+  }
+
+  if (method === 'POST' && first === 'push' && second === 'unsubscribe') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const body = await readBody(req)
+    const endpoint = String(body.endpoint ?? '').slice(0, 500)
+    if (!endpoint) return send(400, { error: 'endpoint talab qilinadi.' })
+    const removed = removePushSubscription(doc, endpoint)
+    if (removed) await store.saveDoc(doc)
+    return send(200, { ok: true, removed })
   }
 
   /* ---------- Eski data: URL larni ko'chirish (faqat admin) ---------- */

@@ -204,6 +204,37 @@ export async function runSuite(store, label) {
   r = await call('POST', '/api/notifications/read', { ids: [1] }, tok2)
   ok('mark specific ids only', r.status === 200, `status=${r.status}`)
 
+  // 6b) Web Push obunasi
+  r = await call('GET', '/api/push/key')
+  const pushKey = r.json?.publicKey
+  ok('push key endpoint', r.status === 200 && r.json.enabled === true && typeof pushKey === 'string' && pushKey.length > 20, `status=${r.status}`)
+  const sub = {
+    endpoint: 'https://127.0.0.1:1/push/doppi-test-endpoint',
+    keys: { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' },
+  }
+  r = await call('POST', '/api/push/subscribe', { subscription: sub }, tok3)
+  ok('push subscribe', r.status === 200 && !!r.json.id, `status=${r.status}`)
+  const firstSubId = r.json?.id
+  r = await call('POST', '/api/push/subscribe', { subscription: sub }, tok3)
+  ok('push subscribe is idempotent', r.status === 200 && r.json.id === firstSubId, `id=${r.json?.id}`)
+  r = await call('POST', '/api/push/subscribe', { subscription: { endpoint: 'http://x/y' } }, tok3)
+  ok('push subscribe rejects bad endpoint', r.status === 400, `status=${r.status}`)
+  r = await call('POST', '/api/push/subscribe', { subscription: sub })
+  ok('push subscribe needs auth', r.status === 401, `status=${r.status}`)
+  // obuna bor holatda xabar yuborilishi ham, bildirishnoma yaratilishi ham buzilmasin
+  r = await call('POST', `/api/threads/${tid}/messages`, { text: 'push bilan birga' }, tok2)
+  ok('message works with push subscription', r.status === 200, `status=${r.status}`)
+  r = await call('GET', '/api/notifications?since=0', undefined, tok3)
+  ok('push subscriber still gets notification', !!r.json.notifications.find((n) => n.body === 'push bilan birga'))
+  r = await call('POST', '/api/push/unsubscribe', { endpoint: sub.endpoint }, tok3)
+  ok('push unsubscribe', r.status === 200 && r.json.removed === 1, `removed=${r.json?.removed}`)
+  r = await call('POST', '/api/push/unsubscribe', { endpoint: sub.endpoint }, tok3)
+  ok('push unsubscribe is idempotent', r.status === 200 && r.json.removed === 0, `removed=${r.json?.removed}`)
+  r = await call('POST', '/api/push/unsubscribe', {}, tok3)
+  ok('push unsubscribe needs endpoint', r.status === 400, `status=${r.status}`)
+  r = await call('POST', '/api/push/unsubscribe', { endpoint: sub.endpoint })
+  ok('push unsubscribe needs auth', r.status === 401, `status=${r.status}`)
+
   // 7) admin login + dashboard
   r = await call('POST', '/api/admin/login', { username: 'Admin', password: "Admin.Do'ppi.Uzbekitan.66" })
   ok('admin login', !!r.json.token)

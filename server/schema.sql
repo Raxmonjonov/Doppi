@@ -185,11 +185,35 @@ CREATE TABLE IF NOT EXISTS notifications (
   call_kind TEXT NOT NULL DEFAULT '',
   body TEXT NOT NULL DEFAULT '',
   has_audio BOOLEAN NOT NULL DEFAULT false,
+  has_image BOOLEAN NOT NULL DEFAULT false,
   closed BOOLEAN NOT NULL DEFAULT false,
   read BOOLEAN NOT NULL DEFAULT false,
   created_at BIGINT NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, id);
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS has_audio BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS has_image BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS closed BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS read BOOLEAN NOT NULL DEFAULT false;
+
+-- Web Push: yopiq brauzerga yetkazish uchun qurilma obunalari
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint TEXT PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  p256dh TEXT NOT NULL DEFAULT '',
+  auth TEXT NOT NULL DEFAULT '',
+  ua TEXT NOT NULL DEFAULT '',
+  created_at BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions(user_id);
+
+-- VAPID kalitlari va boshqa sozlamalar (kalit qayta ishga tushganda ham saqlanadi)
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT ''
+);
+
 
 CREATE TABLE IF NOT EXISTS group_call_signals (
   id BIGINT PRIMARY KEY,

@@ -159,6 +159,35 @@ const run = async () => {
   r = await call('GET', '/api/notifications?since=99999999999999', undefined, tok2)
   ok('since beyond max -> empty', r.status === 200 && (r.json?.notifications ?? []).length === 0, `got=${(r.json?.notifications ?? []).length}`)
 
+  // 8) Web Push obunasi
+  r = await call('GET', '/api/push/key')
+  ok('push key -> enabled', r.status === 200 && r.json?.enabled === true && typeof r.json?.publicKey === 'string', `status=${r.status}`)
+  const sub = {
+    endpoint: `https://127.0.0.1:1/push/doppi-live-${Date.now()}`,
+    keys: { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' },
+  }
+  r = await call('POST', '/api/push/subscribe', { subscription: sub }, tok2)
+  ok('push subscribe -> 200', r.status === 200 && r.json?.ok === true, `status=${r.status}`)
+  r = await call('POST', '/api/push/subscribe', { subscription: sub }, tok2)
+  ok('push subscribe idempotent -> 200', r.status === 200, `status=${r.status}`)
+  r = await call('POST', '/api/push/subscribe', { subscription: { endpoint: 'http://x/y' } }, tok2)
+  ok('push subscribe bad endpoint -> 400', r.status === 400, `status=${r.status}`)
+  r = await call('POST', '/api/push/subscribe', { subscription: sub })
+  ok('push subscribe needs auth -> 401', r.status === 401, `status=${r.status}`)
+  // obuna bor holatda xabar yuborilishi buzilmasin
+  r = await call('POST', `/api/threads/${tid}/messages`, { text: 'push bilan birga' }, tok1)
+  ok('dm message works with push subscription', r.status === 200, `status=${r.status}`)
+  r = await call('GET', '/api/notifications?since=0', undefined, tok2)
+  ok('push subscriber still gets notification', (r.json?.notifications ?? []).some((n) => n.body === 'push bilan birga'))
+  r = await call('POST', '/api/push/unsubscribe', { endpoint: sub.endpoint }, tok2)
+  ok('push unsubscribe -> removed 1', r.status === 200 && r.json?.removed === 1, `removed=${r.json?.removed}`)
+  r = await call('POST', '/api/push/unsubscribe', { endpoint: sub.endpoint }, tok2)
+  ok('push unsubscribe idempotent -> removed 0', r.status === 200 && r.json?.removed === 0, `removed=${r.json?.removed}`)
+  r = await call('POST', '/api/push/unsubscribe', {}, tok2)
+  ok('push unsubscribe needs endpoint -> 400', r.status === 400, `status=${r.status}`)
+  r = await call('POST', '/api/push/unsubscribe', { endpoint: sub.endpoint })
+  ok('push unsubscribe needs auth -> 401', r.status === 401, `status=${r.status}`)
+
   // cleanup
   await call('DELETE', `/api/groups/${gid}`, undefined, tok1)
   await call('DELETE', `/api/threads/${tid}`, undefined, tok1)
