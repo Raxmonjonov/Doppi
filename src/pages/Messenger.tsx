@@ -3,18 +3,21 @@ import type { ChangeEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Send, Image, Search, Pin, PinOff, Trash2, X, Phone, Video, PhoneOff, Mic, MicOff, Camera, CameraOff, Hourglass } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
+import { VoicePlayer } from '../components/VoicePlayer'
+import { VoiceRecorder, VoiceRecordButton } from '../components/VoiceRecorder'
 import type { Message } from '../data/mock'
 import { useMe } from '../data/useMe'
 import { useAuth } from '../data/auth'
-import { api } from '../api/client'
+import { useNotifications } from '../data/notifications'
+import { api, apiUrl } from '../api/client'
 import { useI18n } from '../i18n'
-import { uploadImage } from '../lib/upload'
+import { uploadImage, type UploadedAudio } from '../lib/upload'
 
 interface RawThread {
   id: number
   user: { id: number; name: string; username: string; avatar: string; online: boolean }
   online: boolean
-  messages: { id: number; from: number; text: string; time: string; image?: string; sealUntil?: number }[]
+  messages: { id: number; from: number; text: string; time: string; image?: string; audio?: string; audioDuration?: number; sealUntil?: number }[]
 }
 
 interface Thread {
@@ -102,8 +105,9 @@ export function MsgBubble({ m, mine, onReveal }: { m: Message; mine: boolean; on
 
   return (
     <div className={`msg ${mine ? 'mine' : 'theirs'}`}>
-      {m.image && <img className="msg-image" src={m.image} alt="" loading="lazy" />}
-      {m.text && <span className={m.image ? 'msg-text' : ''}>{m.text}</span>}
+      {m.image && <img className="msg-image" src={apiUrl(m.image)} alt="" loading="lazy" />}
+      {m.audio && <VoicePlayer src={m.audio} duration={m.audioDuration} own={!mine} mine={mine} />}
+      {m.text && <span className={m.image || m.audio ? 'msg-text' : ''}>{m.text}</span>}
       <span className="time">{m.time}</span>
     </div>
   )
@@ -113,6 +117,7 @@ export function Messenger() {
   const { t } = useI18n()
   const me = useMe()
   const { accounts } = useAuth()
+  const { joinRequest, consumeJoin } = useNotifications()
   const [searchParams, setSearchParams] = useSearchParams()
   const [threads, setThreads] = useState<Thread[]>([])
   const [activeId, setActiveId] = useState<number | null>(null)
@@ -142,6 +147,7 @@ export function Messenger() {
   })
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null)
   const [incoming, setIncoming] = useState<{ threadId: number; from: number; name: string; kind: 'video' | 'audio' } | null>(null)
+  const [recordingFor, setRecordingFor] = useState<number | null>(null)
   const ringsSinceRef = useRef(0)
   const [sealMs, setSealMs] = useState<number | null>(null)
   const [, setRev] = useState(0)
@@ -389,6 +395,34 @@ export function Messenger() {
     }
   }
 
+  const sendVoice = async (target: number, audio: UploadedAudio) => {
+    setRecordingFor(null)
+    const msgId = Date.now()
+    const sealAt = sealMs ? Date.now() + sealMs : undefined
+    const msg: Message = { id: msgId, from: me.id, text: '', time: t('common.now'), audio: audio.url, audioDuration: audio.duration }
+    if (sealAt) msg.sealUntil = sealAt
+    setThreads((prev) => prev.map((t) => (t.id === target ? { ...t, messages: [...t.messages, msg] } : t)))
+    setSealMs(null)
+    try {
+      const { message } = await api<{ message: Message }>(`/api/threads/${target}/messages`, {
+        method: 'POST',
+        body: {
+          text: '',
+          audio: audio.url,
+          audioDuration: audio.duration,
+          ...(sealAt ? { sealUntil: sealAt } : {}),
+        },
+      })
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.id === target ? { ...t, messages: t.messages.map((m) => (m.id === msgId ? message : m)) } : t,
+        ),
+      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('voice.sendFailed'))
+    }
+  }
+
   const onImageFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     e.target.value = ''
@@ -412,6 +446,23 @@ export function Messenger() {
     )
     setIncoming(null)
   }
+
+  /* Bildirishnomadagi "Qo'ng'iroqqa qo'shilish" tugmasi shu suhbatni
+     ochadi va darhol responder rejimini boshlaydi — ring signali
+     o'tib ketgan bo'lsa ham, responder o'z offer'ini yuboradi. */
+  useEffect(() => {
+    if (!joinRequest || joinRequest.scope !== 'thread') return
+    const req = consumeJoin()
+    if (!req) return
+    setActiveId(req.scopeId)
+    setSearchParams({}, { replace: true })
+    setActiveCall({
+      mode: 'responder',
+      threadId: req.scopeId,
+      peerId: req.from,
+      kind: req.callKind === 'audio' ? 'audio' : 'video',
+    })
+  }, [joinRequest, consumeJoin, setSearchParams])
 
   const q = userQuery.trim().toLowerCase()
   const candidates = (q
@@ -558,21 +609,28 @@ export function Messenger() {
               <Hourglass size={18} />
               {sealMs && <span className="seal-toggle-tag">{sealMs === 3600000 ? '1' : '24'}</span>}
             </button>
-            <button type="button" className="icon-btn" aria-label={t('messenger.attachImage')} onClick={() => imageRef.current?.click()} disabled={sendingImage}>
-              {sendingImage ? <Hourglass size={20} /> : <Image size={20} />}
-            </button>
-            <input
-              type="text"
-              placeholder={t('messenger.inputPlaceholder', { name: me.name.split(' ')[0] })}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void send()
-              }}
-            />
-            <button type="button" className="btn btn-primary" onClick={() => void send()} aria-label={t('common.send')}>
-              <Send size={18} />
-            </button>
+            {recordingFor === active.id ? (
+              <VoiceRecorder onSend={(audio) => void sendVoice(active.id, audio)} onCancel={() => setRecordingFor(null)} />
+            ) : (
+              <>
+                <button type="button" className="icon-btn" aria-label={t('messenger.attachImage')} onClick={() => imageRef.current?.click()} disabled={sendingImage}>
+                  {sendingImage ? <Hourglass size={20} /> : <Image size={20} />}
+                </button>
+                <VoiceRecordButton onStart={() => setRecordingFor(active.id)} disabled={sendingImage} />
+                <input
+                  type="text"
+                  placeholder={t('messenger.inputPlaceholder', { name: me.name.split(' ')[0] })}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void send()
+                  }}
+                />
+                <button type="button" className="btn btn-primary" onClick={() => void send()} aria-label={t('common.send')}>
+                  <Send size={18} />
+                </button>
+              </>
+            )}
           </footer>
           {error && <div className="upload-error">{error}</div>}
           {imageToSend && (

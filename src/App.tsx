@@ -17,6 +17,7 @@ import { LoginPage } from './pages/Login'
 import { RegisterPage } from './pages/Register'
 import { useAuth } from './data/auth'
 import { useI18n } from './i18n'
+import { NotificationsProvider } from './data/notifications'
 
 export default function App() {
   const { user, ready } = useAuth()
@@ -33,30 +34,32 @@ export default function App() {
     )
   }
   return (
-    <div className="app-shell">
-      <Navbar />
-      <div className="app-body">
-        <Sidebar />
-        <main className="fn-content">
-          <div key={location.pathname} className="fn-route">
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/reels" element={<Reels />} />
-              <Route path="/seals" element={<SealWall />} />
-              <Route path="/photos" element={<Photos />} />
-              <Route path="/profile" element={<Profile />} />
-              <Route path="/groups" element={<Groups />} />
-              <Route path="/pages" element={<Pages />} />
-              <Route path="/admin" element={<AdminPage />} />
-              <Route path="/messenger" element={<Messenger />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="*" element={<Home />} />
-            </Routes>
-          </div>
-        </main>
+    <NotificationsProvider enabled={!!user}>
+      <div className="app-shell">
+        <Navbar />
+        <div className="app-body">
+          <Sidebar />
+          <main className="fn-content">
+            <div key={location.pathname} className="fn-route">
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/reels" element={<Reels />} />
+                <Route path="/seals" element={<SealWall />} />
+                <Route path="/photos" element={<Photos />} />
+                <Route path="/profile" element={<Profile />} />
+                <Route path="/groups" element={<Groups />} />
+                <Route path="/pages" element={<Pages />} />
+                <Route path="/admin" element={<AdminPage />} />
+                <Route path="/messenger" element={<Messenger />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="*" element={<Home />} />
+              </Routes>
+            </div>
+          </main>
+        </div>
+        <BottomNav />
+        <CreatePost />
       </div>
-      <BottomNav />
-      <CreatePost />
-    </div>
+    </NotificationsProvider>
   )
 }

@@ -11,7 +11,8 @@
     "test:netlify": "node netlify/lib/api-core.test.mjs",
     "test:blobs": "node netlify/lib/blobs-store.test.mjs",
     "test:pg-store": "node netlify/lib/postgres-store.test.mjs",
-    "test:all": "npm run test:netlify && npm run test:blobs && npm run test:pg-store"
+    "test:all": "npm run test:netlify && npm run test:blobs && npm run test:pg-store",
+    "test:live": "node netlify/lib/live-voice-notif.smoke.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

@@ -328,6 +328,145 @@ app.post('/api/auth/reset', async (req, res) => {
   }
 })
 
+/* ---------- Bildirishnomalar ---------- */
+
+const NOTIFICATION_LIMIT = 200
+
+async function insertNotification(userId, actor, data = {}) {
+  if (!userId || Number(userId) === Number(actor?.id)) return null
+  const id = Date.now() + Math.floor(Math.random() * 1000)
+  try {
+    await pool.query(
+      `INSERT INTO notifications
+        (id, user_id, kind, actor_id, actor_name, actor_username, actor_avatar,
+         thread_id, group_id, call_kind, body, has_audio, read, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,false,$13)`,
+      [
+        id,
+        userId,
+        String(data.kind ?? 'message'),
+        Number(actor?.id ?? 0),
+        String(actor?.name ?? ''),
+        String(actor?.username ?? ''),
+        String(actor?.avatar ?? ''),
+        data.threadId ?? null,
+        data.groupId ?? null,
+        String(data.callKind ?? ''),
+        String(data.body ?? '').slice(0, 200),
+        !!data.hasAudio,
+        Date.now(),
+      ],
+    )
+    // faqat oxirgi N ta bildirishnoma saqlanadi
+    await pool.query(
+      `DELETE FROM notifications WHERE user_id = $1 AND id < (
+         SELECT COALESCE(MIN(id), 0) FROM (
+           SELECT id FROM notifications WHERE user_id = $1 ORDER BY id DESC LIMIT $2
+         ) t
+       )`,
+      [userId, NOTIFICATION_LIMIT],
+    )
+    return id
+  } catch (e) {
+    console.error('bildirishnoma yozilmadi:', e.message)
+    return null
+  }
+}
+
+/* Qo'ng'iroq tugaganda (hangup/decline) ochiq qo'ng'iroq bildirishnomalarini
+   yopadi. Ikki holat bir vaqtda qo'llaniladi:
+     1) signalni yuborganing o'z ro'yxatidagi (men chaqirilganman) — endi
+        qabul qildim/rad etdim, eslatib turmasin;
+     2) meni chaqirganlarning ro'yxatidagi (actor_id = men) — qo'ng'iroq tugadi. */
+async function closeCallNotifications({ threadId = null, groupId = null, from = 0, selfId = 0 } = {}) {
+  const scope = []
+  const params = []
+  if (threadId != null) {
+    params.push(threadId)
+    scope.push(`thread_id = $${params.length}`)
+  }
+  if (groupId != null) {
+    params.push(groupId)
+    scope.push(`group_id = $${params.length}`)
+  }
+  if (selfId) {
+    params.push(selfId)
+    scope.push(`(user_id = $${params.length} AND actor_id <> $${params.length})`)
+  }
+  if (from) {
+    params.push(from)
+    scope.push(`actor_id = $${params.length}`)
+  }
+  if (!params.length) return
+  await pool.query(
+    `UPDATE notifications SET closed = true, read = true
+     WHERE kind = 'call' AND read = false AND closed = false AND (${scope.join(' OR ')})`,
+    params,
+  )
+}
+
+function notificationRow(n) {
+  return {
+    id: Number(n.id),
+    kind: n.kind,
+    actor: { id: Number(n.actor_id), name: n.actor_name, username: n.actor_username, avatar: n.actor_avatar },
+    threadId: n.thread_id == null ? null : Number(n.thread_id),
+    groupId: n.group_id == null ? null : Number(n.group_id),
+    callKind: n.call_kind || '',
+    body: n.body || '',
+    hasAudio: !!n.has_audio,
+    closed: !!n.closed,
+    read: !!n.read,
+    createdAt: Number(n.created_at || n.id),
+  }
+}
+
+app.get('/api/notifications', authMiddleware, async (req, res) => {
+  const since = Number(req.query.since ?? 0) || 0
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM notifications WHERE user_id = $1 AND id > $2 ORDER BY id ASC LIMIT 100`,
+      [req.user.id, since],
+    )
+    const { rows: unreadRows } = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = $1 AND read = false`,
+      [req.user.id],
+    )
+    res.json({
+      notifications: rows.map(notificationRow),
+      unread: unreadRows[0]?.n ?? 0,
+      serverTime: Date.now(),
+    })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+app.post('/api/notifications/read', authMiddleware, async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean) : null
+    let marked = 0
+    if (ids && ids.length) {
+      const { rowCount } = await pool.query(
+        `UPDATE notifications SET read = true WHERE user_id = $1 AND read = false AND id = ANY($2::bigint[])`,
+        [req.user.id, ids],
+      )
+      marked = rowCount ?? 0
+    } else {
+      const { rowCount } = await pool.query(
+        `UPDATE notifications SET read = true WHERE user_id = $1 AND read = false`,
+        [req.user.id],
+      )
+      marked = rowCount ?? 0
+    }
+    res.json({ ok: true, marked })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
 app.get('/api/auth/sessions', authMiddleware, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -1005,11 +1144,13 @@ app.post('/api/stories/:id/view', authMiddleware, async (req, res) => {
 /* ---------- Messages ---------- */
 
 function msgRow(m) {
-  const base = { id: m.id, from: m.from, text: m.text, time: m.time }
-  if (m.image) base.image = m.image
-  if (m.seal_until) base.sealUntil = Number(m.seal_until)
-  return base
-}
+    const base = { id: m.id, from: m.from, text: m.text, time: m.time }
+    if (m.image) base.image = m.image
+    if (m.audio) base.audio = m.audio
+    if (m.audio_duration) base.audioDuration = Number(m.audio_duration)
+    if (m.seal_until) base.sealUntil = Number(m.seal_until)
+    return base
+  }
 
 function threadResponse(t, other, messages) {
   return {
@@ -1052,7 +1193,7 @@ app.get('/api/threads', authMiddleware, async (req, res) => {
       const other = users[0]
       if (!other) continue
       const { rows: msgs } = await pool.query(
-        `SELECT id, sender_id AS from, text, image, time, seal_until FROM messages WHERE thread_id = $1 ORDER BY id`,
+        `SELECT id, sender_id AS from, text, image, audio, audio_duration, time, seal_until FROM messages WHERE thread_id = $1 ORDER BY id`,
         [t.id],
       )
       threads.push(threadResponse(t, other, msgs.map(msgRow)))
@@ -1086,7 +1227,7 @@ app.post('/api/threads', authMiddleware, async (req, res) => {
     const { rows: users } = await pool.query(`SELECT * FROM users WHERE id = $1`, [otherId])
     const other = users[0]
     const { rows: msgs } = await pool.query(
-      `SELECT id, sender_id AS from, text, image, time, seal_until FROM messages WHERE thread_id = $1 ORDER BY id`,
+      `SELECT id, sender_id AS from, text, image, audio, audio_duration, time, seal_until FROM messages WHERE thread_id = $1 ORDER BY id`,
       [thread.id],
     )
     res.json({ thread: threadResponse(thread, other, msgs.map(msgRow)) })
@@ -1100,7 +1241,8 @@ app.post('/api/threads/:id/messages', authMiddleware, async (req, res) => {
   const id = Number(req.params.id)
   const text = String(req.body?.text ?? '').trim()
   const image = String(req.body?.image ?? '').trim()
-  if (!text && !image) return res.status(400).json({ error: "Xabar bo'sh bo'lishi mumkin emas." })
+  const audio = String(req.body?.audio ?? '').trim()
+  if (!text && !image && !audio) return res.status(400).json({ error: "Xabar bo'sh bo'lishi mumkin emas." })
   try {
     const { rows } = await pool.query(
       `SELECT * FROM threads WHERE id = $1 AND (member_a = $2 OR member_b = $2)`,
@@ -1110,12 +1252,24 @@ app.post('/api/threads/:id/messages', authMiddleware, async (req, res) => {
     const mid = Date.now()
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     const seal = Number(req.body?.sealUntil) || null
+    const rawDur = Number(req.body?.audioDuration)
+    const dur = audio && Number.isFinite(rawDur) && rawDur > 0 ? Math.round(rawDur * 100) / 100 : null
     await pool.query(
-      `INSERT INTO messages (id, thread_id, sender_id, text, image, time, seal_until) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [mid, id, req.user.id, text, image, time, seal],
+      `INSERT INTO messages (id, thread_id, sender_id, text, image, audio, audio_duration, time, seal_until)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [mid, id, req.user.id, text, image, audio, dur, time, seal],
     )
+    const peerId = Number(rows[0].member_a) === req.user.id ? Number(rows[0].member_b) : Number(rows[0].member_a)
+    await insertNotification(peerId, req.user, {
+      kind: 'message',
+      threadId: id,
+      body: audio ? '' : text.slice(0, 120),
+      hasAudio: !!audio,
+    })
     const out = { id: mid, from: req.user.id, text, time }
     if (image) out.image = image
+    if (audio) out.audio = audio
+    if (dur) out.audioDuration = dur
     if (seal) out.sealUntil = seal
     res.json({ message: out })
   } catch (e) {
@@ -1162,6 +1316,17 @@ app.post('/api/threads/:id/calls', authMiddleware, async (req, res) => {
        WHERE thread_id = $1 AND id < (SELECT COALESCE(MAX(id), 0) - 500 FROM thread_call_signals WHERE thread_id = $1)`,
       [id],
     )
+    if (kind === 'ring') {
+      const callee = to || (Number(rows[0].member_a) === Number(req.user.id) ? Number(rows[0].member_b) : Number(rows[0].member_a))
+      await insertNotification(callee, req.user, {
+        kind: 'call',
+        threadId: id,
+        callKind: String(payload?.kind ?? 'video'),
+      })
+    }
+    if (kind === 'hangup' || kind === 'decline') {
+      await closeCallNotifications({ threadId: id, from: req.user.id, selfId: req.user.id })
+    }
     res.json({ signal: { id: sid, threadId: id, from: req.user.id, to, kind, data: payload } })
   } catch (e) {
     console.error(e)
@@ -1213,7 +1378,7 @@ async function groupResponse(g, meId) {
   }
   const memberById = new Map(members.map((m) => [m.id, m]))
   const { rows: msgs } = await pool.query(
-    `SELECT id, sender_id, text, image, time, seal_until FROM group_messages WHERE group_id = $1 ORDER BY id`,
+    `SELECT id, sender_id, text, image, audio, audio_duration, time, seal_until FROM group_messages WHERE group_id = $1 ORDER BY id`,
     [g.id],
   )
   const messages = msgs.map((m) => {
@@ -1221,6 +1386,8 @@ async function groupResponse(g, meId) {
     const sender = memberById.get(m.sender_id)
     if (sender) base.sender = sender
     if (m.image) base.image = m.image
+    if (m.audio) base.audio = m.audio
+    if (m.audio_duration) base.audioDuration = Number(m.audio_duration)
     if (m.seal_until) base.sealUntil = Number(m.seal_until)
     return base
   })
@@ -1359,16 +1526,32 @@ app.post('/api/groups/:id/messages', authMiddleware, async (req, res) => {
     if (!ok) return res.status(404).json({ error: 'Guruh topilmadi.' })
     const text = String(req.body?.text ?? '').trim()
     const image = typeof req.body?.image === 'string' ? req.body.image : ''
-    if (!text && !image) return res.status(400).json({ error: "Xabar bo'sh bo'lishi mumkin emas." })
+    const audio = typeof req.body?.audio === 'string' ? req.body.audio : ''
+    if (!text && !image && !audio) return res.status(400).json({ error: "Xabar bo'sh bo'lishi mumkin emas." })
     const mid = Date.now()
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     const seal = Number(req.body?.sealUntil) || null
+    const rawDur = Number(req.body?.audioDuration)
+    const dur = audio && Number.isFinite(rawDur) && rawDur > 0 ? Math.round(rawDur * 100) / 100 : null
     await pool.query(
-      `INSERT INTO group_messages (id, group_id, sender_id, text, image, time, seal_until) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [mid, id, req.user.id, text, image, time, seal],
+      `INSERT INTO group_messages (id, group_id, sender_id, text, image, audio, audio_duration, time, seal_until)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [mid, id, req.user.id, text, image, audio, dur, time, seal],
     )
+    const { rows: members } = await pool.query(`SELECT user_id FROM group_members WHERE group_id = $1`, [id])
+    for (const m of members) {
+      await insertNotification(Number(m.user_id), req.user, {
+        kind: 'group',
+        groupId: id,
+        body: audio ? '' : text.slice(0, 120),
+        hasAudio: !!audio,
+        hasImage: !!image,
+      })
+    }
     const out = { id: mid, from: req.user.id, sender: { id: req.user.id, name: req.user.name, username: req.user.username, avatar: req.user.avatar ?? '' }, text, time }
     if (image) out.image = image
+    if (audio) out.audio = audio
+    if (dur) out.audioDuration = dur
     if (seal) out.sealUntil = seal
     res.json({ message: out })
   } catch (e) {
@@ -1396,6 +1579,20 @@ app.post('/api/groups/:id/calls', authMiddleware, async (req, res) => {
        WHERE group_id = $1 AND id < (SELECT COALESCE(MAX(id), 0) - 500 FROM group_call_signals WHERE group_id = $1)`,
       [id],
     )
+    if (kind === 'ring') {
+      const { rows: members } = await pool.query(`SELECT user_id FROM group_members WHERE group_id = $1`, [id])
+      for (const m of members) {
+        if (Number(m.user_id) === Number(req.user.id)) continue
+        await insertNotification(Number(m.user_id), req.user, {
+          kind: 'call',
+          groupId: id,
+          callKind: String(payload?.kind ?? 'video'),
+        })
+      }
+    }
+    if (kind === 'hangup' || kind === 'decline') {
+      await closeCallNotifications({ groupId: id, from: req.user.id, selfId: req.user.id })
+    }
     res.json({ signal: { id: sid, groupId: id, from: req.user.id, to, kind, data: payload } })
   } catch (e) {
     console.error(e)
@@ -1428,16 +1625,35 @@ app.get('/api/groups/:id/calls', authMiddleware, async (req, res) => {
 
 /* ---------- Media (binary) ---------- */
 
-const MEDIA_LIMITS = { image: 8 * 1024 * 1024, video: 40 * 1024 * 1024 }
-const MEDIA_MIME = {
-  'image/jpeg': 'image',
-  'image/png': 'image',
-  'image/webp': 'image',
-  'image/gif': 'image',
-  'video/mp4': 'video',
-  'video/webm': 'video',
-}
-const MEDIA_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'video/mp4': 'mp4', 'video/webm': 'webm' }
+const MEDIA_LIMITS = { image: 8 * 1024 * 1024, video: 40 * 1024 * 1024, audio: 12 * 1024 * 1024 }
+  const MEDIA_MIME = {
+    'image/jpeg': 'image',
+    'image/png': 'image',
+    'image/webp': 'image',
+    'image/gif': 'image',
+    'video/mp4': 'video',
+    'video/webm': 'video',
+    'audio/webm': 'audio',
+    'audio/ogg': 'audio',
+    'audio/mp4': 'audio',
+    'audio/mpeg': 'audio',
+    'audio/wav': 'audio',
+    'audio/x-m4a': 'audio',
+  }
+  const MEDIA_EXT = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+    'video/mp4': 'mp4',
+    'video/webm': 'webm',
+    'audio/webm': 'webm',
+    'audio/ogg': 'ogg',
+    'audio/mp4': 'm4a',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+    'audio/x-m4a': 'm4a',
+  }
 
 function isSafeMediaId(id) {
   const s = String(id ?? '')
@@ -1472,7 +1688,8 @@ app.post('/api/media', authMiddleware, async (req, res) => {
   const bytes = Buffer.from(m[2], 'base64')
   if (!bytes.length) return res.status(400).json({ error: 'Fayl bo‘sh.' })
   if (bytes.length > MEDIA_LIMITS[kind]) {
-    return res.status(413).json({ error: `Fayl hajmi katta (${kind === 'video' ? 40 : 8} MB dan oshmasligi kerak).` })
+    const mb = Math.round((MEDIA_LIMITS[kind] / (1024 * 1024)) * 10) / 10
+    return res.status(413).json({ error: `Fayl hajmi katta (${mb} MB dan oshmasligi kerak).` })
   }
   const id = `${Date.now().toString(36)}${crypto.randomBytes(6).toString('hex')}.${MEDIA_EXT[mime]}`
   try {
@@ -1534,7 +1751,9 @@ app.post('/api/media/migrate', async (req, res) => {
     { table: 'groups', column: 'cover', json: false },
     { table: 'users', column: 'avatar', json: false },
     { table: 'messages', column: 'image', json: false },
+    { table: 'messages', column: 'audio', json: false },
     { table: 'group_messages', column: 'image', json: false },
+    { table: 'group_messages', column: 'audio', json: false },
   ]
   const DATA_URL_RE = /data:([a-z0-9.+/-]+);base64,([A-Za-z0-9+/=]+)/gi
   const stored = new Map() // dataUrl -> /api/media/<id>

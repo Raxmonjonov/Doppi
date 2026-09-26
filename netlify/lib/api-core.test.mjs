@@ -10,6 +10,20 @@ import { runSuite } from './test-suite.mjs'
 const FILE = process.env.HARNESS_FILE || join(tmpdir(), 'doppi-api-core-test-store.json')
 const MEDIA_DIR = process.env.HARNESS_MEDIA_DIR || join(tmpdir(), 'doppi-api-core-test-media')
 
+const EXT_MIME = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  mp4: 'video/mp4',
+  webm: 'audio/webm',
+  ogg: 'audio/ogg',
+  m4a: 'audio/mp4',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+}
+
 if (existsSync(FILE)) rmSync(FILE)
 rmSync(MEDIA_DIR, { recursive: true, force: true })
 mkdirSync(MEDIA_DIR, { recursive: true })
@@ -30,7 +44,9 @@ function makeStore() {
     async getMedia(id) {
       const p = join(MEDIA_DIR, id)
       if (!/^[A-Za-z0-9][\w.-]*$/.test(id) || id.includes('..') || !existsSync(p)) return null
-      return { bytes: new Uint8Array(readFileSync(p)), mime: 'image/png' }
+      const ext = id.slice(id.lastIndexOf('.') + 1)
+      const mime = EXT_MIME[ext] ?? 'application/octet-stream'
+      return { bytes: new Uint8Array(readFileSync(p)), mime }
     },
     async listMedia() {
       if (!existsSync(MEDIA_DIR)) return []

@@ -102,15 +102,22 @@ async function readBody(req) {
 export const MEDIA_LIMITS = {
   image: 8 * 1024 * 1024,
   video: 40 * 1024 * 1024,
+  audio: 12 * 1024 * 1024,
 }
 
-const MEDIA_MIME = {
+export const MEDIA_MIME = {
   'image/jpeg': 'image',
   'image/png': 'image',
   'image/webp': 'image',
   'image/gif': 'image',
   'video/mp4': 'video',
   'video/webm': 'video',
+  'audio/webm': 'audio',
+  'audio/ogg': 'audio',
+  'audio/mp4': 'audio',
+  'audio/mpeg': 'audio',
+  'audio/wav': 'audio',
+  'audio/x-m4a': 'audio',
 }
 
 const MEDIA_EXT = {
@@ -120,6 +127,12 @@ const MEDIA_EXT = {
   'image/gif': 'gif',
   'video/mp4': 'mp4',
   'video/webm': 'webm',
+  'audio/webm': 'webm',
+  'audio/ogg': 'ogg',
+  'audio/mp4': 'm4a',
+  'audio/mpeg': 'mp3',
+  'audio/wav': 'wav',
+  'audio/x-m4a': 'm4a',
 }
 
 export function parseDataUrl(dataUrl) {
@@ -165,8 +178,14 @@ export function collectMediaRefs(doc) {
     for (const ph of a.photos ?? []) take(ph?.url)
   }
   for (const g of doc.groups ?? []) take(g.cover)
-  for (const m of doc.messages ?? []) take(m.image)
-  for (const m of doc.groupMessages ?? []) take(m.image)
+  for (const m of doc.messages ?? []) {
+    take(m.image)
+    take(m.audio)
+  }
+  for (const m of doc.groupMessages ?? []) {
+    take(m.image)
+    take(m.audio)
+  }
   return refs
 }
 
@@ -227,7 +246,7 @@ export async function migrateDataUrls(doc, store, limit = 50) {
   return { migrated, skipped, remaining: Math.max(0, found.length - limit), bytes, failures: failures.slice(0, 5) }
 }
 
-const DATA_URL_KEYS = ['avatar', 'image', 'video', 'cover', 'url']
+const DATA_URL_KEYS = ['avatar', 'image', 'video', 'cover', 'url', 'audio']
 
 function collectDataUrls(node, out = [], depth = 0) {
   if (depth > 8 || node == null) return out
@@ -341,6 +360,84 @@ function resetCodeEcho() {
 
 export function makeResetCode() {
   return String(crypto.randomInt(0, 1000000)).padStart(6, '0')
+}
+
+/* Bildirishnoma (notification): xabar, guruh xabari, qo'ng'irok.
+   Hujjatda saqlanadi, foydalanuvchi o'ziga tegishlisini GET /api/notifications orqali oladi. */
+export const NOTIFICATION_LIMIT = 200
+
+function actorOf(user) {
+  return {
+    id: user.id,
+    name: user.name ?? '',
+    username: user.username ?? '',
+    avatar: user.avatar ?? '',
+  }
+}
+
+function notificationResponse(n) {
+  return {
+    id: n.id,
+    kind: n.kind,
+    actor: n.actor,
+    threadId: n.threadId ?? null,
+    groupId: n.groupId ?? null,
+    callKind: n.callKind ?? '',
+    body: n.body ?? '',
+    hasAudio: !!n.hasAudio,
+    hasImage: !!n.hasImage,
+    closed: !!n.closed,
+    read: !!n.read,
+    createdAt: n.createdAt ?? n.id,
+  }
+}
+
+export function notify(doc, userId, actor, data = {}) {
+  if (!userId || userId === actor?.id) return null
+  const list = doc.notifications ?? (doc.notifications = [])
+  const item = {
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    userId,
+    kind: String(data.kind ?? 'message'),
+    actor: actorOf(actor ?? {}),
+    threadId: data.threadId ?? null,
+    groupId: data.groupId ?? null,
+    callKind: data.callKind ?? '',
+    body: String(data.body ?? '').slice(0, 200),
+    hasAudio: !!data.hasAudio,
+    hasImage: !!data.hasImage,
+    read: false,
+    createdAt: Date.now(),
+  }
+  list.push(item)
+  // faqat oxirgi N ta bildirishnoma saqlanadi
+  const mine = list.filter((n) => n.userId === userId)
+  if (mine.length > NOTIFICATION_LIMIT) {
+    const drop = new Set(mine.slice(0, mine.length - NOTIFICATION_LIMIT).map((n) => n.id))
+    doc.notifications = list.filter((n) => !drop.has(n.id))
+  }
+  return item
+}
+
+/* Qo'ng'iroq tugaganda (hangup/decline) ochiq qo'ng'iroq bildirishnomalarini
+   yopadi. Ikki holat bir vaqtda qo'llaniladi:
+     1) signalni yuborganing o'z ro'yxatidagi (men chaqirilganman) — endi
+        qabul qildim/rad etdim, eslatib turmasin;
+     2) meni chaqirganlarning ro'yxatidagi (actor = men) — qo'ng'iroq tugadi. */
+export function closeCallNotifications(doc, { threadId = null, groupId = null, from = 0, selfId = 0 } = {}) {
+  let closed = 0
+  for (const n of doc.notifications ?? []) {
+    if (n.kind !== 'call' || n.read || n.closed) continue
+    if (threadId != null && n.threadId !== threadId) continue
+    if (groupId != null && n.groupId !== groupId) continue
+    const mineHandled = selfId && n.userId === selfId && n.actor?.id !== selfId
+    const calleeInformed = from && n.actor?.id === from
+    if (!mineHandled && !calleeInformed) continue
+    n.closed = true
+    n.read = true
+    closed++
+  }
+  return closed
 }
 
 export async function handleRequest(method, pathname, query, req, store) {
@@ -1019,6 +1116,8 @@ export async function handleRequest(method, pathname, query, req, store) {
           time: m.time,
         }
         if (m.image) base.image = m.image
+        if (m.audio) base.audio = m.audio
+        if (m.audioDuration) base.audioDuration = m.audioDuration
         if (m.sealUntil) base.sealUntil = Number(m.sealUntil)
         return base
       })
@@ -1107,17 +1206,33 @@ export async function handleRequest(method, pathname, query, req, store) {
     if (!g) return send(404, { error: 'Guruh topilmadi.' })
     const body = await readBody(req)
     const text = String(body.text ?? '').trim()
-    if (!text && !body.image) return send(400, { error: "Xabar bo'sh bo'lishi mumkin emas." })
+    if (!text && !body.image && !body.audio) return send(400, { error: "Xabar bo'sh bo'lishi mumkin emas." })
     const mid = Date.now()
     const time = nowTime()
     const msg = { id: mid, groupId: id, senderId: me.id, text, time }
     if (body.image) msg.image = String(body.image)
+    if (body.audio) {
+      msg.audio = String(body.audio)
+      const dur = Number(body.audioDuration)
+      if (Number.isFinite(dur) && dur > 0) msg.audioDuration = Math.round(dur * 100) / 100
+    }
     if (body.sealUntil) msg.sealUntil = Number(body.sealUntil)
     doc.groupMessages = doc.groupMessages ?? []
     doc.groupMessages.push(msg)
+    for (const memberId of g.memberIds ?? []) {
+      notify(doc, memberId, me, {
+        kind: 'group',
+        groupId: id,
+        body: msg.audio ? '' : text.slice(0, 120),
+        hasAudio: !!msg.audio,
+        hasImage: !!msg.image,
+      })
+    }
     await store.saveDoc(doc)
     const out = { id: mid, from: me.id, sender: { id: me.id, name: me.name, username: me.username, avatar: me.avatar ?? '' }, text, time }
     if (msg.image) out.image = msg.image
+    if (msg.audio) out.audio = msg.audio
+    if (msg.audioDuration) out.audioDuration = msg.audioDuration
     if (msg.sealUntil) out.sealUntil = msg.sealUntil
     return send(200, { message: out })
   }
@@ -1141,6 +1256,19 @@ export async function handleRequest(method, pathname, query, req, store) {
     if (sameGroup.length > 500) {
       const keep = sameGroup.slice(-500)
       doc.callSignals = doc.callSignals.filter((x) => x.groupId !== id).concat(keep)
+    }
+    if (kind === 'ring') {
+      for (const memberId of g.memberIds ?? []) {
+        if (memberId === me.id) continue
+        notify(doc, memberId, me, {
+          kind: 'call',
+          groupId: id,
+          callKind: String(payload?.kind ?? 'video'),
+        })
+      }
+    }
+    if (kind === 'hangup' || kind === 'decline') {
+      closeCallNotifications(doc, { groupId: id, from: me.id, selfId: me.id })
     }
     await store.saveDoc(doc)
     return send(200, { signal })
@@ -1178,10 +1306,20 @@ export async function handleRequest(method, pathname, query, req, store) {
       const keep = sameThread.slice(-500)
       doc.threadCallSignals = doc.threadCallSignals.filter((x) => x.threadId !== id).concat(keep)
     }
+    if (kind === 'ring') {
+      const callee = to || (t.memberA === me.id ? t.memberB : t.memberA)
+      notify(doc, callee, me, {
+        kind: 'call',
+        threadId: id,
+        callKind: String(payload?.kind ?? 'video'),
+      })
+    }
+    if (kind === 'hangup' || kind === 'decline') {
+      closeCallNotifications(doc, { threadId: id, from: me.id, selfId: me.id })
+    }
     await store.saveDoc(doc)
     return send(200, { signal })
   }
-
   if (method === 'GET' && first === 'threads' && third === 'calls') {
     const me = auth(doc, bearer)
     if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
@@ -1204,6 +1342,8 @@ export async function handleRequest(method, pathname, query, req, store) {
       .map((m) => {
         const base = { id: m.id, from: m.senderId, text: m.text, time: m.time }
         if (m.image) base.image = m.image
+        if (m.audio) base.audio = m.audio
+        if (m.audioDuration) base.audioDuration = m.audioDuration
         if (m.sealUntil) base.sealUntil = Number(m.sealUntil)
         return base
       })
@@ -1260,18 +1400,32 @@ export async function handleRequest(method, pathname, query, req, store) {
     const id = Number(second)
     const body = await readBody(req)
     const text = String(body.text ?? '').trim()
-    if (!text && !body.image) return send(400, { error: "Xabar bo'sh bo'lishi mumkin emas." })
+    if (!text && !body.image && !body.audio) return send(400, { error: "Xabar bo'sh bo'lishi mumkin emas." })
     const t = doc.threads.find((x) => x.id === id && (x.memberA === me.id || x.memberB === me.id))
     if (!t) return send(404, { error: 'Suhbat topilmadi.' })
     const mid = Date.now()
     const time = nowTime()
     const msg = { id: mid, threadId: id, senderId: me.id, text, time }
     if (body.image) msg.image = String(body.image)
+    if (body.audio) {
+      msg.audio = String(body.audio)
+      const dur = Number(body.audioDuration)
+      if (Number.isFinite(dur) && dur > 0) msg.audioDuration = Math.round(dur * 100) / 100
+    }
     if (body.sealUntil) msg.sealUntil = Number(body.sealUntil)
     doc.messages.push(msg)
+    const peerId = t.memberA === me.id ? t.memberB : t.memberA
+    notify(doc, peerId, me, {
+      kind: 'message',
+      threadId: id,
+      body: msg.audio ? '' : text.slice(0, 120),
+      hasAudio: !!msg.audio,
+    })
     await store.saveDoc(doc)
     const out = { id: mid, from: me.id, text, time }
     if (msg.image) out.image = msg.image
+    if (msg.audio) out.audio = msg.audio
+    if (msg.audioDuration) out.audioDuration = msg.audioDuration
     if (msg.sealUntil) out.sealUntil = msg.sealUntil
     return send(200, { message: out })
   }
@@ -1287,6 +1441,37 @@ export async function handleRequest(method, pathname, query, req, store) {
     doc.threadCallSignals = doc.threadCallSignals.filter((s) => s.threadId !== id)
     await store.saveDoc(doc)
     return send(200, { ok: true })
+  }
+
+  /* ---------- Bildirishnomalar ---------- */
+
+  if (method === 'GET' && first === 'notifications') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const since = Number(query.since ?? 0)
+    const all = (doc.notifications ?? []).filter((n) => n.userId === me.id && n.id > since)
+    const unread = (doc.notifications ?? []).filter((n) => n.userId === me.id && !n.read).length
+    return send(200, {
+      notifications: all.slice(-100).map(notificationResponse),
+      unread,
+      serverTime: Date.now(),
+    })
+  }
+
+  if (method === 'POST' && first === 'notifications' && second === 'read') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const body = await readBody(req)
+    const ids = Array.isArray(body.ids) ? body.ids.map(Number).filter(Boolean) : null
+    let n = 0
+    for (const item of doc.notifications ?? []) {
+      if (item.userId !== me.id || item.read) continue
+      if (ids && !ids.includes(item.id)) continue
+      item.read = true
+      n++
+    }
+    await store.saveDoc(doc)
+    return send(200, { ok: true, marked: n })
   }
 
   /* ---------- Eski data: URL larni ko'chirish (faqat admin) ---------- */
@@ -1321,9 +1506,10 @@ export async function handleRequest(method, pathname, query, req, store) {
     if (!parsed) return send(400, { error: 'dataUrl formati noto‘g‘ri.' })
     const kind = MEDIA_MIME[parsed.mime]
     if (!kind) return send(415, { error: `Bu fayl turi qabul qilinmaydi: ${parsed.mime}` })
-    if (parsed.bytes.length > MEDIA_LIMITS[kind]) {
-      return send(413, { error: `Fayl hajmi katta (${kind === 'video' ? 40 : 8} MB dan oshmasligi kerak).` })
-    }
+      if (parsed.bytes.length > MEDIA_LIMITS[kind]) {
+        const mb = Math.round((MEDIA_LIMITS[kind] / (1024 * 1024)) * 10) / 10
+        return send(413, { error: `Fayl hajmi katta (${mb} MB dan oshmasligi kerak).` })
+      }
     const id = mediaIdFor(`${Date.now().toString(36)}${crypto.randomBytes(6).toString('hex')}`, parsed.mime)
     await store.putMedia(id, parsed.mime, parsed.bytes)
     return send(201, {

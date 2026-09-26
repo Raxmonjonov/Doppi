@@ -21,11 +21,13 @@ import {
   Hourglass,
 } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
+import { VoiceRecorder, VoiceRecordButton } from '../components/VoiceRecorder'
 import { MsgBubble } from './Messenger'
 import { api } from '../api/client'
 import { useMe } from '../data/useMe'
 import { useAuth } from '../data/auth'
-import { uploadImage } from '../lib/upload'
+import { useNotifications } from '../data/notifications'
+import { uploadImage, type UploadedAudio } from '../lib/upload'
 import { useI18n } from '../i18n'
 
 interface GroupMember {
@@ -43,6 +45,8 @@ interface GroupMessage {
   text: string
   time: string
   image?: string
+  audio?: string
+  audioDuration?: number
   sealUntil?: number
 }
 
@@ -307,6 +311,7 @@ function GroupDetail({
 }) {
   const { t } = useI18n()
   const { accounts } = useAuth()
+  const { joinRequest, consumeJoin } = useNotifications()
   const [messages, setMessages] = useState<GroupMessage[]>(group.messages)
   const [members, setMembers] = useState<GroupMember[]>(group.members)
   const [draft, setDraft] = useState('')
@@ -317,6 +322,8 @@ function GroupDetail({
   const bump = useCallback(() => setRev((r) => r + 1), [])
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null)
   const [incoming, setIncoming] = useState<{ from: number; name: string; kind: 'video' | 'audio' } | null>(null)
+  const [recording, setRecording] = useState(false)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const chatMessagesRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -423,6 +430,32 @@ function GroupDetail({
     }
   }
 
+  const sendVoice = async (audio: UploadedAudio) => {
+    setRecording(false)
+    const sealAt = sealMs ? Date.now() + sealMs : undefined
+    const optimistic: GroupMessage = {
+      id: Date.now(),
+      from: meId,
+      sender: null,
+      text: '',
+      time: t('common.now'),
+      audio: audio.url,
+      audioDuration: audio.duration,
+      ...(sealAt ? { sealUntil: sealAt } : {}),
+    }
+    setMessages((prev) => [...prev, optimistic])
+    setSealMs(null)
+    try {
+      const { message } = await api<{ message: GroupMessage }>(`/api/groups/${group.id}/messages`, {
+        method: 'POST',
+        body: { text: '', audio: audio.url, audioDuration: audio.duration, ...(sealAt ? { sealUntil: sealAt } : {}) },
+      })
+      setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? message : m)))
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : t('voice.sendFailed'))
+    }
+  }
+
   const removeMember = async (targetId: number) => {
     const target = members.find((m) => m.id === targetId)
     if (!target || !window.confirm(t('groups.removeConfirm', { name: target.name }))) return
@@ -469,6 +502,15 @@ function GroupDetail({
     )
     setIncoming(null)
   }
+
+  /* Bildirishnomadagi "Qo'ng'iroqqa qo'shilish" — responder rejimini
+     darhol boshlaydi, ring signal o'tib ketgan bo'lsa ham. */
+  useEffect(() => {
+    if (!joinRequest || joinRequest.scope !== 'group' || Number(joinRequest.scopeId) !== Number(group.id)) return
+    const req = consumeJoin()
+    if (!req) return
+    setActiveCall({ mode: 'responder', peerId: req.from, kind: req.callKind === 'audio' ? 'audio' : 'video' })
+  }, [joinRequest, consumeJoin, group.id])
 
   const q = query.trim().toLowerCase()
   const memberIds = new Set(members.map((m) => m.id))
@@ -576,19 +618,27 @@ function GroupDetail({
               <Hourglass size={18} />
               {sealMs && <span className="seal-toggle-tag">{sealMs === 3600000 ? '1' : '24'}</span>}
             </button>
-            <input
-              type="text"
-              placeholder={t('groups.chatPlaceholder')}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void send()
-              }}
-            />
-            <button type="button" className="btn btn-primary" onClick={() => void send()} aria-label={t('common.send')}>
-              <Send size={18} />
-            </button>
+            {recording ? (
+              <VoiceRecorder onSend={(audio) => void sendVoice(audio)} onCancel={() => setRecording(false)} />
+            ) : (
+              <>
+                <VoiceRecordButton onStart={() => setRecording(true)} />
+                <input
+                  type="text"
+                  placeholder={t('groups.chatPlaceholder')}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void send()
+                  }}
+                />
+                <button type="button" className="btn btn-primary" onClick={() => void send()} aria-label={t('common.send')}>
+                  <Send size={18} />
+                </button>
+              </>
+            )}
           </footer>
+          {errorMsg && <div className="upload-error">{errorMsg}</div>}
         </section>
       </div>
 

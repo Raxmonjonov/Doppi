@@ -6,6 +6,7 @@ import { useData } from '../data/store'
 import { useI18n } from '../i18n'
 import { Avatar } from './Avatar'
 import { LiveClock } from './LiveClock'
+import { NotificationBell } from './NotificationBell'
 
 export function Navbar() {
   const { t } = useI18n()
@@ -105,6 +106,7 @@ export function Navbar() {
         </Link>
       )}
 
+      <NotificationBell />
       <LiveClock />
     </header>
   )

@@ -133,6 +133,77 @@ export async function runSuite(store, label) {
     ok('group GET carries sealed msg', r.json.group.messages.some((m) => Number(m.sealUntil) === seal))
   }
 
+  // 6b) ovozli xabar: audio media + xabarda audio
+  const audioBase64 = Buffer.from('ID3fake-ogg-audio-bytes-for-tests').toString('base64')
+  r = await call('POST', '/api/media', { dataUrl: 'data:audio/webm;base64,' + audioBase64 }, tok2)
+  ok('voice media upload', r.status === 201 && !!r.json.url, `status=${r.status} url=${r.json.url}`)
+  const audioUrl = r.json.url
+  ok('voice media has audio mime', r.json.mime === 'audio/webm', `mime=${r.json.mime}`)
+  r = await call('POST', '/api/media', { dataUrl: 'data:audio/x-wav;base64,' + audioBase64 }, tok2)
+  ok('unknown audio mime -> 415', r.status === 415, `status=${r.status}`)
+  r = await call('POST', '/api/media', { dataUrl: 'data:audio/webm;base64,' + Buffer.alloc(13 * 1024 * 1024).toString('base64') }, tok2)
+  ok('oversized voice -> 413', r.status === 413, `status=${r.status}`)
+  if (audioUrl) {
+    const fetched = await call('GET', audioUrl, undefined, undefined)
+    ok('voice media downloadable', fetched.status === 200 && !!fetched.binary, `status=${fetched.status}`)
+    ok('voice media content-type', fetched.binary?.type === 'audio/webm', `type=${fetched.binary?.type}`)
+  }
+  r = await call('POST', `/api/threads/${tid}/messages`, { audio: audioUrl, audioDuration: 3.5 }, tok2)
+  ok('voice message send', r.status === 200 && r.json.message.audio === audioUrl && r.json.message.audioDuration === 3.5, `status=${r.status}`)
+  r = await call('GET', '/api/threads', undefined, tok2)
+  const voiceThread = r.json.threads.find((x) => x.id === tid)
+  ok('voice message in thread GET', voiceThread?.messages.some((m) => m.audio === audioUrl))
+  r = await call('POST', `/api/threads/${tid}/messages`, { text: '' }, tok2)
+  ok('empty message -> 400', r.status === 400, `status=${r.status}`)
+
+  // 6c) bildirishnomalar: xabar, guruh xabari, qo'ng'iroq
+  const notifBefore = (await call('GET', '/api/notifications', undefined, tok3)).json.unread
+  r = await call('POST', `/api/threads/${tid}/messages`, { text: 'salom' }, tok2)
+  ok('notification for peer', r.status === 200, `status=${r.status}`)
+  const peerNotifs = (await call('GET', '/api/notifications?since=0', undefined, tok3)).json
+  const dmNotif = peerNotifs.notifications.find((n) => n.kind === 'message' && n.body === 'salom' && n.threadId === tid)
+  ok('message notification exists', !!dmNotif, `unread=${peerNotifs.unread}`)
+  ok('sender gets no notification', !(await call('GET', '/api/notifications?since=0', undefined, tok2)).json.notifications.some((n) => n.body === 'salom'))
+  ok('unread counter grew', peerNotifs.unread > notifBefore, `before=${notifBefore} after=${peerNotifs.unread}`)
+  ok('notification needs auth', (await call('GET', '/api/notifications', undefined, undefined)).status === 401)
+
+  if (gid) {
+    await call('POST', `/api/groups/${gid}/members`, { userId: uid2 }, tok2)
+    r = await call('POST', `/api/groups/${gid}/messages`, { text: 'guruh xabari' }, tok2)
+    const memberNotifs = (await call('GET', '/api/notifications?since=0', undefined, tok3)).json.notifications
+    ok('group message notification', memberNotifs.some((n) => n.kind === 'group' && n.body === 'guruh xabari' && n.groupId === gid))
+    await call('DELETE', `/api/groups/${gid}/members`, { userId: uid2 }, tok2)
+  }
+
+  r = await call('POST', `/api/threads/${tid}/calls`, { kind: 'ring', to: uid2, data: { kind: 'video' } }, tok2)
+  ok('ring signal ok', r.status === 200, `status=${r.status}`)
+  const ringNotifs = (await call('GET', '/api/notifications?since=0', undefined, tok3)).json.notifications
+  const callNotif = ringNotifs.find((n) => n.kind === 'call' && n.threadId === tid && !n.closed)
+  ok('call notification exists', !!callNotif && callNotif.callKind === 'video', `callKind=${callNotif?.callKind}`)
+  ok('call notification is unread', callNotif?.read === false)
+  r = await call('POST', `/api/threads/${tid}/calls`, { kind: 'hangup', to: uid2, data: null }, tok2)
+  ok('callee hangup ok', r.status === 200, `status=${r.status}`)
+  const afterHangup = (await call('GET', '/api/notifications?since=0', undefined, tok3)).json.notifications
+  const closedCall = afterHangup.find((n) => n.id === callNotif?.id)
+  ok('hangup closes call notification', !!closedCall && closedCall.closed === true && closedCall.read === true)
+
+  r = await call('POST', `/api/threads/${tid}/calls`, { kind: 'ring', to: uid2, data: { kind: 'audio' } }, tok2)
+  const ring2 = (await call('GET', '/api/notifications?since=0', undefined, tok3)).json.notifications.find(
+    (n) => n.kind === 'call' && n.threadId === tid && !n.closed,
+  )
+  ok('second ring notification exists', !!ring2 && ring2.callKind === 'audio')
+  r = await call('POST', `/api/threads/${tid}/calls`, { kind: 'decline', to: uid1, data: null }, tok3)
+  const afterDecline = (await call('GET', '/api/notifications?since=0', undefined, tok3)).json.notifications.find(
+    (n) => n.id === ring2?.id,
+  )
+  ok('decline closes own call notification', !!afterDecline && afterDecline.closed === true && afterDecline.read === true)
+
+  r = await call('POST', '/api/notifications/read', {}, tok3)
+  ok('mark all read', r.status === 200 && r.json.marked >= 1, `marked=${r.json.marked}`)
+  ok('unread is zero after read', (await call('GET', '/api/notifications?since=0', undefined, tok3)).json.unread === 0)
+  r = await call('POST', '/api/notifications/read', { ids: [1] }, tok2)
+  ok('mark specific ids only', r.status === 200, `status=${r.status}`)
+
   // 7) admin login + dashboard
   r = await call('POST', '/api/admin/login', { username: 'Admin', password: "Admin.Do'ppi.Uzbekitan.66" })
   ok('admin login', !!r.json.token)

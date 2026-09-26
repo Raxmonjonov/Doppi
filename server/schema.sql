@@ -141,6 +141,8 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS image TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS audio TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS audio_duration DOUBLE PRECISION;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS seal_until BIGINT;
 
 CREATE TABLE IF NOT EXISTS groups (
@@ -166,7 +168,28 @@ CREATE TABLE IF NOT EXISTS group_messages (
   time TEXT NOT NULL DEFAULT ''
 );
 
+ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS audio TEXT NOT NULL DEFAULT '';
+ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS audio_duration DOUBLE PRECISION;
 ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS seal_until BIGINT;
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id BIGINT PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'message',
+  actor_id BIGINT NOT NULL DEFAULT 0,
+  actor_name TEXT NOT NULL DEFAULT '',
+  actor_username TEXT NOT NULL DEFAULT '',
+  actor_avatar TEXT NOT NULL DEFAULT '',
+  thread_id BIGINT,
+  group_id BIGINT,
+  call_kind TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  has_audio BOOLEAN NOT NULL DEFAULT false,
+  closed BOOLEAN NOT NULL DEFAULT false,
+  read BOOLEAN NOT NULL DEFAULT false,
+  created_at BIGINT NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, id);
 
 CREATE TABLE IF NOT EXISTS group_call_signals (
   id BIGINT PRIMARY KEY,

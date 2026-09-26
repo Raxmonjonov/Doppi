@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Moon, Sun, Bell, Lock, Globe, Check, LogOut, MonitorSmartphone, ShieldOff } from 'lucide-react'
+import { Moon, Sun, Bell, Lock, Globe, Check, LogOut, MonitorSmartphone, ShieldOff, Volume2, BellRing } from 'lucide-react'
 import { api } from '../api/client'
 import { useTheme } from '../theme/useTheme'
 import { useAuth } from '../data/auth'
+import { useNotifications } from '../data/notifications'
 import { savedLangCodes, useI18n, languageName } from '../i18n'
 
 interface SessionInfo {
@@ -17,6 +18,7 @@ export function Settings() {
   const { theme, toggle } = useTheme()
   const { user, logout } = useAuth()
   const { lang, setLang, t } = useI18n()
+  const { permission, permissionGranted, requestPermission, soundOn, setSoundOn } = useNotifications()
   const [emailNotifs, setEmailNotifs] = useState(() => localStorage.getItem('doppi-email-notifs-v1') !== 'off')
   const [twoFactor, setTwoFactor] = useState(() => localStorage.getItem('doppi-2fa-v1') === 'on')
   const [langOpen, setLangOpen] = useState(false)
@@ -155,6 +157,49 @@ export function Settings() {
               ))}
             </div>
           )}
+        </div>
+      </div>
+
+      <div className="card settings-card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <h4 style={{ marginBottom: 8 }}>{t('notif.title')}</h4>
+        <div className="setting-row">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <BellRing size={20} />
+            <div>
+              <div className="setting-label">{t('notif.enableTitle')}</div>
+              <div className="setting-desc">
+                {permission === 'unsupported'
+                  ? t('notif.unsupported')
+                  : permissionGranted
+                    ? t('notif.enabled')
+                    : permission === 'denied'
+                      ? t('notif.blocked')
+                      : t('notif.enableDesc')}
+              </div>
+            </div>
+          </div>
+          {!permissionGranted && permission !== 'unsupported' && permission !== 'denied' && (
+            <button type="button" className="btn btn-outline" onClick={() => void requestPermission()}>
+              {t('notif.enable')}
+            </button>
+          )}
+        </div>
+
+        <div className="setting-row">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Volume2 size={20} />
+            <div>
+              <div className="setting-label">{t('notif.sound')}</div>
+              <div className="setting-desc">{t('notif.soundDesc')}</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            className={`btn ${soundOn ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => setSoundOn(!soundOn)}
+          >
+            {soundOn ? t('notif.enabled') : t('notif.enable')}
+          </button>
         </div>
       </div>
 
