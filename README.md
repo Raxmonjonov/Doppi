@@ -1,83 +1,107 @@
 # Do'ppi
 
-*(avvalgi nomlari: FaceNet, undan ham oldin — Groot)*
+Do'ppi — O'zbekistonda yaratilgan, vaqt asosidagi ijtimoiy tarmoq. Instagram va Facebook'dan
+butunlay boshqacha: kontent vaqtga bog'lanadi, ochiladi, so'ng uchib ketadi.
 
-O'zbek foydalanuvchilari uchun mo'ljallangan ijtimoiy-media platforma interfeysi (frontend demo). Odamlar rasm va video joylaydi, do'stlashadi, guruh/sahifa ochadi, chatlashadi, reels ko'radi va o'zi ham yaratadi. Interfeys tuzilishi jihatidan Facebook'ga o'xshaydi (yuqorida navbar, chapda sidebar, o'rtada feed, pastda mobil bottom-nav), lekin ranglar sxemasi va umumiy "his" alohida.
+**Hozirgi holat: production-ready emas — bu kod demonstratsiya prototipi.**
 
-## Hozirgi holat
+## ⚠️ Muhim ogohlantirish (avval o'qing)
 
-Loyiha hozircha **faqat frontend demo** bosqichida. Backend yo'q — barcha ma'lumotlar `src/data/mock.ts` ichidagi mock ma'lumotlar va brauzer `localStorage`'ida saqlanadi. Foydalanuvchi yaratgan post/story/reels/albom sahifa yangilansa ham saqlanib qoladi.
+Bu kod hech qanday ma'muriy xavfsizlik choralari **boshqarilmagan** holatda yozilgan.
+Ishlatishdan oldin kamida quyidagilarni qo'shing:
 
-## Texnologik stack
+| # | Xavf | Nimaga |
+|---|------|--------|
+| 1 | **Parol saqlash** | `netlify/lib/api-core.mjs` (hashPassword) va `server/index.js` da parollar `scrypt` bilan hash qilinadi, lekin **ishlaydigan rate-limit/session rotation** yo'q. Brute-force mumkin. |
+| 2 | **Rate limiting** | Hech qanday endpoint rate-limit qilinmagan — login, register, post yaratish, xabar yuborish. Bot/DoS ga ochiq. |
+| 3 | **Parol tiklash** | Yo'q. |
+| 4 | **2FA / sessiya boshqaruvi** | Minimal. |
+| 5 | **Google Identity skripti** | `index.html` da `accounts.google.com/gsi/client` yuklanadi, lekin login/registerda ishlatilmaydi (foydasiz yuk). |
+| 6 | **Media saqlash** | Rasmlar/video `data:` URL (base64) sifatida butun JSON dokument ichida saqlanadi — 33% kattalashuv va katta payload; brauzer ham, Postgres ham, Blobs ham cheklangan. Ishlab chiqarish uchun haqiqiy fayl ombori + CDN kerak. |
+| 7 | **To'lov (premium)** | UI mavjud, backend yo'q. |
+| 8 | **Qonuniy tomon** | Ma'lumotlarni saqlash shartlari, cookie/bildirishnoma siyosati, `delete account` oqili yo'q. |
 
-| Qism | Texnologiya |
-|---|---|
-| Framework | React 19 + TypeScript |
-| Build | Vite 8 |
-| Routing | react-router-dom (SPA) |
-| Ikonlar | lucide-react |
-| Doimiy saqlash | localStorage |
-| Lint | oxlint |
+> Bu ro'yxatni kamaytirmasdan **real foydalanuvchilarga ochish** — xato qaror. Do'ppi'ni
+> do'stlarga ko'rsatish uchun yetarli, jamoatga ochish uchun hali emas.
 
-## Asosiy funksiyalar
+## Nima qilgani (xususiyatlar)
 
-**Uy sahifasi**
-- Post yaratish (matn, rasm/video — fayl to'g'ridan-to'g'ri base64 qilib yuklanadi)
-- 24 soatlik Stories lentasi
-- Post kartalari: like, izoh, ulashish, jonli (live) ko'rsatkichi
-- Ko'p rasmlar uchun grid ko'rinishi va lightbox
+**Tarmoq asosi:** postlar (rasm/video), reels, stories (24 soatda "so'nadi"), guruhlar, DM,
+fotoalbomlar, profil/likes/comments/shares/follow, admin panel, **69 tilda** i18n (O'zbekcha
+asosiy, `translate()` bilan missing kalit → base fallback), Do'ppi milliy identiteti
+(kumush-zaytun ranglar, medallion naqshlari, "dil" brendi).
 
-**Reels**
-- Vertikal, to'liq ekranli, avtoplay qisqa video lenta
-- Like, izoh, ulashish (tanlab yuborish), ovoz rejimi (audio/disco)
+**"To'lqinlar" (waves) — vaqt asosidagi feed:** har post 1 soat "yangi" (yashil pulsatsiya),
+24 soatdan keyin "so'nadi" va "Ufqqa" (gorizont arxiviga) ketadi. Vaqt o'tishi bilan butun feed
+o'z-o'zidan o'zgaradi — bu Instagram'da yo'q mexanika.
 
-**Fotoalbomlar**
-- Albomlar galereyasi, rasmlarni belgilash (tagging), lightbox
+**Vaqt mashinasi (Time machine):** Home'da slayder — hamjamiyat o'tmishidagi to'lqinlarga
+sayohat. Hozirgi vaqtga qaytish mumkin.
 
-**Profil**
-- Cover, avatar, do'stlar stack'i
+**Do'ppi soati (seals) — vaqtga bog'langan kontent:** muhrlangan kontent ochilishgacha
+hech kim ko'ra olmaydi (muallimi ham). Vaqt kelganda u "marosim" bilan ochiladi va
+To'lqinlarga qo'shiladi.
 
-**Guruhlar va sahifalar**
-- Guruh/sahifa kartalari, a'zo bo'lish/obuna tugmalari
+- **Postlar va albomlar:** Ochiq / 1 soat / 1 kun / 7 kun
+- **DM va guruh xabarlari:** qumlash tugmasi — 1 soat → 1 kun → ochiq
+- **Qalqon (shield):** boshqa foydalanuvchilar muhrni **+30 daqiqa** uzaytiradi
+  (har post maks **3 qalqon**, har odam bittadan). O'z postini himoya qilolmaysan.
 
-**Messenger**
-- Suhbatlar ro'yxati + chat paneli (backend ulangan emas, xabarlar local)
+**Muhrlanadi:** postlar, DM xabarlari, guruh xabarlari, fotoalbomlar.
 
-**Sozlamalar**
-- Tungi rejim (light/dark, sistema sozlamasini avtomatik aniqlaydi)
-- Til tanlash (keng ro'yxat, hozircha faqat interfeys ko'rsatadi)
+**Muhr devori (Seal Wall):** kelgusi va ochilgan muhrlar, jonli countdown.
 
-## Responsivlik
+**Orbit:** Home/Reels — kontent yulduz-turkum orbitida, markazida jonli Do'ppi soati.
 
-- Desktop: navbar + sidebar + feed
-- Mobil: bottom-nav, sidebar yashirinadi, search yashirinadi
+## Arxitektura
+
+Ikki xil backend, **ikkalasi ham to'liq ishlaydi** va bir xil API'ni beradi:
+
+| | `server/` (Node + Postgres) | `netlify/` (Blobs/Neon) |
+|---|---|---|
+| ishga tushirish | `node server/index.js` (4000-port) | Netlify deploy (Functions) |
+| saqlash | PostgreSQL (`Do'ppi` bazasi, `schema.sql`) | Netlify Blobs, yoki Neon (`DATABASE_URL`) |
+| rol | To'g'ridan-to'g'ri, schema bilan tez | Butun dokument blob'da, sodda |
+
+Paritet qoida: **yangi backend xususiyati ikkala joyga ham yoziladi.** (Netlify o'zgarishlari
+faqat `node --check` bilan emas, `npm run test:netlify` bilan tekshiriladi.)
 
 ## Ishga tushirish
 
 ```bash
 npm install
-npm run dev      # development server
-npm run build    # production build
-npm run lint     # oxlint tekshiruvi
-npm run preview  # build natijasini ko'rish
+psql -U postgres -d postgres -f server/schema.sql   # Postgres kerak
+node server/index.js                                # http://localhost:4000
+npm run dev                                         # http://localhost:5173
 ```
 
-## Papka tuzilishi
+Netlify uchun: `netlify.toml` `dist` publish qiladi, `/api/*` → Function. `DATABASE_URL` berilsa
+Neon, aks holda Blobs ishlatiladi.
+
+Sinov foydalanuvchilari: `demo1/demo1`, `demo2/demo2`. Admin panel: `/admin` →
+`Admin` / `Admin.Do'ppi.Uzbekitan.66` (faqat lokal; `ADMIN_USERNAME`/`ADMIN_PASSWORD` bilan
+ almashtirilishi shart).
+
+## Testlar
+
+```bash
+npm run test:netlify   # 23 ta test: netlify/lib/api-core.mjs business logikasi
+npm run build          # tsc + vite
+npm run lint           # oxlint
+```
+
+`test:netlify` haqiqiy `handleRequest` eksportini store bilan chaqirib, auth → data → seal →
+shield → DM/group → admin oqimini va "restart'dan keyin saqlanishni" tekshiradi.
+
+## Tuzilma
 
 ```
 src/
-├── components/   # Navbar, Sidebar, BottomNav, PostCard, StoriesRow, ...
-├── pages/        # Home, Reels, Photos, Profile, Groups, Pages, Messenger, Settings
-├── data/         # mock ma'lumotlar, store (useSyncExternalStore + localStorage)
-├── lib/          # format, upload (fayl -> base64)
-├── styles/       # tokens, global, layout, components
-└── theme/        # light/dark tema konteksti
+  pages/        Home, Reels, Messenger, Groups, Profile, Photos, SealWall, Settings, Admin, Pages…
+  components/   PostCard, OrbitView, MsgBubble, StoriesRow, CreatePost, LiveClock…
+  data/         store, interactions, mock (tiplar), auth
+  i18n/         69 til, `translate()` bilan fallback (missing kalit → base)
+  styles/       components, layout, orbit
+server/         index.js, schema.sql
+netlify/        functions/api.mjs, lib/api-core.mjs (business logika), lib/postgres-store.mjs
 ```
-
-## Rejalar
-
-- Backend (Django REST Framework) va real baza (PostgreSQL)
--Media uchun S3/CDN va avtomatik encoding
-- Real-time chat (Django Channels)
-- AI assistent va Telegram support bot
-- Flutter mobil ilova
