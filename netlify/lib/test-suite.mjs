@@ -252,6 +252,20 @@ export async function runSuite(store, label) {
   // parol tiklash tok2 ni bekor qildi — qolgan testlar uchun yangi sessiya
   const tok1b = restored.json.token
 
+  // 9c) sessiyalar: ro'yxat, "hamma qurilmalardan chiqish", boshqa user o'zi saqlanadi
+  const sessList = await call('GET', '/api/auth/sessions', undefined, tok3)
+  ok('sessions list ok', sessList.status === 200 && Array.isArray(sessList.json.sessions) && sessList.json.sessions.length >= 1, `status=${sessList.status}`)
+  ok('current session is marked', sessList.json.sessions?.some((s) => s.current === true))
+  ok('sessions carry expiry', typeof sessList.json.sessions?.[0]?.expiresAt === 'number')
+  const tok3b = (await call('POST', '/api/auth/login', { username: 'nftest2', password: 'pass123' })).json.token
+  const all1 = await call('GET', '/api/auth/sessions', undefined, tok3b)
+  ok('user2 has 2 sessions', all1.json.sessions?.filter((s) => s.current).length === 1 && all1.json.sessions.length === 2, `n=${all1.json.sessions?.length}`)
+  const logoutAll = await call('POST', '/api/auth/logout-all', undefined, tok3)
+  ok('logout-all ok', logoutAll.status === 200 && logoutAll.json.revoked >= 2, `status=${logoutAll.status} revoked=${logoutAll.json.revoked}`)
+  ok('logout-all killed session 1', (await call('GET', '/api/auth/sessions', undefined, tok3)).status === 401)
+  ok('logout-all killed session 2', (await call('GET', '/api/auth/sessions', undefined, tok3b)).status === 401)
+  ok('logout-all did not touch other user', (await call('GET', '/api/auth/sessions', undefined, tok1b)).status === 200)
+
   // 10) reload from a fresh store read (persistence)
   const freshStore = await relaunch(store)
   const r2 = await (async () => {

@@ -64,6 +64,19 @@ const RATE_LIMITS = {
   adminLogin: { max: 10, windowMs: 15 * 60 * 1000 },
   media: { max: 120, windowMs: 60 * 60 * 1000 },
 }
+
+/* Sessiya 30 kun turadi va faol bo'lgani yangilanadi (sliding TTL). */
+const SESSION_TTL = 30 * 24 * 60 * 60 * 1000
+
+function uaLabel(req) {
+  const ua = String(req?.headers?.['user-agent'] ?? '').slice(0, 120)
+  if (!ua) return ''
+  if (/edg\//i.test(ua)) return 'Edge'
+  if (/chrome|crios/i.test(ua)) return 'Chrome'
+  if (/firefox|fxios/i.test(ua)) return 'Firefox'
+  if (/safari/i.test(ua)) return 'Safari'
+  return 'Brauzer'
+}
 const rateBuckets = new Map()
 
 function rateLimit(key, limit) {
@@ -115,15 +128,31 @@ async function authMiddleware(req, res, next) {
   const h = req.headers.authorization || ''
   const token = h.startsWith('Bearer ') ? h.slice(7) : null
   if (!token) return res.status(401).json({ error: 'Avtorizatsiya talab qilinadi.' })
-  try {
-    const { rows } = await pool.query(
-      `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = $1`,
-      [token],
-    )
-    if (rows.length === 0) return res.status(401).json({ error: 'Avtorizatsiya talab qilinadi.' })
-    req.user = rows[0]
-    req.token = token
-    next()
+    try {
+      const { rows } = await pool.query(
+        `SELECT u.*, s.ua AS session_ua, s.expires_at AS session_expires, s.last_seen AS session_last_seen,
+                s.created_at AS session_created
+         FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = $1`,
+        [token],
+      )
+      if (rows.length === 0) return res.status(401).json({ error: 'Avtorizatsiya talab qilinadi.' })
+      const row = rows[0]
+      if (row.session_expires && new Date(row.session_expires).getTime() <= Date.now()) {
+        await pool.query(`DELETE FROM sessions WHERE token = $1`, [token])
+        return res.status(401).json({ error: 'Sessiya muddati tugagan. Qayta kiring.' })
+      }
+      req.user = row
+      req.token = token
+      // sliding TTL: muddatni faqat yaqin tugashiga tegilganda yangilaymiz (har so'rovda yozmaymiz)
+      if (!row.session_expires || new Date(row.session_expires).getTime() - Date.now() < SESSION_TTL / 2) {
+        pool
+          .query(
+            `UPDATE sessions SET last_seen = $1, expires_at = now() + ($2 || ' milliseconds')::interval WHERE token = $3`,
+            [Date.now(), String(SESSION_TTL), token],
+          )
+          .catch(() => {})
+      }
+      next()
   } catch (e) {
     res.status(500).json({ error: 'Server xatosi.' })
   }
@@ -169,7 +198,11 @@ app.post('/api/auth/register', async (req, res) => {
       [id, nm, uname, em, salt, hash, av, ab, createdAt],
     )
     const token = makeToken()
-    await pool.query(`INSERT INTO sessions (token, user_id) VALUES ($1,$2)`, [token, id])
+    await pool.query(
+      `INSERT INTO sessions (token, user_id, ua, created_at, expires_at)
+       VALUES ($1,$2,$3, now(), now() + ($4 || ' milliseconds')::interval)`,
+      [token, id, uaLabel(req), String(SESSION_TTL)],
+    )
     const user = publicUser({ id, name: nm, username: uname, email: em, avatar: av, about: ab, createdAt })
     res.json({ token, user })
   } catch (e) {
@@ -198,9 +231,10 @@ app.post('/api/auth/login', async (req, res) => {
     const now = Date.now()
     const nowIso = new Date(now).toISOString()
     await pool.query(
-      `INSERT INTO sessions (token, user_id, last_seen) VALUES ($1,$2,$3)
-       ON CONFLICT (token) DO UPDATE SET last_seen = EXCLUDED.last_seen`,
-      [token, user.id, now],
+      `INSERT INTO sessions (token, user_id, last_seen, ua, created_at, expires_at)
+       VALUES ($1,$2,$3,$4, now(), now() + ($5 || ' milliseconds')::interval)
+       ON CONFLICT (token) DO UPDATE SET last_seen = EXCLUDED.last_seen, expires_at = EXCLUDED.expires_at`,
+      [token, user.id, now, uaLabel(req), String(SESSION_TTL)],
     )
     await pool.query(`UPDATE users SET last_login_at = $1 WHERE id = $2`, [nowIso, user.id])
     res.json({ token, user: publicUser(user) })
@@ -288,6 +322,39 @@ app.post('/api/auth/reset', async (req, res) => {
     await pool.query(`DELETE FROM sessions WHERE user_id = $1`, [user.id]) // barcha qurilmalardagi sessiyalar bekor qilinadi
     await pool.query(`DELETE FROM password_resets WHERE username = $1`, [entry.username])
     res.json({ ok: true })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+app.get('/api/auth/sessions', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ua, created_at, last_seen, expires_at, token FROM sessions
+       WHERE user_id = $1 ORDER BY last_seen DESC`,
+      [req.user.id],
+    )
+    res.json({
+      sessions: rows.map((s) => ({
+        ua: s.ua || '',
+        createdAt: s.created_at,
+        lastSeen: s.last_seen || null,
+        expiresAt: s.expires_at,
+        current: s.token === req.token,
+      })),
+    })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+app.post('/api/auth/logout-all', authMiddleware, async (req, res) => {
+  try {
+    const { rowCount } = await pool.query(`DELETE FROM sessions WHERE user_id = $1`, [req.user.id])
+    await pool.query(`UPDATE users SET last_logout_at = $1 WHERE id = $2`, [new Date().toISOString(), req.user.id])
+    res.json({ ok: true, revoked: rowCount ?? 0 })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Server xatosi.' })

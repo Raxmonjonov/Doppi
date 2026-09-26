@@ -2020,6 +2020,26 @@
   color: var(--fn-text-muted);
 }
 
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--fn-border);
+}
+
+.session-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.session-current {
+  color: var(--fn-gold);
+  font-weight: 600;
+}
+
 .setting-row.lang-row {
   border-radius: var(--fn-radius-btn);
   transition: background-color 180ms ease;

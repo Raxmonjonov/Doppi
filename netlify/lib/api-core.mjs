@@ -320,6 +320,19 @@ function tooMany(send, retryAfter) {
 export const RESET_CODE_TTL = 10 * 60 * 1000
 const RESET_MAX_ATTEMPTS = 5
 
+/* Sessiya 30 kun turadi va har bir so'rovda yangilanadi (sliding TTL). */
+export const SESSION_TTL = 30 * 24 * 60 * 60 * 1000
+
+function uaLabel(req) {
+  const ua = String((req?.headers ?? {})['user-agent'] ?? '').slice(0, 120)
+  if (!ua) return ''
+  if (/edg\//i.test(ua)) return 'Edge'
+  if (/chrome|crios/i.test(ua)) return 'Chrome'
+  if (/firefox|fxios/i.test(ua)) return 'Firefox'
+  if (/safari/i.test(ua)) return 'Safari'
+  return 'Brauzer'
+}
+
 /* Yetkazib berish kanali hali ulanmagan: kod server logiga yoziladi.
    Ishlab chiqarishda (NODE_ENV=production) kod javobda qaytarilmaydi. */
 function resetCodeEcho() {
@@ -352,7 +365,14 @@ export async function handleRequest(method, pathname, query, req, store) {
     if (!token) return null
     const s = d.sessions.find((x) => x.token === token)
     if (!s) return null
-    s.lastSeen = Date.now()
+    const now = Date.now()
+    // eskirgan sessiya (eski hujjatlarda expiresAt yo'q — ular ham yangilanadi)
+    if (s.expiresAt && s.expiresAt <= now) {
+      d.sessions = d.sessions.filter((x) => x !== s)
+      return null
+    }
+    s.lastSeen = now
+    s.expiresAt = now + SESSION_TTL
     return userById(d, s.userId) ?? null
   }
 
@@ -386,7 +406,9 @@ export async function handleRequest(method, pathname, query, req, store) {
     const createdAt = new Date().toISOString()
     doc.users.push({ id, name: nm, username: uname, email: em, salt, hash, avatar: av, about: ab, createdAt, lastLoginAt: createdAt, lastLogoutAt: 0 })
     const token = makeToken()
-    doc.sessions.push({ token, userId: id, lastSeen: Date.now() })
+    const now = Date.now()
+    doc.sessions = doc.sessions.filter((x) => !x.expiresAt || x.expiresAt > now)
+    doc.sessions.push({ token, userId: id, ua: uaLabel(req), createdAt: new Date(now).toISOString(), lastSeen: now, expiresAt: now + SESSION_TTL })
     await store.saveDoc(doc)
     return send(200, { token, user: publicUser({ id, name: nm, username: uname, email: em, avatar: av, about: ab, createdAt }) })
   }
@@ -402,7 +424,9 @@ export async function handleRequest(method, pathname, query, req, store) {
     if (!verifyPassword(pw, user.salt, user.hash)) return send(401, { error: "Parol noto'g'ri." })
     const token = makeToken()
     user.lastLoginAt = new Date().toISOString()
-    doc.sessions.push({ token, userId: user.id, lastSeen: Date.now() })
+    const now = Date.now()
+    doc.sessions = doc.sessions.filter((x) => !x.expiresAt || x.expiresAt > now)
+    doc.sessions.push({ token, userId: user.id, ua: uaLabel(req), createdAt: new Date(now).toISOString(), lastSeen: now, expiresAt: now + SESSION_TTL })
     await store.saveDoc(doc)
     return send(200, { token, user: publicUser(user) })
   }
@@ -455,6 +479,32 @@ export async function handleRequest(method, pathname, query, req, store) {
     doc.resetCodes = doc.resetCodes.filter((r) => r.username !== un)
     await store.saveDoc(doc)
     return send(200, { ok: true })
+  }
+
+  if (method === 'GET' && first === 'auth' && second === 'sessions') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const list = doc.sessions
+      .filter((s) => s.userId === me.id)
+      .map((s) => ({
+        ua: s.ua ?? '',
+        createdAt: s.createdAt ?? null,
+        lastSeen: s.lastSeen ?? null,
+        expiresAt: s.expiresAt ?? null,
+        current: s.token === bearer,
+      }))
+      .sort((a, b) => (b.lastSeen ?? 0) - (a.lastSeen ?? 0))
+    return send(200, { sessions: list })
+  }
+
+  if (method === 'POST' && first === 'auth' && second === 'logout-all') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const before = doc.sessions.length
+    doc.sessions = doc.sessions.filter((s) => s.userId !== me.id)
+    me.lastLogoutAt = Date.now()
+    await store.saveDoc(doc)
+    return send(200, { ok: true, revoked: before - doc.sessions.length })
   }
 
   if (method === 'POST' && first === 'auth' && second === 'logout') {
