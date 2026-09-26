@@ -1,9 +1,20 @@
+import { useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Home, Play, Plus, MessageCircle, User, Shield } from 'lucide-react'
+import { Home, Play, Plus, User, Shield, Bell } from 'lucide-react'
 import { useI18n } from '../i18n'
+import { useNotifications } from '../data/notifications'
 
 function BottomNav() {
   const { t } = useI18n()
+  const { unread, setJoinRequest } = useNotifications()
+  const openBell = () => window.dispatchEvent(new CustomEvent('fn:open-notifications'))
+
+  useEffect(() => {
+    const onOpen = () => openBell()
+    window.addEventListener('fn:open-notifications', onOpen)
+    return () => window.removeEventListener('fn:open-notifications', onOpen)
+  }, [])
+
   return (
     <nav className="fn-bottomnav">
       <BnItem to="/" icon={Home} label={t('bottomNav.labelHome')} />
@@ -11,7 +22,10 @@ function BottomNav() {
       <NavLink to="/" className="bottom-post" onClick={() => window.dispatchEvent(new CustomEvent('fn:open-post'))}>
         <Plus size={22} />
       </NavLink>
-      <BnItem to="/messenger" icon={MessageCircle} label={t('bottomNav.labelMessages')} />
+      <NavLink to="/messenger" className="fn-bottom-bell" title={t('notif.title')} aria-label={t('notif.title')} onClick={() => void setJoinRequest(null)}>
+        <Bell size={24} />
+        {unread > 0 && <span className="notif-badge">{unread > 99 ? '99+' : unread}</span>}
+      </NavLink>
       <BnItem to="/admin" icon={Shield} label={t('bottomNav.labelAdmin')} />
       <BnItem to="/profile" icon={User} label={t('bottomNav.labelProfile')} />
     </nav>

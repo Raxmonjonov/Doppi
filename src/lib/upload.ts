@@ -13,6 +13,26 @@ const tr = (key: string, params?: Record<string, string | number>) => {
 
 export const MAX_IMAGE_MB = 8
 export const MAX_VIDEO_MB = 40
+export const MAX_AUDIO_MB = 12
+
+/* Server qabul qiladigan audio MIME turlari. MediaRecorder brauzerga
+   qarab audio/webm;codecs=opus, audio/ogg yoki audio/mp4 beradi —
+   data URL'dan codec parametri ajratib tashlanadi (server faqat
+   toza MIME qabul qiladi). */
+export const AUDIO_MIMES = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/x-m4a']
+
+export function pickAudioMime(): string {
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/mpeg']
+  for (const c of candidates) {
+    if (typeof MediaRecorder === 'undefined') break
+    if (MediaRecorder.isTypeSupported?.(c)) return c
+  }
+  return ''
+}
+
+export function baseMime(mime: string): string {
+  return String(mime ?? '').split(';')[0].trim().toLowerCase()
+}
 
 /* Rasmlarni brauzerda siqamiz: 1600px + WebP (JPEG fallback).
    Sababi: 12MB telefon rasmi 300-500KB ga tushadi — yuklash tez, server yengil. */
@@ -90,10 +110,11 @@ export async function prepareImage(file: File, maxDim = MAX_DIM): Promise<Prepar
 /* data URL -> /api/media/<id> (serverda haqiqiy fayl saqlanadi).
    Backend media endpointini qo'llab-quvvatlamasa (404/501) yoki tarmoq
    uzilsa, data URL qaytariladi — post yana ko'rinadi, keyinroq sinxronlanadi. */
-export async function uploadDataUrl(dataUrl: string, kind: 'image' | 'video'): Promise<string> {
-  const maxBytes = (kind === 'video' ? MAX_VIDEO_MB : MAX_IMAGE_MB) * 1024 * 1024
+export async function uploadDataUrl(dataUrl: string, kind: 'image' | 'video' | 'audio'): Promise<string> {
+  const maxMB = kind === 'video' ? MAX_VIDEO_MB : kind === 'audio' ? MAX_AUDIO_MB : MAX_IMAGE_MB
+  const maxBytes = maxMB * 1024 * 1024
   const approx = Math.ceil((dataUrl.length - dataUrl.indexOf(',') - 1) * 0.75)
-  if (approx > maxBytes) throw new Error(tr('upload.fileTooLarge', { max: kind === 'video' ? MAX_VIDEO_MB : MAX_IMAGE_MB }))
+  if (approx > maxBytes) throw new Error(tr('upload.fileTooLarge', { max: maxMB }))
 
   if (!getToken()) return dataUrl
 
@@ -102,11 +123,64 @@ export async function uploadDataUrl(dataUrl: string, kind: 'image' | 'video'): P
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
     body: JSON.stringify({ dataUrl }),
   })
-  if (res.status === 413) throw new Error(tr('upload.fileTooLarge', { max: kind === 'video' ? MAX_VIDEO_MB : MAX_IMAGE_MB }))
+  if (res.status === 413) throw new Error(tr('upload.fileTooLarge', { max: maxMB }))
   if (res.status === 415) throw new Error(tr('upload.unsupportedType'))
   if (!res.ok) return dataUrl
   const out = (await res.json()) as { url?: string }
   return out.url ?? dataUrl
+}
+
+/* Ovozli xabar: blob -> data URL -> server. duration sekundda. */
+export interface UploadedAudio {
+  url: string
+  duration: number
+  local: boolean
+}
+
+export async function uploadAudio(blob: Blob, onError?: (msg: string) => void): Promise<UploadedAudio | null> {
+  try {
+    if (!blob.size) {
+      onError?.(tr('voice.empty'))
+      return null
+    }
+    if (blob.size > MAX_AUDIO_MB * 1024 * 1024) {
+      onError?.(tr('upload.fileTooLarge', { max: MAX_AUDIO_MB }))
+      return null
+    }
+    const mime = baseMime(blob.type) || 'audio/webm'
+    if (!AUDIO_MIMES.includes(mime)) {
+      onError?.(tr('upload.unsupportedType'))
+      return null
+    }
+    const duration = await blobDuration(blob)
+    const dataUrl = await readAsDataUrl(new Blob([blob], { type: mime }))
+    const url = await uploadDataUrl(dataUrl, 'audio')
+    return { url, duration, local: url.startsWith('data:') }
+  } catch (e) {
+    onError?.(e instanceof Error ? e.message : tr('upload.readError'))
+    return null
+  }
+}
+
+/* Blob uzunligini o'lchaydi (Audio metadata) — iloji bo'lsa aniq, aks holda ~0. */
+export function blobDuration(blob: Blob): Promise<number> {
+  return new Promise((resolve) => {
+    try {
+      const url = URL.createObjectURL(blob)
+      const el = document.createElement('audio')
+      el.preload = 'metadata'
+      const done = (v: number) => {
+        URL.revokeObjectURL(url)
+        resolve(Math.max(0, Math.round(v * 100) / 100))
+      }
+      el.onloadedmetadata = () => done(Number.isFinite(el.duration) ? el.duration : 0)
+      el.onerror = () => done(0)
+      setTimeout(() => done(Number.isFinite(el.duration) ? el.duration : 0), 4000)
+      el.src = url
+    } catch {
+      resolve(0)
+    }
+  })
 }
 
 export interface UploadedMedia {

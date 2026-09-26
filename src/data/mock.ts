@@ -91,6 +91,8 @@ export interface Message {
   text: string
   time: string
   image?: string
+  audio?: string
+  audioDuration?: number
   sealUntil?: number
 }
 
@@ -99,15 +101,6 @@ export interface Thread {
   user: User
   online: boolean
   messages: Message[]
-}
-
-export interface AppNotification {
-  id: number
-  type: 'like' | 'comment' | 'friend' | 'group'
-  user: User
-  text: string
-  time: string
-  unread: boolean
 }
 
 export const me: User = {
@@ -136,6 +129,5 @@ export const pages: Page[] = [
   { id: 6, name: 'Sayohat Uzbekistan', followers: '23K', cover: 'https://picsum.photos/seed/doppi6/640/300', category: 'Sayohat', subscribed: false },
 ]
 export const chatThreads: Thread[] = []
-export const notifications: AppNotification[] = []
 export const suggestedUsers: User[] = []
 export const onlineFriends: User[] = []
