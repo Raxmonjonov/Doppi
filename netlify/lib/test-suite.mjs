@@ -225,10 +225,37 @@ export async function runSuite(store, label) {
   }
   ok('register spam -> 429', regStatus === 429, `status=${regStatus}`)
 
+  // 9b) parol tiklash: noto'g'ri kod, eski parol, yangi parol, sessiya bekor bo'lishi
+  const forgot = await call('POST', '/api/auth/forgot', { username: 'nftest1' })
+  ok('forgot returns ok', forgot.status === 200 && forgot.json.ok === true, `status=${forgot.status}`)
+  ok('forgot has 6-digit code', /^\d{6}$/.test(String(forgot.json.debugCode ?? '')), `code=${forgot.json.debugCode}`)
+  const unknownForgot = await call('POST', '/api/auth/forgot', { username: 'bunday-user-yoq' })
+  ok('forgot does not leak user existence', unknownForgot.status === 200 && !unknownForgot.json.debugCode)
+  const badCode = await call('POST', '/api/auth/reset', { username: 'nftest1', code: '000000', password: 'newpass1' })
+  ok('reset with wrong code -> 400', badCode.status === 400, `status=${badCode.status}`)
+  const goodCode = await call('POST', '/api/auth/reset', { username: 'nftest1', code: forgot.json.debugCode, password: 'newpass1' })
+  ok('reset with valid code', goodCode.status === 200 && goodCode.json.ok === true, `status=${goodCode.status}`)
+  const oldPw = await call('POST', '/api/auth/login', { username: 'nftest1', password: 'pass123' })
+  ok('old password rejected', oldPw.status === 401, `status=${oldPw.status}`)
+  const newPw = await call('POST', '/api/auth/login', { username: 'nftest1', password: 'newpass1' })
+  ok('new password works', newPw.status === 200 && !!newPw.json.token, `status=${newPw.status}`)
+  const killedSession = await call('GET', '/api/threads', undefined, tok2)
+  ok('reset revoked old sessions', killedSession.status === 401, `status=${killedSession.status}`)
+  const reusedCode = await call('POST', '/api/auth/reset', { username: 'nftest1', code: forgot.json.debugCode, password: 'newpass2' })
+  ok('reset code cannot be reused', reusedCode.status === 400, `status=${reusedCode.status}`)
+  // ntest1 endi 'newpass1' bilan; keyingi testlar uchun tiklaymiz
+  const refix = await call('POST', '/api/auth/forgot', { username: 'nftest1' })
+  await call('POST', '/api/auth/reset', { username: 'nftest1', code: refix.json.debugCode, password: 'pass123' })
+  const restored = await call('POST', '/api/auth/login', { username: 'nftest1', password: 'pass123' })
+  ok('password restored for later tests', restored.status === 200, `status=${restored.status}`)
+  ok('revoked session still dead after relogin', (await call('GET', '/api/threads', undefined, tok2)).status === 401)
+  // parol tiklash tok2 ni bekor qildi — qolgan testlar uchun yangi sessiya
+  const tok1b = restored.json.token
+
   // 10) reload from a fresh store read (persistence)
   const freshStore = await relaunch(store)
   const r2 = await (async () => {
-    const headers = { authorization: `Bearer ${tok2}` }
+    const headers = { authorization: `Bearer ${tok1b}` }
     return handleRequest('GET', '/api/data', {}, { json: async () => ({}), headers }, freshStore)
   })()
   const still = r2.json.posts.find((p) => p.id === pid)

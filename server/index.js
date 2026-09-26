@@ -59,6 +59,8 @@ function makeToken() {
 const RATE_LIMITS = {
   login: { max: 10, windowMs: 15 * 60 * 1000 },
   register: { max: 10, windowMs: 60 * 60 * 1000 },
+  forgot: { max: 5, windowMs: 15 * 60 * 1000 },
+  reset: { max: 10, windowMs: 15 * 60 * 1000 },
   adminLogin: { max: 10, windowMs: 15 * 60 * 1000 },
   media: { max: 120, windowMs: 60 * 60 * 1000 },
 }
@@ -202,6 +204,90 @@ app.post('/api/auth/login', async (req, res) => {
     )
     await pool.query(`UPDATE users SET last_login_at = $1 WHERE id = $2`, [nowIso, user.id])
     res.json({ token, user: publicUser(user) })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+/* ---------- Parol tiklash ---------- */
+
+const RESET_CODE_TTL = 10 * 60 * 1000
+const RESET_MAX_ATTEMPTS = 5
+
+function resetCodeEcho() {
+  return process.env.NODE_ENV !== 'production' && process.env.RESET_CODE_ECHO !== '0'
+}
+
+function makeResetCode() {
+  return String(crypto.randomInt(0, 1000000)).padStart(6, '0')
+}
+
+app.post('/api/auth/forgot', async (req, res) => {
+  const forgotWait = rateLimit('forgot:' + req.ip, RATE_LIMITS.forgot)
+  if (forgotWait) return blockTooMany(res, forgotWait)
+  const { username } = req.body ?? {}
+  const idf = String(username ?? '').trim().toLowerCase()
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, username FROM users WHERE LOWER(username) = $1 OR LOWER(email) = $1`,
+      [idf],
+    )
+    const un = rows[0] ? rows[0].username.toLowerCase() : idf
+    await pool.query(`DELETE FROM password_resets WHERE username = $1`, [un])
+    if (!rows[0]) return res.json({ ok: true, sent: true }) // mavjudligini oshkor qilmaymiz
+    const code = makeResetCode()
+    const { salt, hash } = hashPassword(code)
+    await pool.query(
+      `INSERT INTO password_resets (username, salt, code_hash, expires_at, attempts)
+       VALUES ($1,$2,$3,$4,0)
+       ON CONFLICT (username) DO UPDATE SET salt = EXCLUDED.salt, code_hash = EXCLUDED.code_hash,
+         expires_at = EXCLUDED.expires_at, attempts = 0`,
+      [un, salt, hash, new Date(Date.now() + RESET_CODE_TTL).toISOString()],
+    )
+    console.log(`[parol tiklash] ${rows[0].username} uchun kod: ${code}`)
+    res.json(resetCodeEcho() ? { ok: true, sent: true, debugCode: code } : { ok: true, sent: true })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+app.post('/api/auth/reset', async (req, res) => {
+  const resetWait = rateLimit('reset:' + req.ip, RATE_LIMITS.reset)
+  if (resetWait) return blockTooMany(res, resetWait)
+  const { username, code, password } = req.body ?? {}
+  const idf = String(username ?? '').trim().toLowerCase()
+  const pw = String(password ?? '')
+  try {
+    const { rows: userRows } = await pool.query(
+      `SELECT id, username FROM users WHERE LOWER(username) = $1 OR LOWER(email) = $1`,
+      [idf],
+    )
+    const user = userRows[0]
+    const { rows } = user
+      ? await pool.query(`SELECT * FROM password_resets WHERE username = $1`, [user.username.toLowerCase()])
+      : { rows: [] }
+    const entry = rows[0]
+    if (!entry || new Date(entry.expires_at).getTime() <= Date.now()) {
+      return res.status(400).json({ error: 'Tiklash kodi muddati tugagan. Yangi kod so‘rang.' })
+    }
+    if (entry.attempts >= RESET_MAX_ATTEMPTS) {
+      return res.status(429).json({ error: 'Juda ko‘p urinish. Yangi tiklash kodi so‘rang.' })
+    }
+    await pool.query(`UPDATE password_resets SET attempts = attempts + 1 WHERE username = $1`, [entry.username])
+    if (!verifyPassword(String(code ?? '').trim(), entry.salt, entry.code_hash)) {
+      return res.status(400).json({ error: 'Kod noto‘g‘ri.' })
+    }
+    if (pw.length < 4) return res.status(400).json({ error: 'Parol kamida 4 belgidan iborat bo‘lishi kerak.' })
+    const { salt, hash } = hashPassword(pw)
+    await pool.query(
+      `UPDATE users SET salt = $1, hash = $2, password_changed_at = now() WHERE id = $3`,
+      [salt, hash, user.id],
+    )
+    await pool.query(`DELETE FROM sessions WHERE user_id = $1`, [user.id]) // barcha qurilmalardagi sessiyalar bekor qilinadi
+    await pool.query(`DELETE FROM password_resets WHERE username = $1`, [entry.username])
+    res.json({ ok: true })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Server xatosi.' })
