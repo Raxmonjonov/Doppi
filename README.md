@@ -17,7 +17,7 @@ Ishlatishdan oldin kamida quyidagilarni qo'shing:
 | 3 | **Parol tiklash** | Yo'q. |
 | 4 | **2FA / sessiya boshqaruvi** | Minimal. |
 | 5 | **Google Identity skripti** | `index.html` da `accounts.google.com/gsi/client` yuklanadi, lekin login/registerda ishlatilmaydi (foydasiz yuk). |
-| 6 | **Media** | Rasmlar/video endi alohida `POST /api/media` orqali **haqiqiy fayl** sifatida saqlanadi (Postgres `bytea` yoki Blobs), hujjatda faqat URL turadi. Rasm brauzerda 1600px/WebP'gacha siqiladi. Qoldiqlar: CDN/thumbnail yo'q, video siqilmaydi, eski `data:` URL li ma'lumot migratsiya qilinmagan, media URL'i tokensiz ochiq (faqat tasodifiy id bilan). |
+| 6 | **Media** | Rasmlar/video alohida `POST /api/media` orqali **haqiqiy fayl** sifatida saqlanadi (Postgres `bytea` yoki Blobs), hujjatda faqat URL turadi. Rasm brauzerda 1600px/WebP'gacha siqiladi. Qoldiqlar: CDN/thumbnail yo'q, video siqilmaydi, media URL'i tokensiz ochiq (faqat tasodifiy 12-baytli id bilan). Eski `data:` URL lar admin panelidan bir tugma bilan faylga ko'chiriladi. |
 | 7 | **To'lov (premium)** | UI mavjud, backend yo'q. |
 | 8 | **Qonuniy tomon** | Ma'lumotlarni saqlash shartlari, cookie/bildirishnoma siyosati, `delete account` oqili yo'q. |
 
@@ -52,9 +52,11 @@ To'lqinlarga qo'shiladi.
 butun data hujjati kichik va tez sinxronlanadi. Rasm brauzerda avtomatik **1600px / WebP**
 gacha siqiladi (12 MB telefon rasmi ~300 KB). Yuklash `multipart` emas, `data:` URL orqali;
 server MIME ro'yxatini (jpeg/png/webp/gif/mp4/webm) va hajm chegarasini (rasm 8 MB, video 40 MB)
-tekshiradi. Admin panelidagi **"Ishlatilmay qolgan medialarni tozalash"**
-(`POST /api/media/gc`) hujjatda havolasi qolmagan fayllarni o'chiradi. Eski `data:` URL li
-ma'lumotlar to'g'ri ko'rinadi, lekin migratsiya qilinmagan.
+tekshiradi. Admin panelida ikki xil xizmat bor:
+**"Eski rasmlarni faylga ko'chirish"** (`POST /api/media/migrate`, `?limit=`) — eski `data:` URL larni
+haqiqiy fayllarga o'tkazadi (bir xil rasm bir necha joyda bo'lsa bitta fayl sifatida saqlanadi),
+**"Ishlatilmay qolgan medialarni tozalash"** (`POST /api/media/gc`) — hujjatda havolasi qolmagan
+fayllarni o'chiradi. Ikkalasi ham faqat admin tokeni bilan ishlaydi.
 
 **Muhrlanadi:** postlar, DM xabarlari, guruh xabarlari, fotoalbomlar.
 
@@ -94,10 +96,10 @@ Sinov foydalanuvchilari: `demo1/demo1`, `demo2/demo2`. Admin panel: `/admin` →
 ## Testlar
 
 ```bash
-npm run test:netlify   # 36 test: api-core business logikasi (fayl store)
-npm run test:blobs     # 36 test: blobs-store adapter (fake @netlify/blobs)
-npm run test:pg-store  # 36 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
-npm run test:all       # uchalasi (108 test)
+npm run test:netlify   # 43 test: api-core business logikasi (fayl store)
+npm run test:blobs     # 43 test: blobs-store adapter (fake @netlify/blobs)
+npm run test:pg-store  # 43 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
+npm run test:all       # uchalasi (129 test)
 npm run build          # tsc + vite
 npm run lint           # oxlint
 ```
@@ -106,7 +108,8 @@ Uchala test ham bitta suite'ni (`netlify/lib/test-suite.mjs`) ishlatadi va haqiq
 `handleRequest` eksporti orqali oqimni yuritadi: auth → data (muhrlangan post + albom) →
 qalqon (+30m / takror→409 / o'z posti→403) → like/comment/share → muhrlangan DM → muhrlangan
 guruh xabari → admin dashboard → **media yuklash (bayt darajasida round-trip, 415/413/401 va
-path traversal himoyasi) → media GC (faqat admin, orphan o'chadi, havolali fayl qoladi)** →
+path traversal himoyasi) → media GC (faqat admin, orphan o'chadi, havolali fayl qoladi) →
+`data:` URL migratsiyasi (URL faylga aylanadi, `data:` iz qolmaydi)** →
 "qayta ishga tushgandan keyin saqlanish".
 
 `test:pg-store` Neon HTTP'ni bevosita emulyatsiya qilolmaydi (neon faqat HTTP ishlaydi), shuning

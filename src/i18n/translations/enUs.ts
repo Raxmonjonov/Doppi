@@ -326,6 +326,8 @@ export const en: Dict = {
   'admin.logout': 'Log out',
   'admin.gcMedia': 'Clean unused media',
   'admin.gcDone': 'Cleaned: {removed} files removed, {kept} kept.',
+  'admin.migrateMedia': 'Migrate legacy images to files',
+  'admin.migrateDone': 'Migrated: {migrated}, skipped: {skipped}.',
   'sidebar.labelAdmin': 'Admin',
   'bottomNav.labelAdmin': 'Admin',
   'settings.pageTitle': 'Settings',

@@ -183,6 +183,93 @@ export async function collectGarbageMedia(doc, store) {
   return { removed, kept: all.length - orphans.length, scanned: all.length }
 }
 
+/* Eski `data:` URL larni haqiqiy media fayllariga ko'chiradi.
+   Bir xil rasm bir necha joyda ishlatilgan bo'lsa, bitta fayl sifatida
+   saqlanadi (xom base64 bo'yicha dedup). */
+export async function migrateDataUrls(doc, store, limit = 50) {
+  if (typeof store.putMedia !== 'function') return { migrated: 0, skipped: 0, unsupported: true }
+
+  const byValue = new Map() // dataUrl -> media url
+  const found = collectDataUrls(doc)
+  let migrated = 0
+  let skipped = 0
+  let bytes = 0
+  const failures = []
+
+  for (const dataUrl of found.slice(0, Math.max(0, limit))) {
+    if (byValue.has(dataUrl)) continue
+    const parsed = parseDataUrl(dataUrl)
+    if (!parsed) {
+      skipped++
+      continue
+    }
+    const kind = MEDIA_MIME[parsed.mime]
+    if (!kind || parsed.bytes.length > MEDIA_LIMITS[kind]) {
+      skipped++
+      failures.push({ mime: parsed.mime, bytes: parsed.bytes.length })
+      continue
+    }
+    try {
+      const id = mediaIdFor(`${Date.now().toString(36)}${crypto.randomBytes(6).toString('hex')}`, parsed.mime)
+      await store.putMedia(id, parsed.mime, parsed.bytes)
+      byValue.set(dataUrl, `/api/media/${id}`)
+      bytes += parsed.bytes.length
+      migrated++
+    } catch {
+      skipped++
+    }
+  }
+
+  if (byValue.size > 0) {
+    rewriteDataUrls(doc, byValue)
+    await store.saveDoc(doc)
+  }
+  return { migrated, skipped, remaining: Math.max(0, found.length - limit), bytes, failures: failures.slice(0, 5) }
+}
+
+const DATA_URL_KEYS = ['avatar', 'image', 'video', 'cover', 'url']
+
+function collectDataUrls(node, out = [], depth = 0) {
+  if (depth > 8 || node == null) return out
+  if (typeof node === 'string') {
+    if (node.startsWith('data:') && node.includes(';base64,')) out.push(node)
+    return out
+  }
+  if (Array.isArray(node)) {
+    for (const item of node) collectDataUrls(item, out, depth + 1)
+    return out
+  }
+  if (typeof node === 'object') {
+    for (const [k, v] of Object.entries(node)) {
+      if (DATA_URL_KEYS.includes(k) || typeof v === 'string' || Array.isArray(v) || (v && typeof v === 'object')) {
+        collectDataUrls(v, out, depth + 1)
+      }
+    }
+  }
+  return out
+}
+
+function rewriteDataUrls(node, byValue, depth = 0) {
+  if (depth > 8 || node == null) return
+  if (typeof node === 'string') {
+    return
+  }
+  if (Array.isArray(node)) {
+    for (let i = 0; i < node.length; i++) {
+      const item = node[i]
+      if (typeof item === 'string' && byValue.has(item)) node[i] = byValue.get(item)
+      else rewriteDataUrls(item, byValue, depth + 1)
+    }
+    return
+  }
+  if (typeof node === 'object') {
+    for (const [k, v] of Object.entries(node)) {
+      if (typeof v === 'string' && byValue.has(v)) node[k] = byValue.get(v)
+      else rewriteDataUrls(v, byValue, depth + 1)
+    }
+  }
+}
+
 export async function handleRequest(method, pathname, query, req, store) {
   const segs = pathname.split('/').filter(Boolean)
   const api = segs.length >= 1 && segs[0] === 'api' ? segs.slice(1) : segs
@@ -1034,6 +1121,16 @@ export async function handleRequest(method, pathname, query, req, store) {
     doc.threadCallSignals = doc.threadCallSignals.filter((s) => s.threadId !== id)
     await store.saveDoc(doc)
     return send(200, { ok: true })
+  }
+
+  /* ---------- Eski data: URL larni ko'chirish (faqat admin) ---------- */
+
+  if (method === 'POST' && first === 'media' && second === 'migrate') {
+    if (!adminAuth(doc, bearer)) return send(403, { error: 'Faqat admin uchun.' })
+    const limit = Math.min(200, Math.max(1, Number(query.limit ?? 50) || 50))
+    const result = await migrateDataUrls(doc, store, limit)
+    if (result.unsupported) return send(501, { error: 'Bu store media yuklashni qo‘llab-quvvatlamaydi.' })
+    return send(200, result)
   }
 
   /* ---------- Media: ishlatilmay qolgan fayllarni tozalash (faqat admin) ---------- */

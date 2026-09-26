@@ -11,6 +11,7 @@ import {
   FolderOpen,
   BookOpen,
   Trash2,
+  FileUp,
   Repeat,
   RefreshCw,
   LogOut,
@@ -194,6 +195,23 @@ function AdminStats({ t, onLogout }: { t: (k: string, p?: Record<string, string 
 
   const [gcBusy, setGcBusy] = useState(false)
   const [gcNote, setGcNote] = useState<string | null>(null)
+  const [migBusy, setMigBusy] = useState(false)
+  const [migNote, setMigNote] = useState<string | null>(null)
+
+  const runMigrate = async () => {
+    setMigBusy(true)
+    setMigNote(null)
+    try {
+      const adminToken = localStorage.getItem(SESSION_KEY)
+      const r = await api<{ migrated: number; skipped: number }>('/api/media/migrate?limit=50', { method: 'POST', token: adminToken })
+      setMigNote(t('admin.migrateDone', { migrated: r.migrated, skipped: r.skipped }))
+      load()
+    } catch (e) {
+      setMigNote(e instanceof Error ? e.message : 'Xatolik')
+    } finally {
+      setMigBusy(false)
+    }
+  }
 
   const runGc = async () => {
     setGcBusy(true)
@@ -218,6 +236,9 @@ function AdminStats({ t, onLogout }: { t: (k: string, p?: Record<string, string 
           <p className="page-sub">{t('admin.pageSub')}</p>
         </div>
         <div className="dash-head-actions">
+          <button type="button" className="btn btn-outline btn-sm" onClick={runMigrate} disabled={migBusy}>
+            <FileUp size={15} /> {t('admin.migrateMedia')}
+          </button>
           <button type="button" className="btn btn-outline btn-sm" onClick={runGc} disabled={gcBusy}>
             <Trash2 size={15} /> {t('admin.gcMedia')}
           </button>
@@ -230,6 +251,7 @@ function AdminStats({ t, onLogout }: { t: (k: string, p?: Record<string, string 
         </div>
       </div>
       {gcNote && <div className="upload-error">{gcNote}</div>}
+      {migNote && <div className="upload-error">{migNote}</div>}
 
       {error && <div className="dash-error">{error}</div>}
 
