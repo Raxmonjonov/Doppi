@@ -120,7 +120,33 @@ export async function runSuite(store, label) {
     ok('admin dashboard', r.status === 200 && !!r.json.totals, `status=${r.status}`)
   }
 
-  // 8) reload from a fresh store read (persistence)
+  // 8) media upload round-trip (real binary, not base64 in the doc)
+  const pngBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  r = await call('POST', '/api/media', { dataUrl: `data:image/png;base64,${pngBase64}` }, tok2)
+  const mediaId = r.json.id
+  const mediaUrl = r.json.url
+  ok('media upload -> 201 + url', r.status === 201 && !!mediaId && mediaUrl === `/api/media/${mediaId}`, `status=${r.status}`)
+  ok('media returns mime + size', r.json.mime === 'image/png' && r.json.size > 0, `mime=${r.json.mime} size=${r.json.size}`)
+
+  if (mediaUrl) {
+    const mr = await call('GET', mediaUrl, undefined, undefined)
+    const bytes = mr.binary ? Buffer.from(mr.binary.body) : Buffer.alloc(0)
+    ok('media GET returns bytes', mr.status === 200 && bytes.length > 0, `status=${mr.status} len=${bytes.length}`)
+    ok('media GET content-type', mr.binary?.type === 'image/png', `type=${mr.binary?.type}`)
+    ok('media bytes intact', bytes.equals(Buffer.from(pngBase64, 'base64')))
+  }
+
+  r = await call('POST', '/api/media', { dataUrl: 'data:text/html;base64,PHNjcmlwdD4=' }, tok2)
+  ok('media bad mime -> 415', r.status === 415, `status=${r.status}`)
+  r = await call('POST', '/api/media', { dataUrl: `data:image/png;base64,${'A'.repeat(12 * 1024 * 1024)}` }, tok2)
+  ok('media oversize -> 413', r.status === 413, `status=${r.status}`)
+  r = await call('POST', '/api/media', { dataUrl: `data:image/png;base64,${pngBase64}` })
+  ok('media upload needs auth -> 401', r.status === 401, `status=${r.status}`)
+  r = await call('GET', '/api/media/../../etc/passwd', undefined, undefined)
+  ok('media path traversal blocked', r.status === 404 || r.status === 400, `status=${r.status}`)
+
+  // 9) reload from a fresh store read (persistence)
   const freshStore = await relaunch(store)
   const r2 = await (async () => {
     const headers = { authorization: `Bearer ${tok2}` }

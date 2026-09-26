@@ -8,6 +8,7 @@ import { useMe } from '../data/useMe'
 import { useAuth } from '../data/auth'
 import { api } from '../api/client'
 import { useI18n } from '../i18n'
+import { uploadImage } from '../lib/upload'
 
 interface RawThread {
   id: number
@@ -117,6 +118,8 @@ export function Messenger() {
   const [activeId, setActiveId] = useState<number | null>(null)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [imagesToSend, setImagesToSend] = useState<Record<number, string | null>>({})
+  const [sendingImage, setSendingImage] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [userQuery, setUserQuery] = useState('')
   const [startOpen, setStartOpen] = useState(false)
   const [pinned, setPinned] = useState<number[]>(() => {
@@ -386,16 +389,14 @@ export function Messenger() {
     }
   }
 
-  const onImageFile = (e: ChangeEvent<HTMLInputElement>) => {
+  const onImageFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     e.target.value = ''
     if (!f) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      const dataUrl = String(reader.result)
-      setImageToSend(dataUrl)
-    }
-    reader.readAsDataURL(f)
+    setSendingImage(true)
+    const res = await uploadImage(f, (msg) => setError(msg))
+    setSendingImage(false)
+    if (res) setImageToSend(res.url)
   }
 
   const acceptCall = () => {
@@ -557,8 +558,8 @@ export function Messenger() {
               <Hourglass size={18} />
               {sealMs && <span className="seal-toggle-tag">{sealMs === 3600000 ? '1' : '24'}</span>}
             </button>
-            <button type="button" className="icon-btn" aria-label={t('messenger.attachImage')} onClick={() => imageRef.current?.click()}>
-              <Image size={20} />
+            <button type="button" className="icon-btn" aria-label={t('messenger.attachImage')} onClick={() => imageRef.current?.click()} disabled={sendingImage}>
+              {sendingImage ? <Hourglass size={20} /> : <Image size={20} />}
             </button>
             <input
               type="text"
@@ -573,6 +574,7 @@ export function Messenger() {
               <Send size={18} />
             </button>
           </footer>
+          {error && <div className="upload-error">{error}</div>}
           {imageToSend && (
             <div className="chat-image-preview">
               <img src={imageToSend} alt={t('messenger.imagePreviewAlt')} />

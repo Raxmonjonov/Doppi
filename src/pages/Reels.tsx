@@ -17,7 +17,7 @@ import type { Reel, User } from '../data/mock'
 import { updateData, useData } from '../data/store'
 import { useMe } from '../data/useMe'
 import { useAuth } from '../data/auth'
-import { fileToDataUrl } from '../lib/upload'
+import { uploadVideo } from '../lib/upload'
 import { formatCount } from '../lib/format'
 import { addReelComment, shareReel, sendReelToUser, toggleReelLike } from '../data/interactions'
 import { useI18n } from '../i18n'
@@ -311,8 +311,9 @@ export function Reels() {
     e.target.value = ''
     if (!f) return
     setError(null)
-    const url = await fileToDataUrl(f, 25, (msg) => setError(msg))
-    if (!url) return
+    const up = await uploadVideo(f, (msg) => setError(msg))
+    if (!up) return
+    const url = up.url
     const r: Reel = {
       id: Date.now(),
       author: me,

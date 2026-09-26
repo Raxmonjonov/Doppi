@@ -7,7 +7,7 @@ import { Lightbox } from './Lightbox'
 import { useMe } from '../data/useMe'
 import type { Post } from '../data/mock'
 import { updateData } from '../data/store'
-import { fileToDataUrl } from '../lib/upload'
+import { uploadImage, uploadVideo } from '../lib/upload'
 
 const SEAL_OPTIONS: { key: 'none' | 'hour1' | 'day1' | 'week1'; ms: number }[] = [
   { key: 'none', ms: 0 },
@@ -58,6 +58,7 @@ export function CreatePost() {
   const [image, setImage] = useState<string | null>(null)
   const [video, setVideo] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState<'image' | 'video' | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [seal, setSeal] = useState<'none' | 'hour1' | 'day1' | 'week1'>('none')
   const imageRef = useRef<HTMLInputElement>(null)
@@ -104,13 +105,15 @@ export function CreatePost() {
 
   const readFile = async (file: File, kind: 'image' | 'video') => {
     setError(null)
-    const url = await fileToDataUrl(file, kind === 'image' ? 10 : 25, (msg) => setError(msg))
-    if (!url) return
+    setUploading(kind)
+    const res = kind === 'image' ? await uploadImage(file, setError) : await uploadVideo(file, setError)
+    setUploading(null)
+    if (!res) return
     if (kind === 'image') {
-      setImage(url)
+      setImage(res.url)
       setVideo(null)
     } else {
-      setVideo(url)
+      setVideo(res.url)
       setImage(null)
     }
   }
@@ -160,6 +163,7 @@ export function CreatePost() {
                 onChange={(e) => setText(e.target.value)}
               />
               {error && <div className="upload-error">{error}</div>}
+              {uploading && <div className="upload-progress">{uploading === 'image' ? t('upload.uploadingImage') : t('upload.uploadingVideo')}</div>}
               {(image || video) && (
                 <div className="media-picker preview">
                   {image && (

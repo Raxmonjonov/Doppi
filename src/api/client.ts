@@ -20,6 +20,14 @@ export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)
 }
 
+/* Server qaytargan nisbiy media yo'llarini to'g'ri hostga ulaydi
+   (VITE_API_URL bo'lsa Netlify functions origin, bo'lmasa shu host). */
+export function apiUrl(path: string): string {
+  const p = String(path ?? '')
+  if (!p.startsWith('/api/')) return p
+  return `${API_BASE}${p}`
+}
+
 export function setToken(token: string | null): void {
   if (token) localStorage.setItem(TOKEN_KEY, token)
   else localStorage.removeItem(TOKEN_KEY)

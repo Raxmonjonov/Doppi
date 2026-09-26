@@ -36,7 +36,9 @@ async function ensureSchema() {
 }
 
 const app = express()
-app.use(express.json({ limit: '100mb' }))
+// Media endi alohida /api/media orqali saqlanadi, shuning uchun data hujjati kichik bo'ladi.
+// 25MB — eski data:URL li ma'lumotlar uchun zaxira.
+app.use(express.json({ limit: '25mb' }))
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex')
@@ -1233,6 +1235,65 @@ app.get('/api/groups/:id/calls', authMiddleware, async (req, res) => {
     res.json({ signals })
   } catch (e) {
     console.error(e)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+/* ---------- Media (binary) ---------- */
+
+const MEDIA_LIMITS = { image: 8 * 1024 * 1024, video: 40 * 1024 * 1024 }
+const MEDIA_MIME = {
+  'image/jpeg': 'image',
+  'image/png': 'image',
+  'image/webp': 'image',
+  'image/gif': 'image',
+  'video/mp4': 'video',
+  'video/webm': 'video',
+}
+const MEDIA_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'video/mp4': 'mp4', 'video/webm': 'webm' }
+
+function isSafeMediaId(id) {
+  const s = String(id ?? '')
+  return s.length > 0 && s.length <= 120 && !s.includes('..') && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(s)
+}
+
+app.get('/api/media/:id', async (req, res) => {
+  const { id } = req.params
+  if (!isSafeMediaId(id)) return res.status(400).json({ error: 'Noto‘g‘ri fayl nomi.' })
+  try {
+    const { rows } = await pool.query('SELECT mime, bytes FROM doppi_media WHERE id = $1', [id])
+    if (rows.length === 0) return res.status(404).json({ error: 'Fayl topilmadi.' })
+    const bytes = Buffer.isBuffer(rows[0].bytes) ? rows[0].bytes : Buffer.from(rows[0].bytes)
+    res.setHeader('Content-Type', rows[0].mime || 'application/octet-stream')
+    res.setHeader('Content-Length', String(bytes.length))
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+    res.end(bytes)
+  } catch (e) {
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+app.post('/api/media', authMiddleware, async (req, res) => {
+  const dataUrl = String(req.body?.dataUrl ?? '').trim()
+  const m = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,([\s\S]+)$/i.exec(dataUrl)
+  if (!m) return res.status(400).json({ error: 'dataUrl formati noto‘g‘ri.' })
+  const mime = m[1].toLowerCase()
+  const kind = MEDIA_MIME[mime]
+  if (!kind) return res.status(415).json({ error: `Bu fayl turi qabul qilinmaydi: ${mime}` })
+  const bytes = Buffer.from(m[2], 'base64')
+  if (!bytes.length) return res.status(400).json({ error: 'Fayl bo‘sh.' })
+  if (bytes.length > MEDIA_LIMITS[kind]) {
+    return res.status(413).json({ error: `Fayl hajmi katta (${kind === 'video' ? 40 : 8} MB dan oshmasligi kerak).` })
+  }
+  const id = `${Date.now().toString(36)}${crypto.randomBytes(6).toString('hex')}.${MEDIA_EXT[mime]}`
+  try {
+    await pool.query(
+      `INSERT INTO doppi_media (id, mime, size, bytes) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (id) DO UPDATE SET mime = EXCLUDED.mime, size = EXCLUDED.size, bytes = EXCLUDED.bytes`,
+      [id, mime, bytes.length, bytes],
+    )
+    res.status(201).json({ id, url: `/api/media/${id}`, mime, kind, size: bytes.length })
+  } catch (e) {
     res.status(500).json({ error: 'Server xatosi.' })
   }
 })

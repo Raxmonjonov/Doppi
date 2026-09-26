@@ -200,3 +200,12 @@ CREATE INDEX IF NOT EXISTS idx_group_members ON group_members(group_id);
 CREATE INDEX IF NOT EXISTS idx_group_messages ON group_messages(group_id);
 CREATE INDEX IF NOT EXISTS idx_group_signals ON group_call_signals(group_id, id);
 CREATE INDEX IF NOT EXISTS idx_thread_signals ON thread_call_signals(thread_id, id);
+CREATE TABLE IF NOT EXISTS doppi_media (
+  id text PRIMARY KEY,
+  mime text NOT NULL,
+  size integer NOT NULL,
+  bytes bytea NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_created ON doppi_media(created_at);

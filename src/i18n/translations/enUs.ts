@@ -347,5 +347,9 @@ export const en: Dict = {
   'interactions.sharedReelFallback': 'Video',
   'upload.fileTooLarge': 'File too large (max {max} MB)',
   'upload.readError': 'Error reading the file',
+  'upload.unsupportedType': 'This file type is not supported',
+  'upload.uploadingImage': 'Uploading image…',
+  'upload.uploadingImageCount': 'Uploading {count} images…',
+  'upload.uploadingVideo': 'Uploading video…',
   'api.backendUnreachable': 'No backend connection. Please set up the API base (VITE_API_URL).',
 }
