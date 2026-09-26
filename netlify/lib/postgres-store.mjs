@@ -37,26 +37,59 @@ export function createPostgresStore(databaseUrl, seedProvider, sqlClient) {
       mime text NOT NULL,
       size integer NOT NULL,
       bytes bytea NOT NULL,
+      scope text NOT NULL DEFAULT 'public',
+      ref_id text NOT NULL DEFAULT '',
+      owner_id text NOT NULL DEFAULT '',
       created_at timestamptz NOT NULL DEFAULT now()
     )`
+    // Eski jadvallar uchun idempotent qo'shimcha ustunlar
+    await sql`ALTER TABLE doppi_media ADD COLUMN IF NOT EXISTS scope text NOT NULL DEFAULT 'public'`
+    await sql`ALTER TABLE doppi_media ADD COLUMN IF NOT EXISTS ref_id text NOT NULL DEFAULT ''`
+    await sql`ALTER TABLE doppi_media ADD COLUMN IF NOT EXISTS owner_id text NOT NULL DEFAULT ''`
   }
 
-  async function putMedia(id, mime, bytes) {
+  /* `meta.scope` ('public' | 'dm' | 'group') fayl kimga ko'rinishini
+     belgilaydi: shaxsiy suhbat/guruh media faqat a'zo sessiyasi bilan
+     o'qiladi. */
+  async function putMedia(id, mime, bytes, meta = {}) {
     await ensureMediaTable()
     const buf = Buffer.from(bytes)
     const hex = '\\x' + buf.toString('hex')
-    await sql`INSERT INTO doppi_media (id, mime, size, bytes)
-      VALUES (${id}, ${mime}, ${buf.length}, ${hex}::bytea)
-      ON CONFLICT (id) DO UPDATE SET mime = EXCLUDED.mime, size = EXCLUDED.size, bytes = EXCLUDED.bytes`
+    const scope = String(meta?.scope ?? 'public')
+    const refId = String(meta?.refId ?? '')
+    const ownerId = String(meta?.ownerId ?? '')
+    await sql`INSERT INTO doppi_media (id, mime, size, bytes, scope, ref_id, owner_id)
+      VALUES (${id}, ${mime}, ${buf.length}, ${hex}::bytea, ${scope}, ${refId}, ${ownerId})
+      ON CONFLICT (id) DO UPDATE SET mime = EXCLUDED.mime, size = EXCLUDED.size,
+        bytes = EXCLUDED.bytes, scope = EXCLUDED.scope, ref_id = EXCLUDED.ref_id,
+        owner_id = EXCLUDED.owner_id`
+  }
+
+  /* Faqat ko'rinish chegarasini yangilaydi (bajtalarni qayta yozmaydi).
+     DM/guruh xabariga biriktirilganda media shaxsiy deb belgilanadi. */
+  async function setMediaMeta(id, meta = {}) {
+    await ensureMediaTable()
+    const scope = String(meta?.scope ?? 'public')
+    const refId = String(meta?.refId ?? '')
+    const ownerId = String(meta?.ownerId ?? '')
+    const rows = await sql`UPDATE doppi_media SET scope = ${scope}, ref_id = ${refId}, owner_id = ${ownerId}
+      WHERE id = ${id} RETURNING id`
+    return (rows ?? []).length > 0
   }
 
   async function getMedia(id) {
     await ensureMediaTable()
-    const rows = await sql`SELECT mime, size, bytes FROM doppi_media WHERE id = ${id}`
+    const rows = await sql`SELECT mime, size, bytes, scope, ref_id, owner_id FROM doppi_media WHERE id = ${id}`
     if (!rows || rows.length === 0) return null
     const row = rows[0]
     const bytes = typeof row.bytes === 'string' ? Buffer.from(row.bytes.replace(/^\\x/, ''), 'hex') : Buffer.from(row.bytes)
-    return { bytes, mime: row.mime || 'application/octet-stream' }
+    return {
+      bytes,
+      mime: row.mime || 'application/octet-stream',
+      scope: String(row.scope ?? 'public'),
+      refId: String(row.ref_id ?? ''),
+      ownerId: String(row.owner_id ?? ''),
+    }
   }
 
   async function listMedia() {
@@ -74,5 +107,5 @@ export function createPostgresStore(databaseUrl, seedProvider, sqlClient) {
     return (rows ?? []).length
   }
 
-  return { getDoc, saveDoc, putMedia, getMedia, listMedia, deleteMedia }
+  return { getDoc, saveDoc, putMedia, setMediaMeta, getMedia, listMedia, deleteMedia }
 }

@@ -145,9 +145,38 @@ npm run dev                                         # http://localhost:5173
 Netlify uchun: `netlify.toml` `dist` publish qiladi, `/api/*` → Function. `DATABASE_URL` berilsa
 Neon, aks holda Blobs ishlatiladi.
 
-Sinov foydalanuvchilari: `demo1/demo1`, `demo2/demo2`. Admin panel: `/admin` →
-`Admin` / `Admin.Do'ppi.Uzbekitan.66` (faqat lokal; `ADMIN_USERNAME`/`ADMIN_PASSWORD` bilan
- almashtirilishi shart).
+### Xavfsizlik: majburiy muhit o'zgaruvchilari
+
+Loyihada **ishlaydigan boshlang'ich parol yo'q** — bunday parollar xavfsizlik
+nuqtasida zaif hisoblanadi va `git`ga tushib qolsa butun hisobni ochib beradi.
+
+| O'zgaruvchi | Qayerda | Talab |
+|---|---|---|
+| `SESSION_SECRET` | Netlify Function + Express | **Majburiy** (production), kamida 16 belgi. Sessiya tokenlari shu kalit bilan HMAC imzolanadi. |
+| `ADMIN_USERNAME` | Netlify Function + Express | Ixtiyoriy. Berilmasa admin panel yopiq. |
+| `ADMIN_PASSWORD` | Netlify Function + Express | Berilsa kamida **12 belgi**. Berilmasa admin panel yopiq. |
+| `DATABASE_URL` | Express (`production`) | **Majburiy** — kod ichida DB paroli yo'q. |
+| `DATABASE_SSL=1` | Express | Neon/hosted Postgres uchun (`rejectUnauthorized: false`). |
+
+Tasodifiy `SESSION_SECRET` yaratish:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Ikki holat eslab qolinadi:
+
+- Eski (xom saqlangan) sessiyalar endi **rad etiladi** — ular `git`da ochiq
+  bo'lgani uchun xavfsiz deb hisoblanmaydi. Foydalanuvchilar qayta kiring.
+  Faqat lokal migratsiya uchun `ALLOW_LEGACY_SESSIONS=1`.
+- Admin paroli 12 belgidan kichik bo'lsa yoki berilmasa, `/api/admin/login`
+  har doim "noto'g'ri" javob beradi — sozlanmaganligini aniqlab bo'lmaydi.
+
+`server/db.json`, `netlify/lib/seed.json` va `seed.local.json` **gitga
+kiritilmaydi** (`.gitignore`). Ularda oldindan LIVE sessiya tokenlari va parol
+hash/saltrlari bor edi — shuning uchun endi hech qanday seed fayl avtomatik
+yuklanmaydi (`ALLOW_SEED=1` + `SEED_FILE` talab qilinadi, production'da
+rad etiladi). Seed eksporti ham parol va sessiyalarni chiqarmaydi.
 
 ## Testlar
 

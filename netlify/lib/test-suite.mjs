@@ -1,6 +1,15 @@
 /* Store-agnostic functional suite for netlify/lib/api-core.mjs.
    Used by api-core.test.mjs (file store) and postgres-store.test.mjs (Postgres store). */
 import { handleRequest } from './api-core.mjs'
+import { RATE_LIMITS, resetRateLimits, tokenRef } from './security.mjs'
+import { LEGACY_LEAKED_ADMIN_PASSWORD } from './test-env.mjs'
+
+/* Parol siyosati: kamida 8 belgi, keng tarqalgan parollar, foydalanuvchi
+   nomi/emaili ichida bo'lmasligi. Test parollari shu qoidaga mos. */
+const PW1 = 'Testpass1!'
+const PW2 = 'Testpass2!'
+const ADMIN_USER = process.env.ADMIN_USERNAME ?? 'secadmin'
+const ADMIN_PASS = process.env.ADMIN_PASSWORD ?? 'Adm1n-Security-Pass!'
 
 export async function runSuite(store, label) {
   let passed = 0
@@ -25,27 +34,48 @@ export async function runSuite(store, label) {
     const query = Object.fromEntries(new URLSearchParams(search ?? ''))
     return handleRequest(method, pathname, query, { json: async () => body ?? {}, headers }, store)
   }
-  const register = (username, password, name) =>
-    call('POST', '/api/auth/register', { username, password, name, email: `${username}@test.dev` })
+  const register = (username, password, name, email) =>
+    call('POST', '/api/auth/register', { username, password, name, email: email ?? `${username}@test.dev` })
 
   console.log(`\n=== ${label} ===`)
 
   // 1) register + login
-  let r = await register('nftest1', 'pass123', 'Net Test')
+  let r = await register('nftest1', PW1, 'Net Test')
   ok('register returns token', !!r.json.token, `status=${r.status}`)
   if (!r.json.token) show('register1', r)
   const uid1 = r.json.user?.id
+  ok('register does not leak email of others (self email only)', r.json.user?.email === 'nftest1@test.dev', `email=${r.json.user?.email}`)
 
-  r = await call('POST', '/api/auth/login', { username: 'nftest1', password: 'pass123' })
+  r = await call('POST', '/api/auth/login', { username: 'nftest1', password: PW1 })
   ok('login returns token', !!r.json.token, `status=${r.status}`)
   if (!r.json.token) show('login', r)
   const tok2 = r.json.token
 
-  r = await register('nftest2', 'pass123', 'Net Two')
+  r = await register('nftest2', PW2, 'Net Two')
   ok('register user2', !!r.json.token, `status=${r.status}`)
   if (!r.json.token) show('register2', r)
   const tok3 = r.json.token
   const uid2 = r.json.user?.id
+
+  // 1b) xavfsizlik: parol siyosati + identifikatorni oshkor qilmaslik
+  r = await register('weakpw1', 'abc', 'Weak')
+  ok('weak password rejected (min length)', r.status === 400 && /Parol kamida/.test(r.json.error ?? ''), `status=${r.status}`)
+  r = await register('weakpw2', 'password123', 'Weak2')
+  ok('common password rejected', r.status === 400, `status=${r.status}`)
+  r = await register('nftest1', PW1, 'Dup')
+  ok('duplicate username -> 409', r.status === 409, `status=${r.status}`)
+  r = await register('otheruser', PW2, 'Other', 'nftest1@test.dev')
+  ok('duplicate email -> same 409 message (no enumeration)', r.status === 409 && /username yoki email/.test(r.json.error ?? ''), `err=${r.json.error}`)
+
+  r = await call('POST', '/api/auth/login', { username: 'no_such_user_zzz', password: PW1 })
+  const missing = r
+  r = await call('POST', '/api/auth/login', { username: 'nftest1', password: 'Wr0ng-Pass!' })
+  ok(
+    'login: missing user and wrong password are indistinguishable',
+    missing.status === 401 && r.status === 401 && missing.json.error === r.json.error,
+    `missing=${missing.status} wrong=${r.status}`,
+  )
+  resetRateLimits()
 
   // 2) data uchun qiymatlar
   const seal = Date.now() + 7200000
@@ -57,15 +87,26 @@ export async function runSuite(store, label) {
   r = await call('POST', '/api/media', { dataUrl: `data:image/png;base64,${pngBase64}` }, tok2)
   const mediaId = r.json.id
   const mediaUrl = r.json.url
-  ok('media upload -> 201 + url', r.status === 201 && !!mediaId && mediaUrl === `/api/media/${mediaId}`, `status=${r.status}`)
+  ok('media upload -> 201 + url', r.status === 201 && !!mediaId && String(mediaUrl).startsWith(`/api/media/${mediaId}?`), `status=${r.status}`)
+  ok('media url is signed (no bare id guessable)', /[?&]s=[0-9a-f]{16,}/.test(String(mediaUrl)), `url=${String(mediaUrl).slice(0, 80)}`)
   ok('media returns mime + size', r.json.mime === 'image/png' && r.json.size > 0, `mime=${r.json.mime} size=${r.json.size}`)
 
   if (mediaUrl) {
     const mr = await call('GET', mediaUrl, undefined, undefined)
     const bytes = mr.binary ? Buffer.from(mr.binary.body) : Buffer.alloc(0)
-    ok('media GET returns bytes', mr.status === 200 && bytes.length > 0, `status=${mr.status} len=${bytes.length}`)
+    ok('media GET returns bytes (signed url, no auth needed)', mr.status === 200 && bytes.length > 0, `status=${mr.status} len=${bytes.length}`)
     ok('media GET content-type', mr.binary?.type === 'image/png', `type=${mr.binary?.type}`)
     ok('media bytes intact', bytes.equals(Buffer.from(pngBase64, 'base64')))
+
+    // Ochiq media imzosiz (taxmin qilingan ID) ochilmasligi kerak
+    const bare = await call('GET', `/api/media/${mediaId}`, undefined, undefined)
+    ok('media GET without signature is denied', bare.status === 401, `status=${bare.status}`)
+    // Noto'g'ri imzo ham rad etiladi
+    const forged = await call('GET', `/api/media/${mediaId}?s=${'0'.repeat(64)}`, undefined, undefined)
+    ok('media GET with forged signature is denied', forged.status === 401, `status=${forged.status}`)
+    // Autentifikatsiyalangan foydalanuvchi imzo bilan emas, token bilan ochadi
+    const viaAuth = await call('GET', `/api/media/${mediaId}`, undefined, tok2)
+    ok('media GET with bearer token works', viaAuth.status === 200, `status=${viaAuth.status}`)
   }
 
   // 3) PUT data with sealed post (with media url) + sealed album
@@ -156,6 +197,42 @@ export async function runSuite(store, label) {
   r = await call('POST', `/api/threads/${tid}/messages`, { text: '' }, tok2)
   ok('empty message -> 400', r.status === 400, `status=${r.status}`)
 
+  // 6b-bis) SHAXSIY media: DM rasmi faqat suhbat a'zolariga ochiladi
+  // (boshqa foydalanuvchi ID'ni bilib ham, imzosiz/tokenli olishi mumkin emas)
+  r = await call('POST', '/api/media', { dataUrl: `data:image/png;base64,${pngBase64}`, scope: 'dm', refId: tid }, tok2)
+  const dmMediaId = r.json.id
+  const dmMediaUrl = r.json.url
+  ok('dm media upload', r.status === 201 && !!dmMediaId, `status=${r.status}`)
+  if (dmMediaId) {
+    // Xabar yuborilgach scope 'dm' ga bog'lanadi (mijoz scope'ni o'zi aytsa ham)
+    await call('POST', `/api/threads/${tid}/messages`, { image: dmMediaUrl, text: '' }, tok2)
+    const asMember = await call('GET', `/api/media/${dmMediaId}`, undefined, tok2)
+    ok('dm media: member can read', asMember.status === 200, `status=${asMember.status}`)
+    const asPeer = await call('GET', `/api/media/${dmMediaId}`, undefined, tok3)
+    ok('dm media: other party (also a member) can read', asPeer.status === 200, `status=${asPeer.status}`)
+    const outsider = await register('outsider1', PW2, 'Outsider')
+    ok('outsider registered', !!outsider.json.token, `status=${outsider.status}`)
+    const asOutsider = outsider.json.token
+      ? await call('GET', `/api/media/${dmMediaId}`, undefined, outsider.json.token)
+      : { status: 0 }
+    ok('dm media: NON-member cannot read', asOutsider.status === 401, `status=${asOutsider.status}`)
+    const asAnon = await call('GET', `/api/media/${dmMediaId}`, undefined, undefined)
+    ok('dm media: anonymous cannot read', asAnon.status === 401, `status=${asAnon.status}`)
+    // IMZO bo'lsa ham shaxsiy faylni ochib bo'lmaydi: imzo faqat ochiq
+    // fayllar uchun. Aks holda URL'ni ko'chirish himoya buziladi.
+    if (dmMediaUrl) {
+      const signedButPrivate = await call('GET', dmMediaUrl, undefined, undefined)
+      ok('dm media: valid signature does NOT bypass private scope', signedButPrivate.status === 401, `status=${signedButPrivate.status}`)
+      const signedAsOutsider = await call('GET', dmMediaUrl, undefined, outsider.json.token)
+      ok('dm media: signature + non-member is denied', signedAsOutsider.status === 401, `status=${signedAsOutsider.status}`)
+      const signedAsMember = await call('GET', dmMediaUrl, undefined, tok2)
+      ok('dm media: member with token can read', signedAsMember.status === 200, `status=${signedAsMember.status}`)
+    }
+    // Ochiq media o'z imzosi bilan ishlayveradi
+    const publicItem = await call('GET', mediaUrl, undefined, undefined)
+    ok('signed public url still valid after dm upload', publicItem.status === 200, `status=${publicItem.status}`)
+  }
+
   // 6c) bildirishnomalar: xabar, guruh xabari, qo'ng'iroq
   const notifBefore = (await call('GET', '/api/notifications', undefined, tok3)).json.unread
   r = await call('POST', `/api/threads/${tid}/messages`, { text: 'salom' }, tok2)
@@ -236,12 +313,18 @@ export async function runSuite(store, label) {
   ok('push unsubscribe needs auth', r.status === 401, `status=${r.status}`)
 
   // 7) admin login + dashboard
-  r = await call('POST', '/api/admin/login', { username: 'Admin', password: "Admin.Do'ppi.Uzbekitan.66" })
-  ok('admin login', !!r.json.token)
+  r = await call('POST', '/api/admin/login', { username: ADMIN_USER, password: ADMIN_PASS })
+  ok('admin login', !!r.json.token, `status=${r.status}`)
   if (r.json.token) {
     r = await call('GET', '/api/dashboard', undefined, r.json.token)
     ok('admin dashboard', r.status === 200 && !!r.json.totals, `status=${r.status}`)
   }
+
+  // 7b) default/sozlanmagan admin paroli yo'q: noto'g'ri parol ham, sozlangan
+  // parol ham bir xil javob beradi (env'siz holat ham "noto'g'ri" qaytaradi)
+  const badAdmin = await call('POST', '/api/admin/login', { username: 'Admin', password: LEGACY_LEAKED_ADMIN_PASSWORD })
+  ok('legacy default admin password is rejected', badAdmin.status === 401 && !badAdmin.json.token, `status=${badAdmin.status}`)
+  resetRateLimits()
 
   // 8) media cheklovlari + GC
   r = await call('POST', '/api/media', { dataUrl: 'data:text/html;base64,PHNjcmlwdD4=' }, tok2)
@@ -259,7 +342,7 @@ export async function runSuite(store, label) {
   r = await call('POST', '/api/media/gc', undefined, tok2)
   ok('media gc needs admin -> 403', r.status === 403, `status=${r.status}`)
 
-  const adminTok = (await call('POST', '/api/admin/login', { username: 'Admin', password: "Admin.Do'ppi.Uzbekitan.66" })).json.token
+  const adminTok = (await call('POST', '/api/admin/login', { username: ADMIN_USER, password: ADMIN_PASS })).json.token
   r = await call('POST', '/api/media/gc', undefined, adminTok)
   ok('media gc removes orphan only', r.status === 200 && r.json.removed >= 1 && r.json.kept >= 1, `removed=${r.json.removed} kept=${r.json.kept}`)
 
@@ -305,21 +388,44 @@ export async function runSuite(store, label) {
 
   // 9) rate limit: parol taxmin qilish bloklanadi
   let lockStatus = 0
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < RATE_LIMITS.loginAccount.max + 2; i++) {
     const bad = await call('POST', '/api/auth/login', { username: 'ratelimit1', password: 'wrong-pass' })
     lockStatus = bad.status
   }
   ok('login brute force -> 429', lockStatus === 429, `status=${lockStatus}`)
-  const stillLocked = await call('POST', '/api/auth/login', { username: 'ratelimit1', password: 'pass123' })
+  const stillLocked = await call('POST', '/api/auth/login', { username: 'ratelimit1', password: PW1 })
   ok('locked even with correct password', stillLocked.status === 429, `status=${stillLocked.status}`)
-  const other = await call('POST', '/api/auth/login', { username: 'nftest1', password: 'pass123' })
+  const other = await call('POST', '/api/auth/login', { username: 'nftest1', password: PW1 })
   ok('lockout is per username', other.status === 200 && !!other.json.token, `status=${other.status}`)
+
+  // 9a) IP o'zgarsa ham hisob limiti ishlaydi (X-Forwarded-For soxtalashidan qat'iy nazar)
+  resetRateLimits()
+  const ipLimits = []
+  for (let i = 0; i < RATE_LIMITS.loginAccount.max + 2; i++) {
+    const rr = await handleRequest(
+      'POST',
+      '/api/auth/login',
+      {},
+      {
+        json: async () => ({ username: 'targetacct1', password: 'wrong-pass' }),
+        headers: { authorization: '', 'x-forwarded-for': `10.0.0.${i}` },
+      },
+      store,
+    )
+    ipLimits.push(rr.status)
+  }
+  ok(
+    'account lockout holds when IP rotates (account-keyed limit)',
+    ipLimits[ipLimits.length - 1] === 429,
+    `last=${ipLimits[ipLimits.length - 1]}`,
+  )
+  resetRateLimits()
 
   let regStatus = 0
   for (let i = 0; i < 11; i++) {
     const rr = await call('POST', '/api/auth/register', {
       username: `spammer${i}`,
-      password: 'pass123',
+      password: 'Spam-pass1!',
       name: `Spam ${i}`,
       email: `spam${i}@test.dev`,
     })
@@ -337,23 +443,23 @@ export async function runSuite(store, label) {
   const againForgot = await call('POST', '/api/auth/forgot', { username: 'nftest1' })
   ok('repeat forgot is throttled', againForgot.status === 200 && againForgot.json.throttled === true, `throttled=${againForgot.json.throttled}`)
   ok('throttled forgot issues no new code', !againForgot.json.debugCode, `code=${againForgot.json.debugCode}`)
-  const badCode = await call('POST', '/api/auth/reset', { username: 'nftest1', code: '000000', password: 'newpass1' })
+  const badCode = await call('POST', '/api/auth/reset', { username: 'nftest1', code: '000000', password: 'Newpass1!' })
   ok('reset with wrong code -> 400', badCode.status === 400, `status=${badCode.status}`)
   // throttled so'rovdan keyin birinchi kod hamon ishlaydi -> kod almashmagan
-  const goodCode = await call('POST', '/api/auth/reset', { username: 'nftest1', code: forgot.json.debugCode, password: 'newpass1' })
+  const goodCode = await call('POST', '/api/auth/reset', { username: 'nftest1', code: forgot.json.debugCode, password: 'Newpass1!' })
   ok('original code survives a throttled repeat request', goodCode.status === 200 && goodCode.json.ok === true, `status=${goodCode.status}`)
-  const oldPw = await call('POST', '/api/auth/login', { username: 'nftest1', password: 'pass123' })
+  const oldPw = await call('POST', '/api/auth/login', { username: 'nftest1', password: 'Testpass1!' })
   ok('old password rejected', oldPw.status === 401, `status=${oldPw.status}`)
-  const newPw = await call('POST', '/api/auth/login', { username: 'nftest1', password: 'newpass1' })
+  const newPw = await call('POST', '/api/auth/login', { username: 'nftest1', password: 'Newpass1!' })
   ok('new password works', newPw.status === 200 && !!newPw.json.token, `status=${newPw.status}`)
   const killedSession = await call('GET', '/api/threads', undefined, tok2)
   ok('reset revoked old sessions', killedSession.status === 401, `status=${killedSession.status}`)
-  const reusedCode = await call('POST', '/api/auth/reset', { username: 'nftest1', code: forgot.json.debugCode, password: 'newpass2' })
+  const reusedCode = await call('POST', '/api/auth/reset', { username: 'nftest1', code: forgot.json.debugCode, password: 'Newpass2!' })
   ok('reset code cannot be reused', reusedCode.status === 400, `status=${reusedCode.status}`)
-  // ntest1 endi 'newpass1' bilan; keyingi testlar uchun tiklaymiz
+  // ntest1 endi 'Newpass1!' bilan; keyingi testlar uchun tiklaymiz
   const refix = await call('POST', '/api/auth/forgot', { username: 'nftest1' })
-  await call('POST', '/api/auth/reset', { username: 'nftest1', code: refix.json.debugCode, password: 'pass123' })
-  const restored = await call('POST', '/api/auth/login', { username: 'nftest1', password: 'pass123' })
+  await call('POST', '/api/auth/reset', { username: 'nftest1', code: refix.json.debugCode, password: 'Testpass1!' })
+  const restored = await call('POST', '/api/auth/login', { username: 'nftest1', password: 'Testpass1!' })
   ok('password restored for later tests', restored.status === 200, `status=${restored.status}`)
   ok('revoked session still dead after relogin', (await call('GET', '/api/threads', undefined, tok2)).status === 401)
   // parol tiklash tok2 ni bekor qildi — qolgan testlar uchun yangi sessiya
@@ -364,7 +470,7 @@ export async function runSuite(store, label) {
   ok('sessions list ok', sessList.status === 200 && Array.isArray(sessList.json.sessions) && sessList.json.sessions.length >= 1, `status=${sessList.status}`)
   ok('current session is marked', sessList.json.sessions?.some((s) => s.current === true))
   ok('sessions carry expiry', typeof sessList.json.sessions?.[0]?.expiresAt === 'number')
-  const tok3b = (await call('POST', '/api/auth/login', { username: 'nftest2', password: 'pass123' })).json.token
+  const tok3b = (await call('POST', '/api/auth/login', { username: 'nftest2', password: PW2 })).json.token
   const all1 = await call('GET', '/api/auth/sessions', undefined, tok3b)
   ok('user2 has 2 sessions', all1.json.sessions?.filter((s) => s.current).length === 1 && all1.json.sessions.length === 2, `n=${all1.json.sessions?.length}`)
   const logoutAll = await call('POST', '/api/auth/logout-all', undefined, tok3)
@@ -372,6 +478,16 @@ export async function runSuite(store, label) {
   ok('logout-all killed session 1', (await call('GET', '/api/auth/sessions', undefined, tok3)).status === 401)
   ok('logout-all killed session 2', (await call('GET', '/api/auth/sessions', undefined, tok3b)).status === 401)
   ok('logout-all did not touch other user', (await call('GET', '/api/auth/sessions', undefined, tok1b)).status === 200)
+
+  // 9d) sessiya tokeni bazada XOM holda saqlanmasligi kerak (baza sizsa
+  // tokenni ishlab bo'lmaydi). HMAC imzosi saqlanadi.
+  const docNow = await store.getDoc()
+  const stored = (docNow.sessions ?? []).map((s) => String(s.token ?? ''))
+  ok('no plaintext session token in store', !stored.includes(String(tok1b)), `tokens=${stored.length}`)
+  ok('session token stored as HMAC ref', stored.includes(tokenRef(tok1b)), 'ref present')
+  // ...va shu imzo bilan eski/xom token bilan kirib bo'lmaydi
+  const forgedSession = docNow.sessions.find((s) => String(s.token) === String(tok1b))
+  ok('raw token cannot impersonate a session', !forgedSession, forgedSession ? 'raw token found' : 'no raw token')
 
   // 10) reload from a fresh store read (persistence)
   const freshStore = await relaunch(store)

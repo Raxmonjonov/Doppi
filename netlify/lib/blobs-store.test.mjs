@@ -2,6 +2,7 @@
    A fake blob store with the same semantics as @netlify/blobs v11 is used so the
    Blobs path runs against the same functional suite as the file and Postgres
    stores (real Blobs network calls are covered by a live deploy check). */
+import './test-env.mjs'
 import { emptyDoc } from './api-core.mjs'
 import { createBlobsStore } from './blobs-store.mjs'
 import { runSuite } from './test-suite.mjs'

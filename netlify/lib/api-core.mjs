@@ -1,6 +1,27 @@
 import crypto from 'node:crypto'
 import webpushDefault from 'web-push'
 import { sendMail, resetCodeMessage, appUrl } from './delivery.mjs'
+import {
+  hashPassword,
+  verifyPassword,
+  passwordProblem,
+  MIN_PASSWORD_LENGTH,
+  constantTimeEqual,
+  makeToken,
+  tokenRef,
+  sessionMatches,
+  mediaSignatureValid,
+  signedMediaPath,
+  mediaPathOf,
+  RATE_LIMITS,
+  rateLimit,
+  rateLimitAny,
+  resetRateLimits,
+  normalizeIdentity,
+  sanitizeAvatar,
+} from './security.mjs'
+
+export { RATE_LIMITS, rateLimit, resetRateLimits, passwordProblem, MIN_PASSWORD_LENGTH }
 
 // web-push CommonJS moduli: default import to'g'ri kelishi uchun normallashtiramiz
 const webpush = webpushDefault?.default ?? webpushDefault
@@ -37,33 +58,29 @@ export function emptyDoc() {
   }
 }
 
-function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString('hex')
-  const hash = crypto.scryptSync(password, salt, 64).toString('hex')
-  return { salt, hash }
-}
+/* Parol va token yordamchilari endi ./security.mjs da (ikki backend o'rtasida
+   bir xil xatti-harakat). Bu yerda qoldiq eski ta'riflar olib tashlandi. */
 
-function verifyPassword(password, salt, hash) {
-  const test = crypto.scryptSync(password, salt, 64).toString('hex')
-  return crypto.timingSafeEqual(Buffer.from(test, 'hex'), Buffer.from(hash, 'hex'))
-}
-
-function makeToken() {
-  return crypto.randomBytes(32).toString('hex')
-}
-
+/* Ommaviy foydalanuvchi ko'rinishi — email HECH QACHON boshqalarga
+   ko'rsatilmaydi (eski versiya /api/users va DM javobida emailni sizib chiqarardi). */
 function publicUser(u) {
   if (!u) return null
   return {
     id: u.id,
     name: u.name,
     username: u.username,
-    email: u.email,
     avatar: u.avatar ?? '',
     about: u.about ?? '',
     createdAt: u.createdAt,
     online: true,
   }
+}
+
+/* Faqat o'zini autentifikatsiya qilgan foydalanuvchiga — uning emaili
+   o'ziga tegishli ma'lumot. */
+function selfUser(u) {
+  if (!u) return null
+  return { ...publicUser(u), email: u.email }
 }
 
 function userForContent(u) {
@@ -75,6 +92,25 @@ function userForContent(u) {
     avatar: u.avatar ?? '',
     online: true,
     about: u.about ?? '',
+  }
+}
+
+/* Avatar — `security.mjs` dagi `sanitizeAvatar` bitta umumiy qoida. */
+export { sanitizeAvatar }
+
+/* DM/guruh xabariga biriktirilgan media shaxsiy hisoblanadi: mijoz
+   yuklashda `scope: 'public'` deb yuborsa ham, server uni shu suhbat/guruhga
+   bog'lab qo'yadi. Shunda o'z yuklagan faylini boshqalarga ochib berolmaydi. */
+async function scopePrivateMedia(store, values, scope, refId, ownerId) {
+  if (typeof store.setMediaMeta !== 'function') return
+  for (const v of values) {
+    const id = mediaPathOf(v)
+    if (!id || !isSafeMediaId(id)) continue
+    try {
+      await store.setMediaMeta(id, { scope, refId, ownerId })
+    } catch (e) {
+      console.error(`[media] scope yangilanmadi (${id}):`, e?.message ?? e)
+    }
   }
 }
 
@@ -162,13 +198,12 @@ export function isSafeMediaId(id) {
 }
 
 /* Hujjatda qolib ketgan barcha media havolalari: kim vaqtincha o'chirilsa ham
-   "ishlatilgan" hisoblanadi. */
+   "ishlatilgan" hisoblanadi. Imzoli havolalarda `?s=...` qismi bo'ladi. */
 export function collectMediaRefs(doc) {
   const refs = new Set()
   const take = (v) => {
-    if (typeof v !== 'string') return
-    const m = /\/api\/media\/([A-Za-z0-9][\w.-]*)$/.exec(v)
-    if (m) refs.add(m[1])
+    const id = mediaPathOf(v)
+    if (id && isSafeMediaId(id)) refs.add(id)
   }
   for (const u of doc.users ?? []) take(u.avatar)
   for (const p of doc.posts ?? []) {
@@ -238,7 +273,8 @@ export async function migrateDataUrls(doc, store, limit = 50) {
     try {
       const id = mediaIdFor(`${Date.now().toString(36)}${crypto.randomBytes(6).toString('hex')}`, parsed.mime)
       await store.putMedia(id, parsed.mime, parsed.bytes)
-      byValue.set(dataUrl, `/api/media/${id}`)
+      // Imzoli URL: migratsiyadan keyin fayl ham imzo bilan ochiladi
+      byValue.set(dataUrl, signedMediaPath(id))
       bytes += parsed.bytes.length
       migrated++
     } catch {
@@ -297,50 +333,66 @@ function rewriteDataUrls(node, byValue, depth = 0) {
 }
 
 /* ---------- Rate limit ----------
-   Parolni taxmin qilish (brute force), ro'yxatdan o'tish spam va media
-   yuklashni cheklash. Holat jarayon xotirasida saqlanadi: bir Node/lambda
-   instance'iga tegishli — serverless'da bir necha soatga yoyilishi mumkin. */
-export const RATE_LIMITS = {
-  login: { max: 10, windowMs: 15 * 60 * 1000 },
-  register: { max: 10, windowMs: 60 * 60 * 1000 },
-  forgot: { max: 5, windowMs: 15 * 60 * 1000 },
-  reset: { max: 10, windowMs: 15 * 60 * 1000 },
-  adminLogin: { max: 10, windowMs: 15 * 60 * 1000 },
-  media: { max: 120, windowMs: 60 * 60 * 1000 },
-}
+   Barcha limitlar va hisob (credential stuffing) himoyasi ./security.mjs da.
+   Holat jarayon xotirasida saqlanadi: bir Node/lambda instance'iga tegishli —
+   serverless'da bir necha soatga yoyilishi mumkin. Shu sababli har bir
+   himoyaning IP'dAN MUSTAQIL qismi ham bor (masalan `loginAccount`), u
+   soxta X-Forwarded-For yoki IP aylantirish bilan chetlab o'tib bo'lmaydi. */
 
-const rateBuckets = new Map()
-
-function sweepRateBuckets(now) {
-  if (rateBuckets.size < 500) return
-  for (const [k, b] of rateBuckets) if (now > b.resetAt) rateBuckets.delete(k)
-}
-
-/* Qaytaradi: null (ruxsat) yoki qolgan soniyalar (429). */
-export function rateLimit(key, limit) {
-  const now = Date.now()
-  sweepRateBuckets(now)
-  const bucket = rateBuckets.get(key)
-  if (!bucket || now > bucket.resetAt) {
-    rateBuckets.set(key, { count: 1, resetAt: now + limit.windowMs })
-    return null
-  }
-  bucket.count++
-  if (bucket.count > limit.max) return Math.max(1, Math.ceil((bucket.resetAt - now) / 1000))
-  return null
-}
-
+/* Mijoz IP si. Netlify/proxy `X-Forwarded-For` ni o'zi qo'yadi, shuning uchun
+   odatda o'sha ishonchli. `TRUST_PROXY=0` bilan butunlay o'chiriladi. */
 export function clientIp(req) {
+  if (String(process.env.TRUST_PROXY ?? '1') === '0') return 'unknown'
   const h = req.headers ?? {}
   const fwd = h['x-forwarded-for'] ?? h['X-Forwarded-For']
-  if (typeof fwd === 'string' && fwd) return fwd.split(',')[0].trim()
+  if (typeof fwd === 'string' && fwd) {
+    const first = fwd.split(',')[0].trim()
+    // har qanday qiymatni qabul qilmaslik: faqat IP ko'rinishidagi qiymat
+    if (/^[0-9a-fA-F:.]{3,45}$/.test(first)) return first
+  }
   const real = h['x-real-ip'] ?? h['X-Real-IP']
-  if (typeof real === 'string' && real) return real.trim()
+  if (typeof real === 'string' && /^[0-9a-fA-F:.]{3,45}$/.test(real.trim())) return real.trim()
   return 'local'
 }
 
 function tooMany(send, retryAfter) {
   return send(429, { error: 'Juda ko‘p urinish. Bir oz kutib, qayta yuboring.', retryAfter })
+}
+
+/* ---------- Media ko'rish huquqi ----------
+
+   Shaxsiy media (DM, guruh) yuklanganda `scope` bilan belgilanadi. Keyin
+   faqat shu suhbat/guruhning a'zosi sessiyasi bilan o'qiladi. Ochiq media
+   imzo bilan ochiladi; imzo yo'q bo'lsa (eski havolalar) — autentifikatsiya
+   talab qilinadi. Media GET da doc yozilmaydi (sliding TTL yangilanmaydi) —
+   aks holda har bir rasm uchun bazaga yozish kerak bo'lardi. */
+async function mediaViewerAllowed(store, scope, refId, ownerId, req) {
+  const bearer = String(req?.headers?.authorization ?? req?.headers?.get?.('authorization') ?? '')
+    .replace(/^Bearer\s+/i, '')
+    .trim()
+  if (!bearer) return false
+  let doc
+  try {
+    doc = await store.getDoc()
+  } catch {
+    return false
+  }
+  const s = doc?.sessions?.find((x) => sessionMatches(x, bearer))
+  if (!s) return false
+  const now = Date.now()
+  if (s.expiresAt && s.expiresAt <= now) return false
+  const me = userById(doc, s.userId)
+  if (!me) return false
+  if (scope === 'dm') {
+    const t = doc.threads.find((x) => String(x.id) === String(refId))
+    return !!t && (t.memberA === me.id || t.memberB === me.id)
+  }
+  if (scope === 'group') {
+    const g = doc.groups.find((x) => String(x.id) === String(refId))
+    return !!g && (g.memberIds ?? []).includes(me.id)
+  }
+  // 'public' — eski imzosiz havolalar: autentifikatsiya yetarli
+  return true
 }
 
 export const RESET_CODE_TTL = 10 * 60 * 1000
@@ -647,6 +699,21 @@ export async function handleRequest(method, pathname, query, req, store) {
     if (!isSafeMediaId(second)) return { status: 400, json: { error: 'Noto‘g‘ri fayl nomi.' } }
     const item = await store.getMedia(String(second))
     if (!item) return { status: 404, json: { error: 'Fayl topilmadi.' } }
+
+    /* Shaxsiy media (DM / guruh) faqat a'zolariga ochiq. Ochiq media esa
+       imzo bilan ochiladi — tasodifiy id'ni "sinab ko'rish" mumkin emas.
+       Eski imzosiz havolalar ham faqat autentifikatsiya bilan ochiq. */
+    const scope = String(item.scope ?? 'public')
+    if (scope !== 'public') {
+      const allowed = await mediaViewerAllowed(store, scope, String(item.refId ?? ''), String(item.ownerId ?? ''), req)
+      if (!allowed) return { status: 401, json: { error: 'Ruxsat yo‘q. Avval tizimga kiring.' } }
+    } else {
+      const sig = query.s ?? query.signature ?? ''
+      if (!mediaSignatureValid(second, sig)) {
+        const allowed = await mediaViewerAllowed(store, scope, String(item.refId ?? ''), String(item.ownerId ?? ''), req)
+        if (!allowed) return { status: 401, json: { error: 'Ruxsat yo‘q. Avval tizimga kiring.' } }
+      }
+    }
     return { status: 200, binary: { body: item.bytes, type: item.mime } }
   }
 
@@ -656,7 +723,7 @@ export async function handleRequest(method, pathname, query, req, store) {
   const bearer = String(req.headers?.authorization ?? req.headers?.get?.('authorization') ?? '').replace(/^Bearer\s+/i, '').trim()
   const auth = (d, token) => {
     if (!token) return null
-    const s = d.sessions.find((x) => x.token === token)
+    const s = d.sessions.find((x) => sessionMatches(x, token))
     if (!s) return null
     const now = Date.now()
     // eskirgan sessiya (eski hujjatlarda expiresAt yo'q — ular ham yangilanadi)
@@ -685,55 +752,70 @@ export async function handleRequest(method, pathname, query, req, store) {
 
     if (!nm || !uname || !em || !pw) return send(400, { error: "Barcha maydonlarni to'ldiring." })
     if (uname.length < 3) return send(400, { error: "Foydalanuvchi nomi kamida 3 belgidan iborat bo'lishi kerak." })
-    if (pw.length < 4) return send(400, { error: 'Parol kamida 4 belgidan iborat bo\'lishi kerak.' })
+    if (uname.length > 32) return send(400, { error: 'Foydalanuvchi nomi juda uzun (32 belgidan oshmasligi kerak).' })
+    if (em.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(em)) {
+      return send(400, { error: 'Email manzili noto‘g‘ri.' })
+    }
+    const pwProblem = passwordProblem(pw, { username: uname, email: em })
+    if (pwProblem) return send(400, { error: pwProblem })
 
+    // 409 bitta xil xabarni qaytaradi: aks holda hujjatchi ro'yxatdan o'tish
+    // orqali qaysi email bandligini aniqlab, foydalanuvchilarni o'tkazadi
     const taken = doc.users.find((u) => u.username.toLowerCase() === uname.toLowerCase() || u.email.toLowerCase() === em)
     if (taken) {
-      return send(409, {
-        error: taken.username.toLowerCase() === uname.toLowerCase() ? 'Bu foydalanuvchi nomi band.' : "Bu email allaqachon ro'yxatdan o'tgan.",
-      })
+      return send(409, { error: "Bu username yoki email allaqachon ro'yxatdan o'tgan." })
     }
 
-    const { salt, hash } = hashPassword(pw)
+    const { salt, hash } = await hashPassword(pw)
     const id = Date.now()
     const createdAt = new Date().toISOString()
     doc.users.push({ id, name: nm, username: uname, email: em, salt, hash, avatar: av, about: ab, createdAt, lastLoginAt: createdAt, lastLogoutAt: 0 })
     const token = makeToken()
     const now = Date.now()
     doc.sessions = doc.sessions.filter((x) => !x.expiresAt || x.expiresAt > now)
-    doc.sessions.push({ token, userId: id, ua: uaLabel(req), createdAt: new Date(now).toISOString(), lastSeen: now, expiresAt: now + SESSION_TTL })
+    // Bazada xom token emas, uning imzosi saqlanadi
+    doc.sessions.push({ token: tokenRef(token), userId: id, ua: uaLabel(req), createdAt: new Date(now).toISOString(), lastSeen: now, expiresAt: now + SESSION_TTL })
     await store.saveDoc(doc)
-    return send(200, { token, user: publicUser({ id, name: nm, username: uname, email: em, avatar: av, about: ab, createdAt }) })
+    return send(200, { token, user: selfUser({ id, name: nm, username: uname, email: em, avatar: av, about: ab, createdAt }) })
   }
 
   if (method === 'POST' && first === 'auth' && second === 'login') {
     const body = await readBody(req)
-    const idf = String(body.username ?? '').trim().toLowerCase()
-    const wait = rateLimit(`login:${clientIp(req)}:${idf}`, RATE_LIMITS.login)
-    if (wait) return tooMany(send, wait)
+    const idf = normalizeIdentity(body.username)
+    // Ikki limit: IP bo'yicha va HISOB bo'yicha. Hisob limiti IP o'zgarishiga
+    // bog'liq emas — credential stuffing va parol to'plab urinish to'xtaydi.
+    const blocked = rateLimitAny([
+      [`login:${clientIp(req)}:${idf}`, RATE_LIMITS.login],
+      [`loginAcct:${idf}`, RATE_LIMITS.loginAccount],
+    ])
+    if (blocked) return tooMany(send, blocked.wait)
     const pw = String(body.password ?? '')
-    const user = doc.users.find((u) => u.username.toLowerCase() === idf || u.email.toLowerCase() === idf)
-    if (!user) return send(404, { error: 'Bunday foydalanuvchi topilmadi.' })
-    if (!verifyPassword(pw, user.salt, user.hash)) return send(401, { error: "Parol noto'g'ri." })
+    const user = doc.users.find((u) => u.username.toLowerCase() === idf || String(u.email ?? '').toLowerCase() === idf)
+    const okPw = user ? await verifyPassword(pw, user.salt, user.hash) : false
+    // Barcha holatlar uchun BIR XIL javob: foydalanuvchi borligi oshkor qilinmaydi
+    if (!user || !okPw) return send(401, { error: "Login yoki parol noto'g'ri." })
     const token = makeToken()
     user.lastLoginAt = new Date().toISOString()
     const now = Date.now()
     doc.sessions = doc.sessions.filter((x) => !x.expiresAt || x.expiresAt > now)
-    doc.sessions.push({ token, userId: user.id, ua: uaLabel(req), createdAt: new Date(now).toISOString(), lastSeen: now, expiresAt: now + SESSION_TTL })
+    doc.sessions.push({ token: tokenRef(token), userId: user.id, ua: uaLabel(req), createdAt: new Date(now).toISOString(), lastSeen: now, expiresAt: now + SESSION_TTL })
     await store.saveDoc(doc)
-    return send(200, { token, user: publicUser(user) })
+    return send(200, { token, user: selfUser(user) })
   }
 
   if (method === 'POST' && first === 'auth' && second === 'forgot') {
     const wait = rateLimit(`forgot:${clientIp(req)}`, RATE_LIMITS.forgot)
     if (wait) return tooMany(send, wait)
     const body = await readBody(req)
-    const idf = String(body.username ?? '').trim().toLowerCase()
+    const idf = normalizeIdentity(body.username)
     const user = doc.users.find((u) => u.username.toLowerCase() === idf || String(u.email ?? '').toLowerCase() === idf)
     const un = user ? user.username.toLowerCase() : idf
     const previous = (doc.resetCodes ?? []).find((r) => r.username === un)
     // mavjudligini oshkor qilmaymiz — javob har doim bir xal
     if (!user) return send(200, { ok: true, sent: true })
+    // Hisob bo'yicha limit: bitta hisobga so'rov yuborish (pochta bombasi)
+    const acct = rateLimit(`forgotAcct:${un}`, RATE_LIMITS.forgotAccount)
+    if (acct) return send(200, { ok: true, sent: true })
     // yaqinda yuborilgan bo'lsa, qayta yuborilmaydi (pochta bombasi himoyasi)
     if (previous && previous.expiresAt > Date.now() && Date.now() - Number(previous.sentAt ?? 0) < RESET_RESEND_COOLDOWN) {
       // eski kod saqlanib qoladi va hech qanday yangi kod yuborilmaydi
@@ -742,7 +824,7 @@ export async function handleRequest(method, pathname, query, req, store) {
     // har foydalanuvchi uchun faqat bitta faol kod
     doc.resetCodes = (doc.resetCodes ?? []).filter((r) => r.username !== un)
     const code = makeResetCode()
-    const { salt, hash } = hashPassword(code)
+    const { salt, hash } = await hashPassword(code)
     doc.resetCodes.push({
       username: un,
       salt,
@@ -763,7 +845,7 @@ export async function handleRequest(method, pathname, query, req, store) {
     const wait = rateLimit(`reset:${clientIp(req)}`, RATE_LIMITS.reset)
     if (wait) return tooMany(send, wait)
     const body = await readBody(req)
-    const idf = String(body.username ?? '').trim().toLowerCase()
+    const idf = normalizeIdentity(body.username)
     const code = String(body.code ?? '').trim()
     const pw = String(body.password ?? '')
     const user = doc.users.find((u) => u.username.toLowerCase() === idf || String(u.email ?? '').toLowerCase() === idf)
@@ -774,13 +856,20 @@ export async function handleRequest(method, pathname, query, req, store) {
     if (entry.attempts >= RESET_MAX_ATTEMPTS) {
       return send(429, { error: 'Juda ko‘p urinish. Yangi tiklash kodi so‘rang.' })
     }
-    entry.attempts++
-    if (!verifyPassword(code, entry.salt, entry.codeHash)) {
+    const okCode = await verifyPassword(code, entry.salt, entry.codeHash)
+    if (!okCode) {
+      entry.attempts++
       await store.saveDoc(doc) // urishlar sonini saqlaymiz
       return send(400, { error: 'Kod noto‘g‘ri.' })
     }
-    if (pw.length < 4) return send(400, { error: 'Parol kamida 4 belgidan iborat bo‘lishi kerak.' })
-    const { salt, hash } = hashPassword(pw)
+    // Parol siyosati eski parollarga emas, YANGI parollarga qo'llaniladi
+    const pwProblem = passwordProblem(pw, { username: user.username, email: user.email })
+    if (pwProblem) {
+      entry.attempts = 0 // noto'g'ri parol kodni yo'qotmasin
+      await store.saveDoc(doc)
+      return send(400, { error: pwProblem })
+    }
+    const { salt, hash } = await hashPassword(pw)
     user.salt = salt
     user.hash = hash
     user.passwordChangedAt = new Date().toISOString()
@@ -801,7 +890,7 @@ export async function handleRequest(method, pathname, query, req, store) {
         createdAt: s.createdAt ?? null,
         lastSeen: s.lastSeen ?? null,
         expiresAt: s.expiresAt ?? null,
-        current: s.token === bearer,
+        current: sessionMatches(s, bearer),
       }))
       .sort((a, b) => (b.lastSeen ?? 0) - (a.lastSeen ?? 0))
     return send(200, { sessions: list })
@@ -821,33 +910,69 @@ export async function handleRequest(method, pathname, query, req, store) {
     const me = auth(doc, bearer)
     if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
     me.lastLogoutAt = Date.now()
-    removeFrom(doc, 'sessions', (s) => s.token === bearer)
+    removeFrom(doc, 'sessions', (s) => sessionMatches(s, bearer))
     await store.saveDoc(doc)
     return send(200, { ok: true })
   }
 
-  /* ---------- Admin ---------- */
+  /* ---------- Admin ----------
 
-  const ADMIN_USER = process.env.ADMIN_USERNAME ?? 'Admin'
-  const ADMIN_PASS = process.env.ADMIN_PASSWORD ?? 'Admin.Do\'ppi.Uzbekitan.66'
+     OLD: `ADMIN_PASSWORD ?? 'Admin.Do\'ppi.Uzbekitan.66'` — env berilmasa
+     hujjatda yozilgan parol ishlaydi. Bu klassik "default credential"
+     zaifligi: README'da ko'rinadigan parol bilan butun admin panel olinadi.
+
+     YANGI: ishlab chiqarishda ADMIN_PASSWORD majburiy. Berilmasa admin
+     kirish butunlay rad etiladi (boshqa hech narsa buzilmaydi). Parol
+     doimiy vaqtli taqqoslanadi. Admin sessiyasi ham muddati bilan
+     cheklangan (avval hech qachon muddati yo'q edi). */
+  const ADMIN_USER = String(process.env.ADMIN_USERNAME ?? '').trim()
+  const ADMIN_PASS = String(process.env.ADMIN_PASSWORD ?? '')
+  const ADMIN_CONFIGURED = ADMIN_USER.length > 0 && ADMIN_PASS.length >= 12
+  const ADMIN_SESSION_TTL = 12 * 60 * 60 * 1000 // 12 soat
+
+  if (process.env.NODE_ENV === 'production' && !ADMIN_CONFIGURED) {
+    console.error(
+      '[xavfsizlik] ADMIN_USERNAME va ADMIN_PASSWORD (kamida 12 belgi) ' +
+        'belgilanmagan — admin panel o‘chirilgan holda qoladi.',
+    )
+  }
+
   const adminAuth = (d, token) => {
     if (!token) return null
-    const s = d.adminSessions?.find((x) => x.token === token)
+    const s = d.adminSessions?.find((x) => sessionMatches(x, token))
     if (!s) return null
-    s.lastSeen = Date.now()
+    const now = Date.now()
+    if (s.expiresAt && s.expiresAt <= now) {
+      d.adminSessions = d.adminSessions.filter((x) => x !== s)
+      return null
+    }
+    s.lastSeen = now
+    s.expiresAt = now + ADMIN_SESSION_TTL
     return s
   }
 
   if (method === 'POST' && first === 'admin' && second === 'login') {
     const body = await readBody(req)
     const un = String(body.username ?? '')
-    const wait = rateLimit(`adminLogin:${clientIp(req)}`, RATE_LIMITS.adminLogin)
-    if (wait) return tooMany(send, wait)
+    const blocked = rateLimitAny([
+      [`adminLogin:${clientIp(req)}`, RATE_LIMITS.adminLogin],
+      [`adminLoginAcct:${un.toLowerCase().slice(0, 64)}`, RATE_LIMITS.adminLoginAccount],
+    ])
+    if (blocked) return tooMany(send, blocked.wait)
+    if (!ADMIN_CONFIGURED) {
+      // Sozlanmagan holatda "not configured" va "wrong password" bir xil
+      // ko'rinadi — aks holda admin env'i yo'qligini aniqlash mumkin bo'lardi.
+      return send(401, { error: 'Foydalanuvchi nomi yoki parol xato.' })
+    }
     const pw = String(body.password ?? '')
-    if (un === ADMIN_USER && pw === ADMIN_PASS) {
+    // Ikkalasini ham doimiy vaqtli taqqoslash, har birini oldin tekshiramiz
+    // (eski `===` qiyoslashsi uzunlikni oshkor qilardi)
+    const userOk = constantTimeEqual(un, ADMIN_USER)
+    const passOk = constantTimeEqual(pw, ADMIN_PASS)
+    if (userOk && passOk) {
       const token = makeToken()
       doc.adminSessions = doc.adminSessions ?? []
-      doc.adminSessions.push({ token, userId: 'admin', lastSeen: Date.now() })
+      doc.adminSessions.push({ token: tokenRef(token), userId: 'admin', lastSeen: Date.now(), expiresAt: Date.now() + ADMIN_SESSION_TTL })
       await store.saveDoc(doc)
       return send(200, { token })
     }
@@ -855,7 +980,7 @@ export async function handleRequest(method, pathname, query, req, store) {
   }
 
   if (method === 'POST' && first === 'admin' && second === 'logout') {
-    removeFrom(doc, 'adminSessions', (s) => s.token === bearer)
+    removeFrom(doc, 'adminSessions', (s) => sessionMatches(s, bearer))
     await store.saveDoc(doc)
     return send(200, { ok: true })
   }
@@ -935,18 +1060,18 @@ export async function handleRequest(method, pathname, query, req, store) {
   if (method === 'GET' && first === 'auth' && second === 'me') {
     const me = auth(doc, bearer)
     if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
-    return send(200, { user: publicUser(me) })
+    return send(200, { user: selfUser(me) })
   }
 
   if (method === 'PATCH' && first === 'auth' && second === 'me') {
     const me = auth(doc, bearer)
     if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
     const body = await readBody(req)
-    if (body.name !== undefined) me.name = String(body.name).trim()
-    if (body.about !== undefined) me.about = String(body.about)
-    if (body.avatar !== undefined) me.avatar = String(body.avatar)
+    if (body.name !== undefined) me.name = String(body.name).trim().slice(0, 80)
+    if (body.about !== undefined) me.about = String(body.about).slice(0, 500)
+    if (body.avatar !== undefined) me.avatar = sanitizeAvatar(String(body.avatar))
     await store.saveDoc(doc)
-    return send(200, { user: publicUser(me) })
+    return send(200, { user: selfUser(me) })
   }
 
   /* ---------- Users ---------- */
@@ -1430,6 +1555,14 @@ export async function handleRequest(method, pathname, query, req, store) {
       if (Number.isFinite(dur) && dur > 0) msg.audioDuration = Math.round(dur * 100) / 100
     }
     if (body.sealUntil) msg.sealUntil = Number(body.sealUntil)
+    // Guruh media'si faqat a'zolarga ochiq
+    await scopePrivateMedia(
+      store,
+      [msg.image, msg.audio].filter(Boolean),
+      'group',
+      String(id),
+      String(me.id),
+    )
     doc.groupMessages = doc.groupMessages ?? []
     doc.groupMessages.push(msg)
     for (const memberId of g.memberIds ?? []) {
@@ -1626,6 +1759,14 @@ export async function handleRequest(method, pathname, query, req, store) {
       if (Number.isFinite(dur) && dur > 0) msg.audioDuration = Math.round(dur * 100) / 100
     }
     if (body.sealUntil) msg.sealUntil = Number(body.sealUntil)
+    // DM media'si faqat suhbat a'zolari ko'ra oladi
+    await scopePrivateMedia(
+      store,
+      [msg.image, msg.audio].filter(Boolean),
+      'dm',
+      String(id),
+      String(me.id),
+    )
     doc.messages.push(msg)
     const peerId = t.memberA === me.id ? t.memberB : t.memberA
     notifyAndPush(doc, peerId, me, {
@@ -1753,15 +1894,21 @@ export async function handleRequest(method, pathname, query, req, store) {
     if (!parsed) return send(400, { error: 'dataUrl formati noto‘g‘ri.' })
     const kind = MEDIA_MIME[parsed.mime]
     if (!kind) return send(415, { error: `Bu fayl turi qabul qilinmaydi: ${parsed.mime}` })
-      if (parsed.bytes.length > MEDIA_LIMITS[kind]) {
-        const mb = Math.round((MEDIA_LIMITS[kind] / (1024 * 1024)) * 10) / 10
-        return send(413, { error: `Fayl hajmi katta (${mb} MB dan oshmasligi kerak).` })
-      }
+    if (parsed.bytes.length > MEDIA_LIMITS[kind]) {
+      const mb = Math.round((MEDIA_LIMITS[kind] / (1024 * 1024)) * 10) / 10
+      return send(413, { error: `Fayl hajmi katta (${mb} MB dan oshmasligi kerak).` })
+    }
+    // Mijoz qayerda ishlatmoqchi bo'lishini aytadi, lekin bu ishonchga
+    // asoslanmaydi: xabar yaratilganda server scope'ni qayta aniqlaydi.
+    const scope = ['public', 'dm', 'group'].includes(String(body.scope)) ? String(body.scope) : 'public'
+    const refId = scope === 'public' ? '' : String(Number(body.refId) || '')
     const id = mediaIdFor(`${Date.now().toString(36)}${crypto.randomBytes(6).toString('hex')}`, parsed.mime)
-    await store.putMedia(id, parsed.mime, parsed.bytes)
+    await store.putMedia(id, parsed.mime, parsed.bytes, { scope, refId, ownerId: String(me.id) })
     return send(201, {
       id,
-      url: `/api/media/${id}`,
+      // imzolangan URL: <img>/<audio> uni brauzerda to'g'ridan-to'g'ri
+      // yuklay oladi, lekin uni o'zgartirib boshqa faylni ko'rsatib bo'lmaydi
+      url: signedMediaPath(id),
       mime: parsed.mime,
       kind,
       size: parsed.bytes.length,

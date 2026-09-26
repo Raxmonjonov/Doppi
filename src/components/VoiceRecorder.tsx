@@ -7,6 +7,8 @@ interface VoiceRecorderProps {
   onSend: (audio: UploadedAudio) => void
   onCancel: () => void
   disabled?: boolean
+  /* DM/guruh ovozi — server faylni shu suhbatga bog'lash uchun */
+  scope?: { scope: 'dm' | 'group'; refId: number | string }
 }
 
 function fmt(sec: number): string {
@@ -16,7 +18,7 @@ function fmt(sec: number): string {
 
 /* Ovozli xabar yozuvchisi: MediaRecorder -> /api/media -> xabar.
    Yozuv tugashi yoki bekor qilinishi to'g'ridan-to'g'ri xabar yuboradi. */
-export function VoiceRecorder({ onSend, onCancel, disabled }: VoiceRecorderProps) {
+export function VoiceRecorder({ onSend, onCancel, disabled, scope }: VoiceRecorderProps) {
   const { t } = useI18n()
   const [elapsed, setElapsed] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -46,7 +48,7 @@ export function VoiceRecorder({ onSend, onCancel, disabled }: VoiceRecorderProps
     stopTracks()
     setBusy(true)
     setError('')
-    const sent = await uploadAudio(blob, setError)
+    const sent = await uploadAudio(blob, setError, scope)
     setBusy(false)
     if (sent) onSend(sent)
     else onCancel()

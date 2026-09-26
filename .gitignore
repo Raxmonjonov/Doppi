@@ -12,6 +12,18 @@ dist
 dist-ssr
 *.local
 
+# Runtime ma'lumotlari — HECH QACHON gitga kiritilmasin.
+# Eski versiyalarda ushbu faylarda LIVE sessiya tokenlari va parol
+# hash/salt'lari bor edi (sizib chiqqan). Endi faqat lokal ishlatiladi.
+server/db.json
+netlify/lib/seed.json
+netlify/lib/seed.local.json
+netlify/functions/seed.json
+*.env
+.env
+.env.*
+!.env.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

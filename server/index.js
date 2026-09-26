@@ -6,6 +6,24 @@ import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import webpushDefault from 'web-push'
 import { sendMail, resetCodeMessage } from '../netlify/lib/delivery.mjs'
+import {
+  hashPassword,
+  verifyPassword,
+  passwordProblem,
+  constantTimeEqual,
+  makeToken,
+  tokenRef,
+  sessionMatches,
+  mediaSignatureValid,
+  signedMediaPath,
+  mediaPathOf,
+  sanitizeAvatar,
+  RATE_LIMITS,
+  rateLimit,
+  rateLimitAny,
+  securityHeaders,
+  normalizeIdentity,
+} from '../netlify/lib/security.mjs'
 
 // web-push CommonJS moduli: default import to'g'ri kelishi uchun normallashtiramiz
 const webpush = webpushDefault?.default ?? webpushDefault
@@ -17,13 +35,39 @@ const { Pool, types } = pg
 types.setTypeParser(types.builtins.INT8, (v) => (v === null ? null : Number(v)))
 types.setTypeParser(types.builtins.INT4, (v) => (v === null ? null : Number(v)))
 
-const pool = new Pool({
-  user: 'postgres',
-  password: 'postgres',
-  host: '127.0.0.1',
-  port: 5432,
-  database: "Do'ppi",
-})
+/* Baza ulanishi faqat env'dan. OLD: `postgres/postgres` va "Do'ppi" kodi
+   ichida qat'i yozilgan edi — bu ish stansiyasining umumiy paroli va
+   tayyorCredential bo'lib, xato tuzatishda ham "ishlayveradi" (ishlatilmay
+   qoladi). Endi hech qanday standart credential yo'q: DATABASE_URL yoki
+   PGUSER/PGPASSWORD/PGDATABASE to'liq berilishi shart. */
+const DATABASE_URL = String(process.env.DATABASE_URL ?? '').trim()
+if (!DATABASE_URL && process.env.NODE_ENV === 'production') {
+  console.error('[xavfsizlik] DATABASE_URL belgilanmagan — server ishga tushmaydi.')
+  process.exit(1)
+}
+
+const pgEnv = {
+  user: String(process.env.PGUSER ?? '').trim(),
+  password: String(process.env.PGPASSWORD ?? '').trim(),
+  host: String(process.env.PGHOST ?? '').trim(),
+  port: Number(process.env.PGPORT || 5432),
+  database: String(process.env.PGDATABASE ?? '').trim(),
+}
+const missingPgEnv = ['user', 'password', 'host', 'database'].filter((k) => !pgEnv[k])
+if (!DATABASE_URL && missingPgEnv.length) {
+  console.error(
+    '[xavfsizlik] Baza ulanishi belgilanmagan. DATABASE_URL yoki ' +
+      `${missingPgEnv.map((k) => 'PG' + k.toUpperCase()).join(', ')} bering.`,
+  )
+  process.exit(1)
+}
+
+const pool = DATABASE_URL
+  ? new Pool({
+      connectionString: DATABASE_URL,
+      ssl: process.env.DATABASE_SSL === '1' ? { rejectUnauthorized: false } : undefined,
+    })
+  : new Pool(pgEnv)
 
 async function ensureSchema() {
   const sql = fs.readFileSync(SCHEMA_PATH, 'utf8')
@@ -42,33 +86,28 @@ async function ensureSchema() {
 
 const app = express()
 // Media endi alohida /api/media orqali saqlanadi, shuning uchun data hujjati kichik bo'ladi.
-// 25MB — eski data:URL li ma'lumotlar uchun zaxira.
-app.use(express.json({ limit: '25mb' }))
+// 25MB — eski data:URL li ma'lumotlar uchun zaxira. Katta JSON body — xotira
+// (DoS) hujjumi, shuning uchun API uchun 2MB, media upload o'z limitida.
+app.use('/api/media', express.json({ limit: '25mb' }))
+app.use(express.json({ limit: '2mb' }))
 
-function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString('hex')
-  const hash = crypto.scryptSync(password, salt, 64).toString('hex')
-  return { salt, hash }
-}
+/* ---------- Xavfsizlik sarlavhalari ----------
+   Netlify function bilan bir xil to'plam (`security.mjs`), shuning uchun
+   platformadan qat'i nazar brauzer bir xil qoidalarni oladi. */
+app.use((req, res, next) => {
+  for (const [k, v] of Object.entries(securityHeaders({ isStatic: !req.path.startsWith('/api/') }))) {
+    res.setHeader(k, v)
+  }
+  // HSTS faqat HTTPS orqasida (localhostda TLS yo'q — sinov buzilmasin)
+  if (process.env.NODE_ENV === 'production' && req.secure) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+  }
+  next()
+})
 
-function verifyPassword(password, salt, hash) {
-  const test = crypto.scryptSync(password, salt, 64).toString('hex')
-  return crypto.timingSafeEqual(Buffer.from(test, 'hex'), Buffer.from(hash, 'hex'))
-}
-
-function makeToken() {
-  return crypto.randomBytes(32).toString('hex')
-}
-
-/* ---------- Rate limit (jarayon xotirasida, bir Node instance'iga tegishli) ---------- */
-const RATE_LIMITS = {
-  login: { max: 10, windowMs: 15 * 60 * 1000 },
-  register: { max: 10, windowMs: 60 * 60 * 1000 },
-  forgot: { max: 5, windowMs: 15 * 60 * 1000 },
-  reset: { max: 10, windowMs: 15 * 60 * 1000 },
-  adminLogin: { max: 10, windowMs: 15 * 60 * 1000 },
-  media: { max: 120, windowMs: 60 * 60 * 1000 },
-}
+/* ---------- Parol kriptografiyasi va rate limit ----------
+   Barcha himoyalar `netlify/lib/security.mjs` da — Netlify function va Express
+   bir xil qoidalarni qo'llaydi. */
 
 /* Sessiya 30 kun turadi va faol bo'lgani yangilanadi (sliding TTL). */
 const SESSION_TTL = 30 * 24 * 60 * 60 * 1000
@@ -82,39 +121,32 @@ function uaLabel(req) {
   if (/safari/i.test(ua)) return 'Safari'
   return 'Brauzer'
 }
-const rateBuckets = new Map()
-
-function rateLimit(key, limit) {
-  const now = Date.now()
-  if (rateBuckets.size >= 500) {
-    for (const [k, b] of rateBuckets) if (now > b.resetAt) rateBuckets.delete(k)
-  }
-  const bucket = rateBuckets.get(key)
-  if (!bucket || now > bucket.resetAt) {
-    rateBuckets.set(key, { count: 1, resetAt: now + limit.windowMs })
-    return 0
-  }
-  bucket.count++
-  return bucket.count > limit.max ? Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)) : 0
-}
 
 function blockTooMany(res, wait) {
   res.setHeader('Retry-After', String(wait))
   return res.status(429).json({ error: 'Juda ko‘p urinish. Bir oz kutib, qayta yuboring.', retryAfter: wait })
 }
 
+/* Ommaviy foydalanuvchi ko'rinishi — email HECH QACHON boshqalarga
+   ko'rsatilmaydi (eski versiya /api/users va DM javobida emailni sizib chiqarardi). */
 function publicUser(u) {
   if (!u) return null
   return {
     id: u.id,
     name: u.name,
     username: u.username,
-    email: u.email,
     avatar: u.avatar ?? '',
     about: u.about ?? '',
     createdAt: u.createdAt,
     online: true,
   }
+}
+
+/* Faqat o'zini autentifikatsiya qilgan foydalanuvchiga — uning emaili
+   o'ziga tegishli ma'lumot. */
+function selfUser(u) {
+  if (!u) return null
+  return { ...publicUser(u), email: u.email }
 }
 
 function userForContent(u) {
@@ -133,31 +165,40 @@ async function authMiddleware(req, res, next) {
   const h = req.headers.authorization || ''
   const token = h.startsWith('Bearer ') ? h.slice(7) : null
   if (!token) return res.status(401).json({ error: 'Avtorizatsiya talab qilinadi.' })
-    try {
-      const { rows } = await pool.query(
-        `SELECT u.*, s.ua AS session_ua, s.expires_at AS session_expires, s.last_seen AS session_last_seen,
-                s.created_at AS session_created
-         FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = $1`,
-        [token],
-      )
-      if (rows.length === 0) return res.status(401).json({ error: 'Avtorizatsiya talab qilinadi.' })
-      const row = rows[0]
-      if (row.session_expires && new Date(row.session_expires).getTime() <= Date.now()) {
-        await pool.query(`DELETE FROM sessions WHERE token = $1`, [token])
-        return res.status(401).json({ error: 'Sessiya muddati tugagan. Qayta kiring.' })
-      }
-      req.user = row
-      req.token = token
-      // sliding TTL: muddatni faqat yaqin tugashiga tegilganda yangilaymiz (har so'rovda yozmaymiz)
-      if (!row.session_expires || new Date(row.session_expires).getTime() - Date.now() < SESSION_TTL / 2) {
-        pool
-          .query(
-            `UPDATE sessions SET last_seen = $1, expires_at = now() + ($2 || ' milliseconds')::interval WHERE token = $3`,
-            [Date.now(), String(SESSION_TTL), token],
-          )
-          .catch(() => {})
-      }
-      next()
+  // Bazada xom token emas, uning HMAC imzosi saqlanadi (baza sizib chiqsa
+  // ham foydalanuvchi tokeni ishlatib bo'lmaydi).
+  const ref = tokenRef(token)
+  try {
+    const { rows } = await pool.query(
+      `SELECT u.*, s.token AS session_token, s.ua AS session_ua, s.expires_at AS session_expires,
+              s.last_seen AS session_last_seen, s.created_at AS session_created
+       FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = $1`,
+      [ref],
+    )
+    if (rows.length === 0) return res.status(401).json({ error: 'Avtorizatsiya talab qilinadi.' })
+    const row = rows[0]
+    // `sessionMatches` `row.token` ni kutadi — Postgresda ustun `session_token`
+    // deb belgilangan, shuning uchun shu yerda xom nomga qaytamiz.
+    if (!sessionMatches({ ...row, token: row.session_token }, token)) {
+      return res.status(401).json({ error: 'Avtorizatsiya talab qilinadi.' })
+    }
+    if (row.session_expires && new Date(row.session_expires).getTime() <= Date.now()) {
+      await pool.query(`DELETE FROM sessions WHERE token = $1`, [ref])
+      return res.status(401).json({ error: 'Sessiya muddati tugagan. Qayta kiring.' })
+    }
+    req.user = row
+    req.token = token
+    req.tokenRef = ref
+    // sliding TTL: muddatni faqat yaqin tugashiga tegilganda yangilaymiz (har so'rovda yozmaymiz)
+    if (!row.session_expires || new Date(row.session_expires).getTime() - Date.now() < SESSION_TTL / 2) {
+      pool
+        .query(
+          `UPDATE sessions SET last_seen = $1, expires_at = now() + ($2 || ' milliseconds')::interval WHERE token = $3`,
+          [Date.now(), String(SESSION_TTL), ref],
+        )
+        .catch(() => {})
+    }
+    next()
   } catch (e) {
     res.status(500).json({ error: 'Server xatosi.' })
   }
@@ -180,22 +221,24 @@ app.post('/api/auth/register', async (req, res) => {
     return res.status(400).json({ error: "Barcha maydonlarni to'ldiring." })
   }
   if (uname.length < 3) return res.status(400).json({ error: "Foydalanuvchi nomi kamida 3 belgidan iborat bo'lishi kerak." })
-  if (pw.length < 4) return res.status(400).json({ error: "Parol kamida 4 belgidan iborat bo'lishi kerak." })
+  if (uname.length > 32) return res.status(400).json({ error: 'Foydalanuvchi nomi juda uzun (32 belgidan oshmasligi kerak).' })
+  if (em.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(em)) {
+    return res.status(400).json({ error: 'Email manzili noto‘g‘ri.' })
+  }
+  const pwProblem = passwordProblem(pw, { username: uname, email: em })
+  if (pwProblem) return res.status(400).json({ error: pwProblem })
   try {
     const taken = await pool.query(
       `SELECT id FROM users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = $2`,
       [uname, em],
     )
+    // 409 bitta xil xil xabarni qaytaradi: aks holda ro'yxatdan o'tish orqali
+    // qaysi email bandligini aniqlab, foydalanuvchilarni o'tkazish mumkin
     if (taken.rows.length > 0) {
-      const conflict = taken.rows[0]
-      const which = await pool.query(`SELECT username, email FROM users WHERE id = $1`, [conflict.id])
-      const u = which.rows[0]
-      return res.status(409).json({
-        error: u.username.toLowerCase() === uname.toLowerCase() ? 'Bu foydalanuvchi nomi band.' : "Bu email allaqachon ro'yxatdan o'tgan.",
-      })
+      return res.status(409).json({ error: "Bu username yoki email allaqachon ro'yxatdan o'tgan." })
     }
 
-    const { salt, hash } = hashPassword(pw)
+    const { salt, hash } = await hashPassword(pw)
     const id = Date.now()
     const createdAt = new Date().toISOString()
     await pool.query(
@@ -206,9 +249,9 @@ app.post('/api/auth/register', async (req, res) => {
     await pool.query(
       `INSERT INTO sessions (token, user_id, ua, created_at, expires_at)
        VALUES ($1,$2,$3, now(), now() + ($4 || ' milliseconds')::interval)`,
-      [token, id, uaLabel(req), String(SESSION_TTL)],
+      [tokenRef(token), id, uaLabel(req), String(SESSION_TTL)],
     )
-    const user = publicUser({ id, name: nm, username: uname, email: em, avatar: av, about: ab, createdAt })
+    const user = selfUser({ id, name: nm, username: uname, email: em, avatar: av, about: ab, createdAt })
     res.json({ token, user })
   } catch (e) {
     console.error(e)
@@ -218,9 +261,14 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body ?? {}
-  const idf = String(username ?? '').trim().toLowerCase()
-  const loginWait = rateLimit('login:' + req.ip + ':' + idf, RATE_LIMITS.login)
-  if (loginWait) return blockTooMany(res, loginWait)
+  const idf = normalizeIdentity(username)
+  // Ikki limit: IP bo'yicha va HISOB bo'yicha. Hisob limiti IP o'zgarishiga
+  // bog'liq emas — credential stuffing va parol to'plab urinish to'xtaydi.
+  const blocked = rateLimitAny([
+    ['login:' + req.ip + ':' + idf, RATE_LIMITS.login],
+    ['loginAcct:' + idf, RATE_LIMITS.loginAccount],
+  ])
+  if (blocked) return blockTooMany(res, blocked.wait)
   const pw = String(password ?? '')
   try {
     const { rows } = await pool.query(
@@ -228,10 +276,9 @@ app.post('/api/auth/login', async (req, res) => {
       [idf],
     )
     const user = rows[0]
-    if (!user) return res.status(404).json({ error: 'Bunday foydalanuvchi topilmadi.' })
-    if (!verifyPassword(pw, user.salt, user.hash)) {
-      return res.status(401).json({ error: "Parol noto'g'ri." })
-    }
+    const okPw = user ? await verifyPassword(pw, user.salt, user.hash) : false
+    // Barcha holatlar uchun BIR XIL javob: foydalanuvchi borligi oshkor qilinmaydi
+    if (!user || !okPw) return res.status(401).json({ error: "Login yoki parol noto'g'ri." })
     const token = makeToken()
     const now = Date.now()
     const nowIso = new Date(now).toISOString()
@@ -239,10 +286,10 @@ app.post('/api/auth/login', async (req, res) => {
       `INSERT INTO sessions (token, user_id, last_seen, ua, created_at, expires_at)
        VALUES ($1,$2,$3,$4, now(), now() + ($5 || ' milliseconds')::interval)
        ON CONFLICT (token) DO UPDATE SET last_seen = EXCLUDED.last_seen, expires_at = EXCLUDED.expires_at`,
-      [token, user.id, now, uaLabel(req), String(SESSION_TTL)],
+      [tokenRef(token), user.id, now, uaLabel(req), String(SESSION_TTL)],
     )
     await pool.query(`UPDATE users SET last_login_at = $1 WHERE id = $2`, [nowIso, user.id])
-    res.json({ token, user: publicUser(user) })
+    res.json({ token, user: selfUser(user) })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Server xatosi.' })
@@ -286,6 +333,10 @@ app.post('/api/auth/forgot', async (req, res) => {
     // mavjudligini oshkor qilmaymiz — javob har doim bir xal
     if (!user) return res.json({ ok: true, sent: true })
 
+    // Hisob bo'yicha limit: bitta hisobga so'rov yuborish (pochta bombasi)
+    const acct = rateLimit('forgotAcct:' + un, RATE_LIMITS.forgotAccount)
+    if (acct) return res.json({ ok: true, sent: true })
+
     // yaqinda yuborilgan bo'lsa, qayta yuborilmaydi (pochta bombasi himoyasi)
     const { rows: prev } = await pool.query(
       `SELECT expires_at, sent_at FROM password_resets WHERE username = $1`,
@@ -298,7 +349,7 @@ app.post('/api/auth/forgot', async (req, res) => {
 
     await pool.query(`DELETE FROM password_resets WHERE username = $1`, [un])
     const code = makeResetCode()
-    const { salt, hash } = hashPassword(code)
+    const { salt, hash } = await hashPassword(code)
     await pool.query(
       `INSERT INTO password_resets (username, salt, code_hash, expires_at, attempts, sent_at)
        VALUES ($1,$2,$3,$4,0,$5)
@@ -339,12 +390,18 @@ app.post('/api/auth/reset', async (req, res) => {
     if (entry.attempts >= RESET_MAX_ATTEMPTS) {
       return res.status(429).json({ error: 'Juda ko‘p urinish. Yangi tiklash kodi so‘rang.' })
     }
-    await pool.query(`UPDATE password_resets SET attempts = attempts + 1 WHERE username = $1`, [entry.username])
-    if (!verifyPassword(String(code ?? '').trim(), entry.salt, entry.code_hash)) {
+    const okCode = await verifyPassword(String(code ?? '').trim(), entry.salt, entry.code_hash)
+    if (!okCode) {
+      await pool.query(`UPDATE password_resets SET attempts = attempts + 1 WHERE username = $1`, [entry.username])
       return res.status(400).json({ error: 'Kod noto‘g‘ri.' })
     }
-    if (pw.length < 4) return res.status(400).json({ error: 'Parol kamida 4 belgidan iborat bo‘lishi kerak.' })
-    const { salt, hash } = hashPassword(pw)
+    // Parol siyosati eski parollarga emas, YANGI parollarga qo'llaniladi
+    const pwProblem = passwordProblem(pw, { username: user.username })
+    if (pwProblem) {
+      await pool.query(`UPDATE password_resets SET attempts = 0 WHERE username = $1`, [entry.username])
+      return res.status(400).json({ error: pwProblem })
+    }
+    const { salt, hash } = await hashPassword(pw)
     await pool.query(
       `UPDATE users SET salt = $1, hash = $2, password_changed_at = now() WHERE id = $3`,
       [salt, hash, user.id],
@@ -716,7 +773,7 @@ app.get('/api/auth/sessions', authMiddleware, async (req, res) => {
         createdAt: s.created_at,
         lastSeen: s.last_seen || null,
         expiresAt: s.expires_at,
-        current: s.token === req.token,
+        current: sessionMatches(s, req.token),
       })),
     })
   } catch (e) {
@@ -737,47 +794,63 @@ app.post('/api/auth/logout-all', authMiddleware, async (req, res) => {
 })
 
 app.post('/api/auth/logout', authMiddleware, async (req, res) => {
-  await pool.query(`DELETE FROM sessions WHERE token = $1`, [req.token])
+  await pool.query(`DELETE FROM sessions WHERE token = $1`, [req.tokenRef])
   await pool.query(`UPDATE users SET last_logout_at = $1 WHERE id = $2`, [new Date().toISOString(), req.user.id])
   res.json({ ok: true })
 })
 
 app.get('/api/auth/me', authMiddleware, (req, res) => {
-  res.json({ user: publicUser(req.user) })
+  res.json({ user: selfUser(req.user) })
 })
 
 app.patch('/api/auth/me', authMiddleware, async (req, res) => {
   const { name, about, avatar } = req.body ?? {}
   const sets = []
   const values = []
-  if (name !== undefined) { values.push(String(name).trim()); sets.push(`name = $${values.length}`) }
-  if (about !== undefined) { values.push(String(about)); sets.push(`about = $${values.length}`) }
-  if (avatar !== undefined) { values.push(String(avatar)); sets.push(`avatar = $${values.length}`) }
+  if (name !== undefined) { values.push(String(name).trim().slice(0, 80)); sets.push(`name = $${values.length}`) }
+  if (about !== undefined) { values.push(String(about).slice(0, 500)); sets.push(`about = $${values.length}`) }
+  if (avatar !== undefined) { values.push(sanitizeAvatar(String(avatar))); sets.push(`avatar = $${values.length}`) }
   if (sets.length > 0) {
     values.push(req.user.id)
     await pool.query(`UPDATE users SET ${sets.join(', ')} WHERE id = $${values.length}`, values)
     const { rows } = await pool.query(`SELECT * FROM users WHERE id = $1`, [req.user.id])
     if (rows[0]) req.user = rows[0]
   }
-  res.json({ user: publicUser(req.user) })
+  res.json({ user: selfUser(req.user) })
 })
 
 /* ---------- Presence ---------- */
 
 app.post('/api/ping', authMiddleware, async (req, res) => {
   try {
-    await pool.query(`UPDATE sessions SET last_seen = $1 WHERE token = $2`, [Date.now(), req.token])
+    await pool.query(`UPDATE sessions SET last_seen = $1 WHERE token = $2`, [Date.now(), req.tokenRef])
     res.json({ ok: true })
   } catch (e) {
     res.status(500).json({ error: 'Server xatosi.' })
   }
 })
 
-/* ---------- Admin ---------- */
+/* ---------- Admin ----------
 
-const ADMIN_USER = process.env.ADMIN_USERNAME ?? 'Admin'
-const ADMIN_PASS = process.env.ADMIN_PASSWORD ?? 'Admin.Do\'ppi.Uzbekitan.66'
+   OLD: `ADMIN_PASSWORD ?? 'Admin.Do\'ppi.Uzbekitan.66'` — env berilmasa
+   hujjatda yozilgan parol ishlaydi. Bu klassik "default credential"
+   zaifligi: README'da ko'rinadigan parol bilan butun admin panel olinadi.
+
+   YANGI: ishlab chiqarishda ADMIN_PASSWORD majburiy. Berilmasa admin kirish
+   butunlay rad etiladi (boshqa hech narsa buzilmaydi). Parol doimiy vaqtli
+   taqqoslanadi va admin sessiyasi 12 soatda bekor bo'ladi. */
+const ADMIN_USER = String(process.env.ADMIN_USERNAME ?? '').trim()
+const ADMIN_PASS = String(process.env.ADMIN_PASSWORD ?? '')
+const ADMIN_CONFIGURED = ADMIN_USER.length > 0 && ADMIN_PASS.length >= 12
+const ADMIN_SESSION_TTL = 12 * 60 * 60 * 1000
 const adminTokens = new Map()
+
+if (process.env.NODE_ENV === 'production' && !ADMIN_CONFIGURED) {
+  console.error(
+    '[xavfsizlik] ADMIN_USERNAME va ADMIN_PASSWORD (kamida 12 belgi) ' +
+      'belgilanmagan — admin panel o‘chirilgan holda qoladi.',
+  )
+}
 
 function adminBearer(req) {
   const h = req.headers.authorization || ''
@@ -785,28 +858,45 @@ function adminBearer(req) {
 }
 
 app.post('/api/admin/login', async (req, res) => {
-  const adminWait = rateLimit('adminLogin:' + req.ip, RATE_LIMITS.adminLogin)
-  if (adminWait) return blockTooMany(res, adminWait)
-  const { username, password } = req.body ?? {}
-  if (String(username ?? '') === ADMIN_USER && String(password ?? '') === ADMIN_PASS) {
+  const username = String(req.body?.username ?? '')
+  const blocked = rateLimitAny([
+    ['adminLogin:' + req.ip, RATE_LIMITS.adminLogin],
+    ['adminLoginAcct:' + username.toLowerCase().slice(0, 64), RATE_LIMITS.adminLoginAccount],
+  ])
+  if (blocked) return blockTooMany(res, blocked.wait)
+  if (!ADMIN_CONFIGURED) {
+    // Sozlanmagan holatda "not configured" va "wrong password" bir xil
+    // ko'rinadi — aks holda admin env'i yo'qligini aniqlash mumkin bo'lardi.
+    return res.status(401).json({ error: 'Foydalanuvchi nomi yoki parol xato.' })
+  }
+  const password = String(req.body?.password ?? '')
+  // Ikkalasini ham doimiy vaqtli taqqoslash (eski `===` uzunlikni oshkor qilardi)
+  const userOk = constantTimeEqual(username, ADMIN_USER)
+  const passOk = constantTimeEqual(password, ADMIN_PASS)
+  if (userOk && passOk) {
     const token = makeToken()
-    adminTokens.set(token, Date.now())
+    // Xotirada faqat token imzosi saqlanadi — xom token hech qayerda turmaydi
+    adminTokens.set(tokenRef(token), Date.now())
     return res.json({ token })
   }
   res.status(401).json({ error: 'Foydalanuvchi nomi yoki parol xato.' })
 })
 
 app.post('/api/admin/logout', async (req, res) => {
-  adminTokens.delete(adminBearer(req) ?? '')
+  const token = adminBearer(req)
+  if (token) adminTokens.delete(tokenRef(token))
   res.json({ ok: true })
 })
 
 app.get('/api/dashboard', async (req, res) => {
   const token = adminBearer(req)
-  if (!token || !adminTokens.has(token)) {
+  const ref = token ? tokenRef(token) : ''
+  // Admin sessiyasi ham muddati bilan cheklangan (avval umr bo'yi yashirdi)
+  if (!token || !adminTokens.has(ref) || Date.now() - adminTokens.get(ref) > ADMIN_SESSION_TTL) {
+    if (ref) adminTokens.delete(ref)
     return res.status(401).json({ error: 'Admin kirishi talab qilinadi.' })
   }
-  adminTokens.set(token, Date.now())
+  adminTokens.set(ref, Date.now())
   const now = Date.now()
   const ONLINE_MS = 60 * 1000
   try {
@@ -1495,6 +1585,8 @@ app.post('/api/threads/:id/messages', authMiddleware, async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       [mid, id, req.user.id, text, image, audio, dur, time, seal],
     )
+    // DM rasmi/ovozi faqat suhbat a'zolariga ko'rinadi
+    await scopePrivateMedia([image, audio].filter(Boolean), 'dm', id, req.user.id)
     const peerId = Number(rows[0].member_a) === req.user.id ? Number(rows[0].member_b) : Number(rows[0].member_a)
     await insertNotification(peerId, req.user, {
       kind: 'message',
@@ -1774,6 +1866,8 @@ app.post('/api/groups/:id/messages', authMiddleware, async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       [mid, id, req.user.id, text, image, audio, dur, time, seal],
     )
+    // Guruhga biriktirilgan media faqat guruh a'zolariga ko'rinadi
+    await scopePrivateMedia([image, audio].filter(Boolean), 'group', id, req.user.id)
     const { rows: members } = await pool.query(`SELECT user_id FROM group_members WHERE group_id = $1`, [id])
     for (const m of members) {
       await insertNotification(Number(m.user_id), req.user, {
@@ -1896,16 +1990,89 @@ function isSafeMediaId(id) {
   return s.length > 0 && s.length <= 120 && !s.includes('..') && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(s)
 }
 
+/* Media ko'rinishi: 'public' — imzoli havola orqali (yoki autentifikatsiya
+   bilan eski imzosiz havolalar); 'dm'/'group' — faqat suhbat yoki guruh
+   a'zolari. Bunday faylni ID'ni taxmin qilib olish mumkin emas. */
+async function mediaViewerAllowed(scope, refId, ownerId, req) {
+  const h = req?.headers?.authorization ?? ''
+  const bearer = h.startsWith('Bearer ') ? h.slice(7).trim() : ''
+  if (!bearer) return false
+  const ref = tokenRef(bearer)
+  const { rows: sRows } = await pool.query(
+    `SELECT u.id FROM sessions s JOIN users u ON u.id = s.user_id
+     WHERE s.token = $1 AND (s.expires_at IS NULL OR s.expires_at > now())`,
+    [ref],
+  )
+  const meId = sRows[0]?.id
+  if (meId === undefined || meId === null) return false
+  if (scope === 'dm') {
+    if (!refId) return Number(ownerId) === Number(meId)
+    const { rows } = await pool.query(
+      `SELECT 1 FROM threads WHERE id = $1 AND (member_a = $2 OR member_b = $2)`,
+      [refId, meId],
+    )
+    return rows.length > 0
+  }
+  if (scope === 'group') {
+    if (!refId) return Number(ownerId) === Number(meId)
+    const { rows } = await pool.query(
+      `SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2`,
+      [refId, meId],
+    )
+    return rows.length > 0
+  }
+  return true
+}
+
+/* Xabar/guruhga biriktirilganda media'ni shu suhbatga "bog'laydi" — mijoz
+   `scope: 'public'` deb yuborsa ham, fayl faqat a'zolarga ko'rinadi. */
+async function scopePrivateMedia(values, scope, refId, ownerId) {
+  for (const v of values) {
+    const id = mediaPathOf(v)
+    if (!id || !isSafeMediaId(id)) continue
+    try {
+      await pool.query(
+        `UPDATE doppi_media SET scope = $1, ref_id = $2, owner_id = $3 WHERE id = $4`,
+        [scope, refId ? Number(refId) : null, ownerId, id],
+      )
+    } catch (e) {
+      console.error(`[media] scope yangilanmadi (${id}):`, e?.message ?? e)
+    }
+  }
+}
+
 app.get('/api/media/:id', async (req, res) => {
   const { id } = req.params
   if (!isSafeMediaId(id)) return res.status(400).json({ error: 'Noto‘g‘ri fayl nomi.' })
   try {
-    const { rows } = await pool.query('SELECT mime, bytes FROM doppi_media WHERE id = $1', [id])
+    const { rows } = await pool.query(
+      'SELECT mime, bytes, scope, ref_id, owner_id FROM doppi_media WHERE id = $1',
+      [id],
+    )
     if (rows.length === 0) return res.status(404).json({ error: 'Fayl topilmadi.' })
-    const bytes = Buffer.isBuffer(rows[0].bytes) ? rows[0].bytes : Buffer.from(rows[0].bytes)
-    res.setHeader('Content-Type', rows[0].mime || 'application/octet-stream')
+    const row = rows[0]
+    const scope = String(row.scope ?? 'public')
+    const sig = String(req.query.s ?? req.query.signature ?? '')
+    if (scope !== 'public') {
+      // Shaxsiy media: URL'ni ko'chirib olsa ham, faqat suhbat/guruh
+      // a'zolari ochishi mumkin. IMZO bu yerda o'ynab bo'lmaydi — imzo
+      // faqat ochiq fayllar uchun.
+      const allowed = await mediaViewerAllowed(scope, row.ref_id, row.owner_id, req)
+      if (!allowed) return res.status(401).json({ error: 'Ruxsat yo‘q. Avval tizimga kiring.' })
+    } else if (!mediaSignatureValid(id, sig)) {
+      // Ochiq media: imzo yo'q bo'lsa eski (imzosiz) havolalar uchun
+      // autentifikatsiya yetarli
+      const allowed = await mediaViewerAllowed(scope, row.ref_id, row.owner_id, req)
+      if (!allowed) return res.status(401).json({ error: 'Ruxsat yo‘q. Avval tizimga kiring.' })
+    }
+    const bytes = Buffer.isBuffer(row.bytes) ? row.bytes : Buffer.from(row.bytes)
+    res.setHeader('Content-Type', row.mime || 'application/octet-stream')
     res.setHeader('Content-Length', String(bytes.length))
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+    // Shaxsiy fayllar keshga tushmasin (brauzer keshi orqali sizib chiqmasin)
+    res.setHeader(
+      'Cache-Control',
+      scope === 'public' ? 'private, max-age=31536000, immutable' : 'private, no-store',
+    )
     res.end(bytes)
   } catch (e) {
     res.status(500).json({ error: 'Server xatosi.' })
@@ -1928,13 +2095,22 @@ app.post('/api/media', authMiddleware, async (req, res) => {
     return res.status(413).json({ error: `Fayl hajmi katta (${mb} MB dan oshmasligi kerak).` })
   }
   const id = `${Date.now().toString(36)}${crypto.randomBytes(6).toString('hex')}.${MEDIA_EXT[mime]}`
+  // Mijoz aytgan scope'ga ishonmaymiz: 'dm'/'group' uchun havolani
+  // xabar yuborilganda `scopePrivateMedia` bilan qayta bog'lanadi.
+  const askedScope = String(req.body?.scope ?? '').trim()
+  const scope = askedScope === 'dm' || askedScope === 'group' ? askedScope : 'public'
+  const refId = askedScope === 'dm' || askedScope === 'group' ? Number(req.body?.refId) || null : null
   try {
     await pool.query(
-      `INSERT INTO doppi_media (id, mime, size, bytes) VALUES ($1, $2, $3, $4)
-       ON CONFLICT (id) DO UPDATE SET mime = EXCLUDED.mime, size = EXCLUDED.size, bytes = EXCLUDED.bytes`,
-      [id, mime, bytes.length, bytes],
+      `INSERT INTO doppi_media (id, mime, size, bytes, scope, ref_id, owner_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (id) DO UPDATE SET mime = EXCLUDED.mime, size = EXCLUDED.size,
+         bytes = EXCLUDED.bytes, scope = EXCLUDED.scope, ref_id = EXCLUDED.ref_id, owner_id = EXCLUDED.owner_id`,
+      [id, mime, bytes.length, bytes, scope, refId, req.user.id],
     )
-    res.status(201).json({ id, url: `/api/media/${id}`, mime, kind, size: bytes.length })
+    // Ochiq media imzoli URL bilan qaytariladi: ID'ni taxmin qilib
+    // boshqalarning faylini yuklab bo'lmaydi.
+    res.status(201).json({ id, url: signedMediaPath(id), mime, kind, size: bytes.length })
   } catch (e) {
     res.status(500).json({ error: 'Server xatosi.' })
   }
@@ -2029,7 +2205,7 @@ app.post('/api/media/migrate', async (req, res) => {
                ON CONFLICT (id) DO UPDATE SET bytes = EXCLUDED.bytes`,
               [id, mime, buf.length, buf],
             )
-            stored.set(dataUrl, `/api/media/${id}`)
+            stored.set(dataUrl, signedMediaPath(id))
             bytes += buf.length
             migrated++
           }
