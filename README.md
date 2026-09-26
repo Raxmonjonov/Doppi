@@ -85,13 +85,21 @@ Sinov foydalanuvchilari: `demo1/demo1`, `demo2/demo2`. Admin panel: `/admin` →
 ## Testlar
 
 ```bash
-npm run test:netlify   # 23 ta test: netlify/lib/api-core.mjs business logikasi
-npm run build          # tsc + vite
-npm run lint           # oxlint
+npm run test:netlify   # 23 test: api-core business logikasi (fayl store, Blobs kabi)
+npm run test:pg-store # 23 test: postgres-store — haqiqiy Postgres'da doppi_doc SQL'i
+npm run test:all      # ikkalasi
+npm run build         # tsc + vite
+npm run lint          # oxlint
 ```
 
-`test:netlify` haqiqiy `handleRequest` eksportini store bilan chaqirib, auth → data → seal →
-shield → DM/group → admin oqimini va "restart'dan keyin saqlanishni" tekshiradi.
+Ikkala test ham bitta suite'ni (`netlify/lib/test-suite.mjs`) ishlatadi va haqiqiy
+`handleRequest` eksporti orqali oqimni yuritadi: auth → data (muhrlangan post + albom) →
+qalqon (+30m / takror→409 / o'z posti→403) → like/comment/share → muhrlangan DM → muhrlangan
+guruh xabari → admin dashboard → "qayta ishga tushgandan keyin saqlanish".
+
+`test:pg-store` Neon HTTP'ni bevosita emulyatsiya qilolmaydi (neon faqat HTTP ishlaydi), shuning
+uchun `neon()` o'rniga neon semantikasidagi `sql` shim qo'yiladi va SQL haqiqiy Postgres'da
+bajariladi — shu bilan `doppi_doc` jadvali, `jsonb` cast va `ON CONFLICT` tekshiriladi.
 
 ## Tuzilma
 
@@ -103,5 +111,6 @@ src/
   i18n/         69 til, `translate()` bilan fallback (missing kalit → base)
   styles/       components, layout, orbit
 server/         index.js, schema.sql
-netlify/        functions/api.mjs, lib/api-core.mjs (business logika), lib/postgres-store.mjs
+netlify/        functions/api.mjs, lib/api-core.mjs (business logika), lib/postgres-store.mjs,
+                lib/api-core.test.mjs + lib/postgres-store.test.mjs + lib/test-suite.mjs
 ```
