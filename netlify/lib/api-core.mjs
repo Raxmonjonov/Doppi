@@ -277,6 +277,8 @@ function rewriteDataUrls(node, byValue, depth = 0) {
 export const RATE_LIMITS = {
   login: { max: 10, windowMs: 15 * 60 * 1000 },
   register: { max: 10, windowMs: 60 * 60 * 1000 },
+  forgot: { max: 5, windowMs: 15 * 60 * 1000 },
+  reset: { max: 10, windowMs: 15 * 60 * 1000 },
   adminLogin: { max: 10, windowMs: 15 * 60 * 1000 },
   media: { max: 120, windowMs: 60 * 60 * 1000 },
 }
@@ -313,6 +315,19 @@ export function clientIp(req) {
 
 function tooMany(send, retryAfter) {
   return send(429, { error: 'Juda ko‘p urinish. Bir oz kutib, qayta yuboring.', retryAfter })
+}
+
+export const RESET_CODE_TTL = 10 * 60 * 1000
+const RESET_MAX_ATTEMPTS = 5
+
+/* Yetkazib berish kanali hali ulanmagan: kod server logiga yoziladi.
+   Ishlab chiqarishda (NODE_ENV=production) kod javobda qaytarilmaydi. */
+function resetCodeEcho() {
+  return process.env.NODE_ENV !== 'production' && process.env.RESET_CODE_ECHO !== '0'
+}
+
+export function makeResetCode() {
+  return String(crypto.randomInt(0, 1000000)).padStart(6, '0')
 }
 
 export async function handleRequest(method, pathname, query, req, store) {
@@ -390,6 +405,56 @@ export async function handleRequest(method, pathname, query, req, store) {
     doc.sessions.push({ token, userId: user.id, lastSeen: Date.now() })
     await store.saveDoc(doc)
     return send(200, { token, user: publicUser(user) })
+  }
+
+  if (method === 'POST' && first === 'auth' && second === 'forgot') {
+    const wait = rateLimit(`forgot:${clientIp(req)}`, RATE_LIMITS.forgot)
+    if (wait) return tooMany(send, wait)
+    const body = await readBody(req)
+    const idf = String(body.username ?? '').trim().toLowerCase()
+    const user = doc.users.find((u) => u.username.toLowerCase() === idf || String(u.email ?? '').toLowerCase() === idf)
+    const un = user ? user.username.toLowerCase() : idf
+    // har foydalanuvchi uchun faqat bitta faol kod
+    doc.resetCodes = (doc.resetCodes ?? []).filter((r) => r.username !== un)
+    if (!user) return send(200, { ok: true, sent: true }) // mavjudligini oshkor qilmaymiz
+    const code = makeResetCode()
+    const { salt, hash } = hashPassword(code)
+    doc.resetCodes.push({ username: un, salt, codeHash: hash, expiresAt: Date.now() + RESET_CODE_TTL, attempts: 0 })
+    await store.saveDoc(doc)
+    console.log(`[parol tiklash] ${user.username} uchun kod: ${code} (muddat ${new Date(Date.now() + RESET_CODE_TTL).toISOString()})`)
+    return send(200, resetCodeEcho() ? { ok: true, sent: true, debugCode: code } : { ok: true, sent: true })
+  }
+
+  if (method === 'POST' && first === 'auth' && second === 'reset') {
+    const wait = rateLimit(`reset:${clientIp(req)}`, RATE_LIMITS.reset)
+    if (wait) return tooMany(send, wait)
+    const body = await readBody(req)
+    const idf = String(body.username ?? '').trim().toLowerCase()
+    const code = String(body.code ?? '').trim()
+    const pw = String(body.password ?? '')
+    const user = doc.users.find((u) => u.username.toLowerCase() === idf || String(u.email ?? '').toLowerCase() === idf)
+    const entry = user ? (doc.resetCodes ?? []).find((r) => r.username === user.username.toLowerCase()) : null
+    if (!entry || entry.expiresAt <= Date.now()) {
+      return send(400, { error: 'Tiklash kodi muddati tugagan. Yangi kod so‘rang.' })
+    }
+    if (entry.attempts >= RESET_MAX_ATTEMPTS) {
+      return send(429, { error: 'Juda ko‘p urinish. Yangi tiklash kodi so‘rang.' })
+    }
+    entry.attempts++
+    if (!verifyPassword(code, entry.salt, entry.codeHash)) {
+      await store.saveDoc(doc) // urishlar sonini saqlaymiz
+      return send(400, { error: 'Kod noto‘g‘ri.' })
+    }
+    if (pw.length < 4) return send(400, { error: 'Parol kamida 4 belgidan iborat bo‘lishi kerak.' })
+    const { salt, hash } = hashPassword(pw)
+    user.salt = salt
+    user.hash = hash
+    user.passwordChangedAt = new Date().toISOString()
+    const un = user.username.toLowerCase()
+    doc.sessions = doc.sessions.filter((s) => s.userId !== user.id) // barcha qurilmalardagi sessiyalar bekor qilinadi
+    doc.resetCodes = doc.resetCodes.filter((r) => r.username !== un)
+    await store.saveDoc(doc)
+    return send(200, { ok: true })
   }
 
   if (method === 'POST' && first === 'auth' && second === 'logout') {

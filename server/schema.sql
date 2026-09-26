@@ -10,8 +10,10 @@ CREATE TABLE IF NOT EXISTS users (
   google_id TEXT,
   avatar TEXT NOT NULL DEFAULT '',
   about TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  password_changed_at TIMESTAMPTZ
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
@@ -209,3 +211,11 @@ CREATE TABLE IF NOT EXISTS doppi_media (
 );
 
 CREATE INDEX IF NOT EXISTS idx_media_created ON doppi_media(created_at);
+
+CREATE TABLE IF NOT EXISTS password_resets (
+  username text PRIMARY KEY,
+  salt text NOT NULL,
+  code_hash text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  attempts integer NOT NULL DEFAULT 0
+);
