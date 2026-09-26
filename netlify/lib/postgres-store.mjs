@@ -1,7 +1,7 @@
 import { neon } from '@neondatabase/serverless'
 
-export function createPostgresStore(databaseUrl, seedProvider) {
-  const sql = neon(databaseUrl)
+export function createPostgresStore(databaseUrl, seedProvider, sqlClient) {
+  const sql = sqlClient ?? neon(databaseUrl)
   const docKey = 'doppi-doc-v1'
 
   async function ensureTable() {
