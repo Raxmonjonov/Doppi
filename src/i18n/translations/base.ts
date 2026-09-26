@@ -319,6 +319,8 @@ export const uz: Dict = {
   'admin.logout': 'Chiqish',
   'admin.gcMedia': 'Ishlatilmay qolgan medialarni tozalash',
   'admin.gcDone': 'Tozalandi: {removed} ta fayl o‘chirildi, {kept} ta saqlanadi.',
+  'admin.migrateMedia': 'Eski rasmlarni faylga ko‘chirish',
+  'admin.migrateDone': 'Ko‘chirildi: {migrated} ta, o‘tkazib yuborildi: {skipped}.',
   'sidebar.labelAdmin': 'Admin',
   'bottomNav.labelAdmin': 'Admin',
   'settings.pageTitle': 'Sozlamalar',

@@ -17,10 +17,13 @@ export async function runSuite(store, label) {
   }
   const show = (l, r) => console.log(`  DEBUG ${l}: status=${r.status} json=${JSON.stringify(r.json).slice(0, 200)}`)
 
-  const call = async (method, pathname, body, token) => {
+  const call = async (method, url, body, token) => {
     const headers = { authorization: '' }
     if (token) headers.authorization = `Bearer ${token}`
-    return handleRequest(method, pathname, {}, { json: async () => body ?? {}, headers }, store)
+    /* Production entrypoints strip the query before handleRequest — do the same. */
+    const [pathname, search] = String(url).split('?')
+    const query = Object.fromEntries(new URLSearchParams(search ?? ''))
+    return handleRequest(method, pathname, query, { json: async () => body ?? {}, headers }, store)
   }
   const register = (username, password, name) =>
     call('POST', '/api/auth/register', { username, password, name, email: `${username}@test.dev` })
@@ -163,6 +166,39 @@ export async function runSuite(store, label) {
   if (mediaUrl) {
     const afterKept = await call('GET', mediaUrl, undefined, undefined)
     ok('referenced media survives gc', afterKept.status === 200 && !!afterKept.binary, `status=${afterKept.status}`)
+  }
+
+  // 8c) eski data: URL larni haqiqiy faylga ko'chirish
+  const legacyPost = {
+    id: pid + 7,
+    author: { id: uid1, name: 'Net Test', username: 'nftest1', avatar: '', online: true, about: '' },
+    time: 'old',
+    text: 'legacy data url',
+    images: [`data:image/png;base64,${pngBase64}`],
+    likes: 0,
+    comments: [],
+  }
+  /* Hozirgi ma'lumotni olib, unga eski postni qo'shamiz (muhr va qalqon saqlansin). */
+  const current = (await call('GET', '/api/data', undefined, tok2)).json
+  r = await call('PUT', '/api/data', { posts: [...current.posts, legacyPost], stories: [], reels: [], albums: current.albums, groups: [] }, tok2)
+  ok('PUT legacy data-url post', r.status === 200, `status=${r.status}`)
+  const docBefore = JSON.stringify((await call('GET', '/api/data', undefined, tok2)).json)
+  ok('legacy post still has data: url', docBefore.includes('data:image/png'))
+
+  r = await call('POST', '/api/media/migrate', undefined, tok2)
+  ok('media migrate needs admin -> 403', r.status === 403, `status=${r.status}`)
+
+  r = await call('POST', '/api/media/migrate?limit=10', undefined, adminTok)
+  ok('media migrate converts data url', r.status === 200 && r.json.migrated >= 1, `migrated=${r.json.migrated}`)
+
+  const docAfter = (await call('GET', '/api/data', undefined, tok2)).json
+  const migratedPost = docAfter.posts.find((p) => p.id === legacyPost.id)
+  const newUrl = migratedPost?.images?.[0] ?? ''
+  ok('legacy post now points to /api/media', newUrl.startsWith('/api/media/'), `url=${newUrl.slice(0, 40)}`)
+  ok('data: url gone from doc', !JSON.stringify(docAfter).includes('data:image/png'))
+  if (newUrl) {
+    const mr2 = await call('GET', newUrl, undefined, undefined)
+    ok('migrated media is downloadable', mr2.status === 200 && !!mr2.binary, `status=${mr2.status}`)
   }
 
   // 9) reload from a fresh store read (persistence)

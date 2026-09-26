@@ -1332,6 +1332,81 @@ app.post('/api/media/gc', async (req, res) => {
   }
 })
 
+app.post('/api/media/migrate', async (req, res) => {
+  const token = adminBearer(req)
+  if (!token || !adminTokens.has(token)) return res.status(403).json({ error: 'Faqat admin uchun.' })
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50))
+  const MEDIA_COLUMNS = [
+    { table: 'posts', column: 'images', json: true },
+    { table: 'posts', column: 'video', json: false },
+    { table: 'stories', column: 'image', json: false },
+    { table: 'reels', column: 'image', json: false },
+    { table: 'albums', column: 'photos', json: true },
+    { table: 'groups', column: 'cover', json: false },
+    { table: 'users', column: 'avatar', json: false },
+    { table: 'messages', column: 'image', json: false },
+    { table: 'group_messages', column: 'image', json: false },
+  ]
+  const DATA_URL_RE = /data:([a-z0-9.+/-]+);base64,([A-Za-z0-9+/=]+)/gi
+  const stored = new Map() // dataUrl -> /api/media/<id>
+  let migrated = 0
+  let skipped = 0
+  let bytes = 0
+
+  try {
+    for (const col of MEDIA_COLUMNS) {
+      const { rows } = await pool.query(
+        `SELECT id, ${col.column}::text AS txt FROM ${col.table}
+         WHERE ${col.column}::text LIKE '%;base64,%'
+         LIMIT 500`,
+      )
+      for (const row of rows) {
+        if (!row.txt) continue
+        const params = [row.id]
+        let expr = `${col.column}::text`
+        let touched = false
+        for (const match of row.txt.matchAll(DATA_URL_RE)) {
+          const dataUrl = match[0]
+          if (stored.has(dataUrl)) {
+            // already uploaded in this run
+          } else if (migrated + skipped >= limit) {
+            continue
+          } else {
+            const mime = match[1].toLowerCase()
+            const kind = MEDIA_MIME[mime]
+            const buf = Buffer.from(match[2], 'base64')
+            if (!kind || !buf.length || buf.length > MEDIA_LIMITS[kind]) {
+              skipped++
+              continue
+            }
+            const id = `${Date.now().toString(36)}${crypto.randomBytes(6).toString('hex')}.${MEDIA_EXT[mime]}`
+            await pool.query(
+              `INSERT INTO doppi_media (id, mime, size, bytes) VALUES ($1, $2, $3, $4)
+               ON CONFLICT (id) DO UPDATE SET bytes = EXCLUDED.bytes`,
+              [id, mime, buf.length, buf],
+            )
+            stored.set(dataUrl, `/api/media/${id}`)
+            bytes += buf.length
+            migrated++
+          }
+          const url = stored.get(dataUrl)
+          if (!url) continue
+          params.push(dataUrl, url)
+          expr = `replace(${expr}, $${params.length - 1}, $${params.length})`
+          touched = true
+        }
+        if (!touched) continue
+        const cast = col.json ? '::jsonb' : ''
+        await pool.query(`UPDATE ${col.table} SET ${col.column} = ${expr}${cast} WHERE id = $1`, params)
+      }
+    }
+    res.json({ migrated, skipped, remaining: 0, bytes })
+  } catch (e) {
+    console.error('media migrate xatosi:', e.message)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
 /* ---------- SPA (built frontend) ---------- */
 
 const DIST_PATH = path.join(__dirname, '..', 'dist')
