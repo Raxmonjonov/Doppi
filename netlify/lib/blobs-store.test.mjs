@@ -41,6 +41,16 @@ function fakeBlobStore() {
         : new TextDecoder().decode(e.data)
       return { data, etag: `etag-${key}`, metadata: e.metadata }
     },
+    async list({ prefix = '' } = {}) {
+      const keys = [...entries.keys()].filter((k) => k.startsWith(prefix))
+      return {
+        blobs: keys.map((key) => ({ key, etag: `etag-${key}`, size: entries.get(key).data.length })),
+        directories: [],
+      }
+    },
+    async delete(key) {
+      entries.delete(key)
+    },
   }
   return blob
 }

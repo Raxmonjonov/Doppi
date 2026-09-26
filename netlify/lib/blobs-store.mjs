@@ -39,5 +39,18 @@ export function createBlobsStore(blob, seedProvider) {
       if (!res || !res.data) return null
       return { bytes: new Uint8Array(res.data), mime: res.metadata?.mime || mimeFromId(id) }
     },
+    async listMedia() {
+      const { blobs } = await blob.list({ prefix: MEDIA_PREFIX })
+      return blobs.map((b) => String(b.key).slice(MEDIA_PREFIX.length))
+    },
+    async deleteMedia(ids) {
+      let removed = 0
+      for (const id of ids) {
+        if (!/^[A-Za-z0-9][\w.-]*$/.test(id) || id.includes('..')) continue
+        await blob.delete(MEDIA_PREFIX + id)
+        removed++
+      }
+      return removed
+    },
   }
 }
