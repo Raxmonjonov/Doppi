@@ -270,6 +270,51 @@ function rewriteDataUrls(node, byValue, depth = 0) {
   }
 }
 
+/* ---------- Rate limit ----------
+   Parolni taxmin qilish (brute force), ro'yxatdan o'tish spam va media
+   yuklashni cheklash. Holat jarayon xotirasida saqlanadi: bir Node/lambda
+   instance'iga tegishli — serverless'da bir necha soatga yoyilishi mumkin. */
+export const RATE_LIMITS = {
+  login: { max: 10, windowMs: 15 * 60 * 1000 },
+  register: { max: 10, windowMs: 60 * 60 * 1000 },
+  adminLogin: { max: 10, windowMs: 15 * 60 * 1000 },
+  media: { max: 120, windowMs: 60 * 60 * 1000 },
+}
+
+const rateBuckets = new Map()
+
+function sweepRateBuckets(now) {
+  if (rateBuckets.size < 500) return
+  for (const [k, b] of rateBuckets) if (now > b.resetAt) rateBuckets.delete(k)
+}
+
+/* Qaytaradi: null (ruxsat) yoki qolgan soniyalar (429). */
+export function rateLimit(key, limit) {
+  const now = Date.now()
+  sweepRateBuckets(now)
+  const bucket = rateBuckets.get(key)
+  if (!bucket || now > bucket.resetAt) {
+    rateBuckets.set(key, { count: 1, resetAt: now + limit.windowMs })
+    return null
+  }
+  bucket.count++
+  if (bucket.count > limit.max) return Math.max(1, Math.ceil((bucket.resetAt - now) / 1000))
+  return null
+}
+
+export function clientIp(req) {
+  const h = req.headers ?? {}
+  const fwd = h['x-forwarded-for'] ?? h['X-Forwarded-For']
+  if (typeof fwd === 'string' && fwd) return fwd.split(',')[0].trim()
+  const real = h['x-real-ip'] ?? h['X-Real-IP']
+  if (typeof real === 'string' && real) return real.trim()
+  return 'local'
+}
+
+function tooMany(send, retryAfter) {
+  return send(429, { error: 'Juda ko‘p urinish. Bir oz kutib, qayta yuboring.', retryAfter })
+}
+
 export async function handleRequest(method, pathname, query, req, store) {
   const segs = pathname.split('/').filter(Boolean)
   const api = segs.length >= 1 && segs[0] === 'api' ? segs.slice(1) : segs
@@ -299,6 +344,8 @@ export async function handleRequest(method, pathname, query, req, store) {
   /* ---------- Auth ---------- */
 
   if (method === 'POST' && first === 'auth' && second === 'register') {
+    const wait = rateLimit(`register:${clientIp(req)}`, RATE_LIMITS.register)
+    if (wait) return tooMany(send, wait)
     const body = await readBody(req)
     const { name, username, email, password, avatar, about } = body
     const uname = String(username ?? '').trim()
@@ -332,6 +379,8 @@ export async function handleRequest(method, pathname, query, req, store) {
   if (method === 'POST' && first === 'auth' && second === 'login') {
     const body = await readBody(req)
     const idf = String(body.username ?? '').trim().toLowerCase()
+    const wait = rateLimit(`login:${clientIp(req)}:${idf}`, RATE_LIMITS.login)
+    if (wait) return tooMany(send, wait)
     const pw = String(body.password ?? '')
     const user = doc.users.find((u) => u.username.toLowerCase() === idf || u.email.toLowerCase() === idf)
     if (!user) return send(404, { error: 'Bunday foydalanuvchi topilmadi.' })
@@ -367,6 +416,8 @@ export async function handleRequest(method, pathname, query, req, store) {
   if (method === 'POST' && first === 'admin' && second === 'login') {
     const body = await readBody(req)
     const un = String(body.username ?? '')
+    const wait = rateLimit(`adminLogin:${clientIp(req)}`, RATE_LIMITS.adminLogin)
+    if (wait) return tooMany(send, wait)
     const pw = String(body.password ?? '')
     if (un === ADMIN_USER && pw === ADMIN_PASS) {
       const token = makeToken()
@@ -1147,6 +1198,8 @@ export async function handleRequest(method, pathname, query, req, store) {
   if (method === 'POST' && first === 'media' && second === undefined) {
     const me = auth(doc, bearer)
     if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const wait = rateLimit(`media:${me.id}`, RATE_LIMITS.media)
+    if (wait) return tooMany(send, wait)
     if (typeof store.putMedia !== 'function') return send(501, { error: 'Media yuklash qo‘llab-quvvatlanmaydi.' })
     const body = await readBody(req)
     const parsed = parseDataUrl(body.dataUrl)
