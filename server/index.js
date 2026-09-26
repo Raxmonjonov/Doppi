@@ -5,6 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import webpushDefault from 'web-push'
+import { sendMail, resetCodeMessage } from '../netlify/lib/delivery.mjs'
 
 // web-push CommonJS moduli: default import to'g'ri kelishi uchun normallashtiramiz
 const webpush = webpushDefault?.default ?? webpushDefault
@@ -252,6 +253,8 @@ app.post('/api/auth/login', async (req, res) => {
 
 const RESET_CODE_TTL = 10 * 60 * 1000
 const RESET_MAX_ATTEMPTS = 5
+/* Inbox'ni bombalashga qarshi: bu vaqt ichida yangi kod yuborilmaydi */
+const RESET_RESEND_COOLDOWN = 60 * 1000
 
 function resetCodeEcho() {
   return process.env.NODE_ENV !== 'production' && process.env.RESET_CODE_ECHO !== '0'
@@ -261,6 +264,13 @@ function makeResetCode() {
   return String(crypto.randomInt(0, 1000000)).padStart(6, '0')
 }
 
+function resetUrlFor(username) {
+  const base = String(process.env.APP_URL ?? process.env.PUBLIC_URL ?? '').replace(/\/+$/, '')
+  if (!base) return ''
+  const q = new URLSearchParams({ username: String(username ?? '').trim(), forgot: '1' })
+  return `${base}/login?${q.toString()}`
+}
+
 app.post('/api/auth/forgot', async (req, res) => {
   const forgotWait = rateLimit('forgot:' + req.ip, RATE_LIMITS.forgot)
   if (forgotWait) return blockTooMany(res, forgotWait)
@@ -268,23 +278,39 @@ app.post('/api/auth/forgot', async (req, res) => {
   const idf = String(username ?? '').trim().toLowerCase()
   try {
     const { rows } = await pool.query(
-      `SELECT id, username FROM users WHERE LOWER(username) = $1 OR LOWER(email) = $1`,
+      `SELECT id, username, email FROM users WHERE LOWER(username) = $1 OR LOWER(email) = $1`,
       [idf],
     )
     const un = rows[0] ? rows[0].username.toLowerCase() : idf
+    const user = rows[0]
+    // mavjudligini oshkor qilmaymiz — javob har doim bir xal
+    if (!user) return res.json({ ok: true, sent: true })
+
+    // yaqinda yuborilgan bo'lsa, qayta yuborilmaydi (pochta bombasi himoyasi)
+    const { rows: prev } = await pool.query(
+      `SELECT expires_at, sent_at FROM password_resets WHERE username = $1`,
+      [un],
+    )
+    const now = Date.now()
+    if (prev[0] && new Date(prev[0].expires_at).getTime() > now && now - Number(prev[0].sent_at ?? 0) < RESET_RESEND_COOLDOWN) {
+      return res.json({ ok: true, sent: true, throttled: true })
+    }
+
     await pool.query(`DELETE FROM password_resets WHERE username = $1`, [un])
-    if (!rows[0]) return res.json({ ok: true, sent: true }) // mavjudligini oshkor qilmaymiz
     const code = makeResetCode()
     const { salt, hash } = hashPassword(code)
     await pool.query(
-      `INSERT INTO password_resets (username, salt, code_hash, expires_at, attempts)
-       VALUES ($1,$2,$3,$4,0)
+      `INSERT INTO password_resets (username, salt, code_hash, expires_at, attempts, sent_at)
+       VALUES ($1,$2,$3,$4,0,$5)
        ON CONFLICT (username) DO UPDATE SET salt = EXCLUDED.salt, code_hash = EXCLUDED.code_hash,
-         expires_at = EXCLUDED.expires_at, attempts = 0`,
-      [un, salt, hash, new Date(Date.now() + RESET_CODE_TTL).toISOString()],
+         expires_at = EXCLUDED.expires_at, attempts = 0, sent_at = EXCLUDED.sent_at`,
+      [un, salt, hash, new Date(Date.now() + RESET_CODE_TTL).toISOString(), now],
     )
-    console.log(`[parol tiklash] ${rows[0].username} uchun kod: ${code}`)
-    res.json(resetCodeEcho() ? { ok: true, sent: true, debugCode: code } : { ok: true, sent: true })
+    // yetkazish hech qachon javobni o'zgartirmaydi
+    const mail = resetCodeMessage({ code, username: user.username, url: resetUrlFor(user.username), minutes: 10 })
+    const sent = await sendMail({ to: user.email, ...mail })
+    if (!sent.ok) console.error(`[parol tiklash] ${user.username}: yetkazilmadi (${sent.provider}: ${sent.error ?? 'noma\'lum'})`)
+    res.json(resetCodeEcho() ? { ok: true, sent: true, debugCode: code, via: sent.provider } : { ok: true, sent: true })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Server xatosi.' })

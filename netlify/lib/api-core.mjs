@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import webpushDefault from 'web-push'
+import { sendMail, resetCodeMessage, appUrl } from './delivery.mjs'
 
 // web-push CommonJS moduli: default import to'g'ri kelishi uchun normallashtiramiz
 const webpush = webpushDefault?.default ?? webpushDefault
@@ -344,6 +345,9 @@ function tooMany(send, retryAfter) {
 
 export const RESET_CODE_TTL = 10 * 60 * 1000
 const RESET_MAX_ATTEMPTS = 5
+/* Inbox'ni bombalashga qarshi: bu vaqt ichida yangi kod yuborilmaydi,
+   eski kod ham saqlanib qoladi (foydalanuvchi bir marta so'ragan hisoblanadi). */
+const RESET_RESEND_COOLDOWN = 60 * 1000
 
 /* Sessiya 30 kun turadi va har bir so'rovda yangilanadi (sliding TTL). */
 export const SESSION_TTL = 30 * 24 * 60 * 60 * 1000
@@ -362,6 +366,15 @@ function uaLabel(req) {
    Ishlab chiqarishda (NODE_ENV=production) kod javobda qaytarilmaydi. */
 function resetCodeEcho() {
   return process.env.NODE_ENV !== 'production' && process.env.RESET_CODE_ECHO !== '0'
+}
+
+/* Kodni kiritish sahifasining to'liq manzili (agar APP_URL berilgan bo'lsa).
+   Alohida `/reset` yo'li yo'q — SPA da `/login?username=...&forgot=1`. */
+function resetUrl(username = '') {
+  const base = appUrl().replace(/\/+$/, '')
+  if (!base) return ''
+  const q = new URLSearchParams({ username: String(username ?? '').trim(), forgot: '1' })
+  return `${base}/login?${q.toString()}`
 }
 
 export function makeResetCode() {
@@ -718,15 +731,32 @@ export async function handleRequest(method, pathname, query, req, store) {
     const idf = String(body.username ?? '').trim().toLowerCase()
     const user = doc.users.find((u) => u.username.toLowerCase() === idf || String(u.email ?? '').toLowerCase() === idf)
     const un = user ? user.username.toLowerCase() : idf
+    const previous = (doc.resetCodes ?? []).find((r) => r.username === un)
+    // mavjudligini oshkor qilmaymiz — javob har doim bir xal
+    if (!user) return send(200, { ok: true, sent: true })
+    // yaqinda yuborilgan bo'lsa, qayta yuborilmaydi (pochta bombasi himoyasi)
+    if (previous && previous.expiresAt > Date.now() && Date.now() - Number(previous.sentAt ?? 0) < RESET_RESEND_COOLDOWN) {
+      // eski kod saqlanib qoladi va hech qanday yangi kod yuborilmaydi
+      return send(200, { ok: true, sent: true, throttled: true })
+    }
     // har foydalanuvchi uchun faqat bitta faol kod
     doc.resetCodes = (doc.resetCodes ?? []).filter((r) => r.username !== un)
-    if (!user) return send(200, { ok: true, sent: true }) // mavjudligini oshkor qilmaymiz
     const code = makeResetCode()
     const { salt, hash } = hashPassword(code)
-    doc.resetCodes.push({ username: un, salt, codeHash: hash, expiresAt: Date.now() + RESET_CODE_TTL, attempts: 0 })
+    doc.resetCodes.push({
+      username: un,
+      salt,
+      codeHash: hash,
+      expiresAt: Date.now() + RESET_CODE_TTL,
+      attempts: 0,
+      sentAt: Date.now(),
+    })
     await store.saveDoc(doc)
-    console.log(`[parol tiklash] ${user.username} uchun kod: ${code} (muddat ${new Date(Date.now() + RESET_CODE_TTL).toISOString()})`)
-    return send(200, resetCodeEcho() ? { ok: true, sent: true, debugCode: code } : { ok: true, sent: true })
+    // yetkazish hech qachon javobni o'zgartirmaydi
+    const mail = resetCodeMessage({ code, username: user.username, url: resetUrl(user.username), minutes: 10 })
+    const sent = await sendMail({ to: user.email, ...mail })
+    if (!sent.ok) console.error(`[parol tiklash] ${user.username}: yetkazilmadi (${sent.provider}: ${sent.error ?? 'noma\'lum'})`)
+    return send(200, resetCodeEcho() ? { ok: true, sent: true, debugCode: code, via: sent.provider } : { ok: true, sent: true })
   }
 
   if (method === 'POST' && first === 'auth' && second === 'reset') {

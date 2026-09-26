@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { AlertCircle, ArrowLeft, KeyRound } from 'lucide-react'
 import { useAuth } from '../data/auth'
 import { useI18n } from '../i18n'
@@ -19,6 +19,19 @@ export function LoginPage() {
   const [newPassword, setNewPassword] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
   const [devCode, setDevCode] = useState<string | null>(null)
+
+  /* Xabardagi havola: /login?username=...&forgot=1 — foydalanuvchi allaqachon
+     emailingizga yuborilgan kodni kiritish bosqichiga to'g'ridan-to'g'ri o'tadi. */
+  const [params] = useSearchParams()
+  const fromEmailLink = params.get('forgot') === '1' && !!params.get('username')
+  const [linkHandled, setLinkHandled] = useState(false)
+  if (fromEmailLink && !linkHandled) {
+    setLinkHandled(true)
+    setUsername(params.get('username') ?? '')
+    setMode('forgot')
+    setStep('code')
+    setNotice(t('auth.forgotSentToEmail'))
+  }
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -50,7 +63,7 @@ export function LoginPage() {
         token: null,
         body: { username },
       })
-      setNotice(t('auth.forgotSent'))
+      setNotice(t('auth.forgotSentToEmail'))
       setDevCode(r.debugCode ?? null)
       setStep('code')
     } catch (err) {
@@ -116,6 +129,7 @@ export function LoginPage() {
             </form>
           ) : (
             <form className="auth-form" onSubmit={saveNewPassword}>
+              {notice && <div className="auth-note">{notice}</div>}
               {devCode && <div className="auth-note">{t('auth.forgotDevCode', { code: devCode })}</div>}
 
               <label className="auth-field">
@@ -136,6 +150,19 @@ export function LoginPage() {
 
               <button type="submit" className="btn btn-primary auth-submit" disabled={busy || !code || newPassword.length < 4}>
                 {busy ? t('auth.pleaseWait') : t('auth.resetSubmit')}
+              </button>
+
+              <button
+                type="button"
+                className="auth-linkbtn"
+                disabled={busy}
+                onClick={() => {
+                  setStep('user')
+                  setNotice(null)
+                  setError(null)
+                }}
+              >
+                {t('auth.forgotResend')}
               </button>
             </form>
           )}

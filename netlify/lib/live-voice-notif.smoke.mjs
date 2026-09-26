@@ -188,6 +188,22 @@ const run = async () => {
   r = await call('POST', '/api/push/unsubscribe', { endpoint: sub.endpoint })
   ok('push unsubscribe needs auth -> 401', r.status === 401, `status=${r.status}`)
 
+  // 9) parol tiklash: yetkazish kanali + pochta bombasi himoyasi
+  r = await call('POST', '/api/auth/forgot', { username: u1 })
+  const liveCode = r.json?.debugCode
+  ok('forgot -> 200 with delivery channel', r.status === 200 && /^\d{6}$/.test(String(liveCode ?? '')), `code=${liveCode}`)
+  ok('forgot reports delivery provider', !!r.json?.via, `via=${r.json?.via}`)
+  r = await call('POST', '/api/auth/forgot', { username: u1 })
+  ok('repeat forgot throttled', r.status === 200 && r.json?.throttled === true, `throttled=${r.json?.throttled}`)
+  r = await call('POST', '/api/auth/forgot', { username: 'bunday-live-user-yoq' })
+  ok('forgot hides unknown user', r.status === 200 && !r.json?.debugCode, `status=${r.status}`)
+  r = await call('POST', '/api/auth/reset', { username: u1, code: '000000', password: 'yangi123' })
+  ok('reset wrong code -> 400', r.status === 400, `status=${r.status}`)
+  r = await call('POST', '/api/auth/reset', { username: u1, code: liveCode, password: 'yangi123' })
+  ok('reset with delivered code -> 200', r.status === 200 && r.json?.ok === true, `status=${r.status}`)
+  r = await call('POST', '/api/auth/login', { username: u1, password: 'yangi123' })
+  ok('login with new password -> 200', r.status === 200 && !!r.json?.token, `status=${r.status}`)
+
   // cleanup
   await call('DELETE', `/api/groups/${gid}`, undefined, tok1)
   await call('DELETE', `/api/threads/${tid}`, undefined, tok1)

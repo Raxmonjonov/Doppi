@@ -269,3 +269,6 @@ CREATE TABLE IF NOT EXISTS password_resets (
   expires_at timestamptz NOT NULL,
   attempts integer NOT NULL DEFAULT 0
 );
+
+-- yetkazish sanasi (pochta bombasiga qarshi throttle)
+ALTER TABLE password_resets ADD COLUMN IF NOT EXISTS sent_at BIGINT NOT NULL DEFAULT 0;
