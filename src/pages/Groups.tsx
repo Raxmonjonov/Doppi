@@ -25,7 +25,7 @@ import { MsgBubble } from './Messenger'
 import { api } from '../api/client'
 import { useMe } from '../data/useMe'
 import { useAuth } from '../data/auth'
-import { fileToDataUrl } from '../lib/upload'
+import { uploadImage } from '../lib/upload'
 import { useI18n } from '../i18n'
 
 interface GroupMember {
@@ -211,8 +211,8 @@ function CreateGroupModal({
     e.target.value = ''
     if (!f) return
     setError(null)
-    const url = await fileToDataUrl(f, 8, (msg) => setError(msg))
-    if (url) setCover(url)
+    const res = await uploadImage(f, (msg) => setError(msg))
+    if (res) setCover(res.url)
   }
 
   const create = async () => {

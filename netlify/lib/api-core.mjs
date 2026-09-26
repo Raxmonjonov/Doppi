@@ -99,13 +99,64 @@ async function readBody(req) {
   }
 }
 
-export async function handleRequest(method, pathname, query, req, store) {
-  const doc = await store.getDoc()
-  const send = async (status, json) => ({ status, json })
+export const MEDIA_LIMITS = {
+  image: 8 * 1024 * 1024,
+  video: 40 * 1024 * 1024,
+}
 
+const MEDIA_MIME = {
+  'image/jpeg': 'image',
+  'image/png': 'image',
+  'image/webp': 'image',
+  'image/gif': 'image',
+  'video/mp4': 'video',
+  'video/webm': 'video',
+}
+
+const MEDIA_EXT = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+}
+
+export function parseDataUrl(dataUrl) {
+  const m = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,([\s\S]+)$/i.exec(String(dataUrl ?? '').trim())
+  if (!m) return null
+  const mime = m[1].toLowerCase()
+  const bytes = Buffer.from(m[2], 'base64')
+  if (!bytes.length) return null
+  return { mime, bytes }
+}
+
+export function mediaIdFor(id, mime) {
+  return `${id}.${MEDIA_EXT[mime] ?? 'bin'}`
+}
+
+/* Media id is used as a storage key (Blobs key / file path / SQL text) — keep it boring. */
+export function isSafeMediaId(id) {
+  const s = String(id ?? '')
+  return s.length > 0 && s.length <= 120 && !s.includes('..') && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(s)
+}
+
+export async function handleRequest(method, pathname, query, req, store) {
   const segs = pathname.split('/').filter(Boolean)
   const api = segs.length >= 1 && segs[0] === 'api' ? segs.slice(1) : segs
   const [first, second, third, _fourth] = api
+
+  /* ---------- Media (binary) — doc hujjatini yuklamaydi ---------- */
+
+  if (method === 'GET' && first === 'media' && second && typeof store.getMedia === 'function') {
+    if (!isSafeMediaId(second)) return { status: 400, json: { error: 'Noto‘g‘ri fayl nomi.' } }
+    const item = await store.getMedia(String(second))
+    if (!item) return { status: 404, json: { error: 'Fayl topilmadi.' } }
+    return { status: 200, binary: { body: item.bytes, type: item.mime } }
+  }
+
+  const doc = await store.getDoc()
+  const send = async (status, json) => ({ status, json })
 
   const bearer = String(req.headers?.authorization ?? req.headers?.get?.('authorization') ?? '').replace(/^Bearer\s+/i, '').trim()
   const auth = (d, token) => {
@@ -941,6 +992,31 @@ export async function handleRequest(method, pathname, query, req, store) {
     doc.threadCallSignals = doc.threadCallSignals.filter((s) => s.threadId !== id)
     await store.saveDoc(doc)
     return send(200, { ok: true })
+  }
+
+  /* ---------- Media yuklash ---------- */
+
+  if (method === 'POST' && first === 'media' && second === undefined) {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    if (typeof store.putMedia !== 'function') return send(501, { error: 'Media yuklash qo‘llab-quvvatlanmaydi.' })
+    const body = await readBody(req)
+    const parsed = parseDataUrl(body.dataUrl)
+    if (!parsed) return send(400, { error: 'dataUrl formati noto‘g‘ri.' })
+    const kind = MEDIA_MIME[parsed.mime]
+    if (!kind) return send(415, { error: `Bu fayl turi qabul qilinmaydi: ${parsed.mime}` })
+    if (parsed.bytes.length > MEDIA_LIMITS[kind]) {
+      return send(413, { error: `Fayl hajmi katta (${kind === 'video' ? 40 : 8} MB dan oshmasligi kerak).` })
+    }
+    const id = mediaIdFor(`${Date.now().toString(36)}${crypto.randomBytes(6).toString('hex')}`, parsed.mime)
+    await store.putMedia(id, parsed.mime, parsed.bytes)
+    return send(201, {
+      id,
+      url: `/api/media/${id}`,
+      mime: parsed.mime,
+      kind,
+      size: parsed.bytes.length,
+    })
   }
 
   return send(404, { error: "Tepada hech narsa topilmadi." })

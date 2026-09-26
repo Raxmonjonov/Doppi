@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { AlertCircle, ArrowRight, ArrowLeft, Camera, Check } from 'lucide-react'
 import { useAuth } from '../data/auth'
 import { useI18n } from '../i18n'
-import { fileToDataUrl } from '../lib/upload'
+import { prepareAvatar } from '../lib/upload'
 
 const STEPS = ['email', 'username', 'photo', 'work', 'password'] as const
 type Step = (typeof STEPS)[number]
@@ -28,7 +28,7 @@ export function RegisterPage() {
   const pickFile = async (file: File | undefined) => {
     if (!file) return
     setError(null)
-    const url = await fileToDataUrl(file, 4, (msg) => setError(msg))
+    const url = await prepareAvatar(file)
     if (url) setAvatar(url)
   }
 

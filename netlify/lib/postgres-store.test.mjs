@@ -53,6 +53,7 @@ try {
 }
 
 await client.query('DROP TABLE IF EXISTS doppi_doc')
+await client.query('DROP TABLE IF EXISTS doppi_media')
 
 const makeStore = () => {
   const store = createPostgresStore('unused-by-test', () => Promise.resolve(emptyDoc(Date.now())), makeSql())
@@ -64,5 +65,6 @@ const makeStore = () => {
 const { failed } = await runSuite(makeStore(), 'postgres-store (real Postgres via neon-shim)')
 
 await client.query('DROP TABLE IF EXISTS doppi_doc')
+await client.query('DROP TABLE IF EXISTS doppi_media')
 await client.end()
 process.exit(failed > 0 ? 1 : 0)

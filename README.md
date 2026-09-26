@@ -17,7 +17,7 @@ Ishlatishdan oldin kamida quyidagilarni qo'shing:
 | 3 | **Parol tiklash** | Yo'q. |
 | 4 | **2FA / sessiya boshqaruvi** | Minimal. |
 | 5 | **Google Identity skripti** | `index.html` da `accounts.google.com/gsi/client` yuklanadi, lekin login/registerda ishlatilmaydi (foydasiz yuk). |
-| 6 | **Media saqlash** | Rasmlar/video `data:` URL (base64) sifatida butun JSON dokument ichida saqlanadi — 33% kattalashuv va katta payload; brauzer ham, Postgres ham, Blobs ham cheklangan. Ishlab chiqarish uchun haqiqiy fayl ombori + CDN kerak. |
+| 6 | **Media** | Rasmlar/video endi alohida `POST /api/media` orqali **haqiqiy fayl** sifatida saqlanadi (Postgres `bytea` yoki Blobs), hujjatda faqat URL turadi. Rasm brauzerda 1600px/WebP'gacha siqiladi. Qoldiqlar: CDN/thumbnail yo'q, video siqilmaydi, eski `data:` URL li ma'lumot migratsiya qilinmagan, media URL'i tokensiz ochiq (faqat tasodifiy id bilan). |
 | 7 | **To'lov (premium)** | UI mavjud, backend yo'q. |
 | 8 | **Qonuniy tomon** | Ma'lumotlarni saqlash shartlari, cookie/bildirishnoma siyosati, `delete account` oqili yo'q. |
 
@@ -46,6 +46,13 @@ To'lqinlarga qo'shiladi.
 - **DM va guruh xabarlari:** qumlash tugmasi — 1 soat → 1 kun → ochiq
 - **Qalqon (shield):** boshqa foydalanuvchilar muhrni **+30 daqiqa** uzaytiradi
   (har post maks **3 qalqon**, har odam bittadan). O'z postini himoya qilolmaysan.
+
+**Media tizimi:** rasm/video `POST /api/media` orqali haqiqiy faylga saqlanadi
+(`doppi_media` yoki Netlify Blobs) — hujjatda faqat `/api/media/...` URL qoladi, shuning uchun
+butun data hujjati kichik va tez sinxronlanadi. Rasm brauzerda avtomatik **1600px / WebP**
+gacha siqiladi (12 MB telefon rasmi ~300 KB). Yuklash `multipart` emas, `data:` URL orqali;
+server MIME ro'yxatini (jpeg/png/webp/gif/mp4/webm) va hajm chegarasini (rasm 8 MB, video 40 MB)
+tekshiradi. Eski `data:` URL li ma'lumotlar to'g'ri ko'rinadi, lekin migratsiya qilinmagan.
 
 **Muhrlanadi:** postlar, DM xabarlari, guruh xabarlari, fotoalbomlar.
 
@@ -85,21 +92,25 @@ Sinov foydalanuvchilari: `demo1/demo1`, `demo2/demo2`. Admin panel: `/admin` →
 ## Testlar
 
 ```bash
-npm run test:netlify   # 23 test: api-core business logikasi (fayl store, Blobs kabi)
-npm run test:pg-store # 23 test: postgres-store — haqiqiy Postgres'da doppi_doc SQL'i
-npm run test:all      # ikkalasi
-npm run build         # tsc + vite
-npm run lint          # oxlint
+npm run test:netlify   # 32 test: api-core business logikasi (fayl store)
+npm run test:blobs     # 32 test: blobs-store adapter (fake @netlify/blobs)
+npm run test:pg-store  # 32 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
+npm run test:all       # uchalasi (96 test)
+npm run build          # tsc + vite
+npm run lint           # oxlint
 ```
 
-Ikkala test ham bitta suite'ni (`netlify/lib/test-suite.mjs`) ishlatadi va haqiqiy
+Uchala test ham bitta suite'ni (`netlify/lib/test-suite.mjs`) ishlatadi va haqiqiy
 `handleRequest` eksporti orqali oqimni yuritadi: auth → data (muhrlangan post + albom) →
 qalqon (+30m / takror→409 / o'z posti→403) → like/comment/share → muhrlangan DM → muhrlangan
-guruh xabari → admin dashboard → "qayta ishga tushgandan keyin saqlanish".
+guruh xabari → admin dashboard → **media yuklash (bayt darajasida round-trip, 415/413/401 va
+path traversal himoyasi)** → "qayta ishga tushgandan keyin saqlanish".
 
 `test:pg-store` Neon HTTP'ni bevosita emulyatsiya qilolmaydi (neon faqat HTTP ishlaydi), shuning
 uchun `neon()` o'rniga neon semantikasidagi `sql` shim qo'yiladi va SQL haqiqiy Postgres'da
-bajariladi — shu bilan `doppi_doc` jadvali, `jsonb` cast va `ON CONFLICT` tekshiriladi.
+bajariladi — shu bilan `doppi_doc`, `doppi_media` (bytea), `jsonb` cast va `ON CONFLICT`
+tekshiriladi. `test:blobs` esa `@netlify/blobs` v11 semantikasini takrorlaydi (metadata orqali
+mime); haqiqiy Blobs tarmog'i faqat live deploy'da tekshiriladi.
 
 ## Tuzilma
 
@@ -110,7 +121,7 @@ src/
   data/         store, interactions, mock (tiplar), auth
   i18n/         69 til, `translate()` bilan fallback (missing kalit → base)
   styles/       components, layout, orbit
-server/         index.js, schema.sql
-netlify/        functions/api.mjs, lib/api-core.mjs (business logika), lib/postgres-store.mjs,
-                lib/api-core.test.mjs + lib/postgres-store.test.mjs + lib/test-suite.mjs
+netlify/        functions/api.mjs, lib/api-core.mjs (business logika), lib/blobs-store.mjs,
+                lib/postgres-store.mjs, lib/test-suite.mjs + uchta *.test.mjs
+server/         index.js, schema.sql (doppi_doc, doppi_media, …)
 ```

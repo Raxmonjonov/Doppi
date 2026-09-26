@@ -6,6 +6,7 @@ import { Lightbox } from '../components/Lightbox'
 import { formatCount } from '../lib/format'
 import { toggleAlbumLike } from '../data/interactions'
 import { useI18n } from '../i18n'
+import { uploadImage } from '../lib/upload'
 
 const MAX_ALBUMS = 10
 const MAX_PHOTOS = 30
@@ -77,35 +78,37 @@ export function Photos() {
     fileRef.current?.click()
   }
 
-  const onFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [uploadingCount, setUploadingCount] = useState(0)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+
+  const onFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
+    e.target.value = ''
     if (files.length === 0) return
     const targetId = uploadTarget.current
     const remaining = Math.max(0, MAX_PHOTOS - totalPhotos)
     const take = files.slice(0, remaining)
-    const urls: string[] = []
-    let done = 0
-    take.forEach((f) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        urls.push(String(reader.result))
-        done++
-        if (done === take.length) {
-          const photos = urls.map((url) => ({ url }))
-          updateData((d) => {
-            if (targetId === null) {
-              d.albums = [...d.albums, { id: Date.now(), title: t('photos.defaultAlbumTitle'), count: photos.length, likes: 0, photos }]
-            } else {
-              d.albums = d.albums.map((a) =>
-                a.id === targetId ? { ...a, count: a.count + photos.length, photos: [...a.photos, ...photos] } : a,
-              )
-            }
-          })
-        }
+    if (take.length < files.length) setUploadError(t('photos.photoLimitReached'))
+    else setUploadError(null)
+
+    const uploaded: { url: string }[] = []
+    for (const f of take) {
+      setUploadingCount((c) => c + 1)
+      const res = await uploadImage(f, (msg) => setUploadError(msg))
+      setUploadingCount((c) => c - 1)
+      if (res) uploaded.push({ url: res.url })
+    }
+    if (uploaded.length === 0) return
+
+    updateData((d) => {
+      if (targetId === null) {
+        d.albums = [...d.albums, { id: Date.now(), title: t('photos.defaultAlbumTitle'), count: uploaded.length, likes: 0, photos: uploaded }]
+      } else {
+        d.albums = d.albums.map((a) =>
+          a.id === targetId ? { ...a, count: a.count + uploaded.length, photos: [...a.photos, ...uploaded] } : a,
+        )
       }
-      reader.readAsDataURL(f)
     })
-    e.target.value = ''
   }
 
   if (album) {
@@ -121,6 +124,12 @@ export function Photos() {
           </button>
         </div>
         {!canUpload && <div className="photos-limit-note">{t('photos.photoLimitReached')}</div>}
+        {uploadError && <div className="photos-limit-note">{uploadError}</div>}
+        {uploadingCount > 0 && (
+          <div className="photos-limit-note">
+            {t('upload.uploadingImageCount', { count: uploadingCount })}
+          </div>
+        )}
         <AlbumDetail album={album} now={now} />
         <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={onFiles} />
       </div>
@@ -206,6 +215,10 @@ export function Photos() {
         </div>
       )}
       {!canUpload && albums.length > 0 && <div className="photos-limit-note">{t('photos.photoLimitReached')}</div>}
+      {uploadError && <div className="photos-limit-note">{uploadError}</div>}
+      {uploadingCount > 0 && (
+        <div className="photos-limit-note">{t('upload.uploadingImageCount', { count: uploadingCount })}</div>
+      )}
 
       {creating && (
         <div className="fn-overlay" onClick={() => setCreating(false)}>

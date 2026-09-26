@@ -340,5 +340,9 @@ export const uz: Dict = {
   'interactions.sharedReelFallback': 'Video',
   'upload.fileTooLarge': 'Fayl juda katta (maksimal {max} MB)',
   'upload.readError': "Faylni o'qishda xatolik yuz berdi",
+  'upload.unsupportedType': 'Bu fayl turi qo‘llab-quvvatlanmaydi',
+  'upload.uploadingImage': 'Rasm yuklanmoqda…',
+  'upload.uploadingImageCount': '{count} ta rasm yuklanmoqda…',
+  'upload.uploadingVideo': 'Video yuklanmoqda…',
   'api.backendUnreachable': "Backend server ulanishi yo'q. Iltimos API bazasini o'rnating (VITE_API_URL).",
 }

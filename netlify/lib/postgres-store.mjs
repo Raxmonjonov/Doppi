@@ -31,5 +31,33 @@ export function createPostgresStore(databaseUrl, seedProvider, sqlClient) {
       ON CONFLICT (doc_key) DO UPDATE SET doc = EXCLUDED.doc, updated_at = now()`
   }
 
-  return { getDoc, saveDoc }
+  async function ensureMediaTable() {
+    await sql`CREATE TABLE IF NOT EXISTS doppi_media (
+      id text PRIMARY KEY,
+      mime text NOT NULL,
+      size integer NOT NULL,
+      bytes bytea NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`
+  }
+
+  async function putMedia(id, mime, bytes) {
+    await ensureMediaTable()
+    const buf = Buffer.from(bytes)
+    const hex = '\\x' + buf.toString('hex')
+    await sql`INSERT INTO doppi_media (id, mime, size, bytes)
+      VALUES (${id}, ${mime}, ${buf.length}, ${hex}::bytea)
+      ON CONFLICT (id) DO UPDATE SET mime = EXCLUDED.mime, size = EXCLUDED.size, bytes = EXCLUDED.bytes`
+  }
+
+  async function getMedia(id) {
+    await ensureMediaTable()
+    const rows = await sql`SELECT mime, size, bytes FROM doppi_media WHERE id = ${id}`
+    if (!rows || rows.length === 0) return null
+    const row = rows[0]
+    const bytes = typeof row.bytes === 'string' ? Buffer.from(row.bytes.replace(/^\\x/, ''), 'hex') : Buffer.from(row.bytes)
+    return { bytes, mime: row.mime || 'application/octet-stream' }
+  }
+
+  return { getDoc, saveDoc, putMedia, getMedia }
 }
