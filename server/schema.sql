@@ -26,7 +26,6 @@ ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_logout_at TEXT NOT NULL DEFAULT '';
-ALTER TABLE posts ADD COLUMN IF NOT EXISTS seal_until BIGINT;
 
 CREATE TABLE IF NOT EXISTS posts (
   id BIGINT PRIMARY KEY,
@@ -38,6 +37,11 @@ CREATE TABLE IF NOT EXISTS posts (
   live BOOLEAN NOT NULL DEFAULT false,
   seal_until BIGINT
 );
+
+-- Eski bazalarda `posts` jadvali `seal_until`siz bo'lishi mumkin
+-- (`CREATE TABLE IF NOT EXISTS` mavjud jadvalga ustun qo'shmaydi), shuning
+-- uchun ALTER jadval yaratilgandan KEYIN kelishi shart.
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS seal_until BIGINT;
 
 CREATE TABLE IF NOT EXISTS post_likes (
   post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,

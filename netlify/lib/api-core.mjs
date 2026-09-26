@@ -71,7 +71,8 @@ function publicUser(u) {
     username: u.username,
     avatar: u.avatar ?? '',
     about: u.about ?? '',
-    createdAt: u.createdAt,
+    // Store `createdAt` (camelCase), Postgres esa `created_at` — ikkalasi.
+    createdAt: u.createdAt ?? u.created_at ?? null,
     online: true,
   }
 }

@@ -75,12 +75,24 @@ async function ensureSchema() {
     .split(';')
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
+  // Xatolarni YUTIB TASHLASH xavfsiz: eski holatda har bir statement
+  // alohida catch qilinardi, shuning uchun yangi bazada `posts` jadvali
+  // yaratilishidan oldin kelgan ALTER xatosi yashirilib, server so'ng
+  // ishga tushardi — va keyin har bir posts so'rovi runtime'da yiqilardi.
+  // Barcha statement'lar `IF NOT EXISTS`/`IF EXISTS` bilan idempotent,
+  // shuning uchun xatolar haqiqiy muammo: jadvalni TO'LIQ qo'llab
+  // ishga tushmaslik kerak.
+  const failures = []
   for (const stmt of statements) {
     try {
       await pool.query(stmt)
     } catch (e) {
-      console.error('Schema xatosi:', e.message)
+      failures.push({ stmt: stmt.split('\n')[0].slice(0, 120), message: e.message })
     }
+  }
+  if (failures.length) {
+    for (const f of failures) console.error(`Schema xatosi [${f.stmt}]: ${f.message}`)
+    throw new Error(`Schema to'liq qo'llanilmadi: ${failures.length} ta xato (server ishga tushirilmaydi).`)
   }
 }
 
@@ -137,7 +149,10 @@ function publicUser(u) {
     username: u.username,
     avatar: u.avatar ?? '',
     about: u.about ?? '',
-    createdAt: u.createdAt,
+    // Postgres ustunlari `created_at` (snake_case), store esa `createdAt`
+    // (camelCase) qaytaradi — ikkalasini ham qabul qilamiz, aks holda maydon
+    // bututga tushib qoladi.
+    createdAt: u.createdAt ?? u.created_at ?? null,
     online: true,
   }
 }
@@ -200,6 +215,9 @@ async function authMiddleware(req, res, next) {
     }
     next()
   } catch (e) {
+    // Sababsiz 500 qaytishidan keyin incidentni aniqlab bo'lmaydi —
+    // har bir 500 yo'li xatoni log'ga yozishi shart.
+    console.error('[authMiddleware]', e)
     res.status(500).json({ error: 'Server xatosi.' })
   }
 }
@@ -826,6 +844,7 @@ app.post('/api/ping', authMiddleware, async (req, res) => {
     await pool.query(`UPDATE sessions SET last_seen = $1 WHERE token = $2`, [Date.now(), req.tokenRef])
     res.json({ ok: true })
   } catch (e) {
+    console.error('[ping]', e)
     res.status(500).json({ error: 'Server xatosi.' })
   }
 })
@@ -2075,6 +2094,7 @@ app.get('/api/media/:id', async (req, res) => {
     )
     res.end(bytes)
   } catch (e) {
+    console.error('[media:get]', e)
     res.status(500).json({ error: 'Server xatosi.' })
   }
 })
@@ -2112,6 +2132,7 @@ app.post('/api/media', authMiddleware, async (req, res) => {
     // boshqalarning faylini yuklab bo'lmaydi.
     res.status(201).json({ id, url: signedMediaPath(id), mime, kind, size: bytes.length })
   } catch (e) {
+    console.error('[media:upload]', e)
     res.status(500).json({ error: 'Server xatosi.' })
   }
 })
