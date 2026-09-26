@@ -55,6 +55,34 @@ function makeToken() {
   return crypto.randomBytes(32).toString('hex')
 }
 
+/* ---------- Rate limit (jarayon xotirasida, bir Node instance'iga tegishli) ---------- */
+const RATE_LIMITS = {
+  login: { max: 10, windowMs: 15 * 60 * 1000 },
+  register: { max: 10, windowMs: 60 * 60 * 1000 },
+  adminLogin: { max: 10, windowMs: 15 * 60 * 1000 },
+  media: { max: 120, windowMs: 60 * 60 * 1000 },
+}
+const rateBuckets = new Map()
+
+function rateLimit(key, limit) {
+  const now = Date.now()
+  if (rateBuckets.size >= 500) {
+    for (const [k, b] of rateBuckets) if (now > b.resetAt) rateBuckets.delete(k)
+  }
+  const bucket = rateBuckets.get(key)
+  if (!bucket || now > bucket.resetAt) {
+    rateBuckets.set(key, { count: 1, resetAt: now + limit.windowMs })
+    return 0
+  }
+  bucket.count++
+  return bucket.count > limit.max ? Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)) : 0
+}
+
+function blockTooMany(res, wait) {
+  res.setHeader('Retry-After', String(wait))
+  return res.status(429).json({ error: 'Juda ko‘p urinish. Bir oz kutib, qayta yuboring.', retryAfter: wait })
+}
+
 function publicUser(u) {
   if (!u) return null
   return {
@@ -102,6 +130,8 @@ async function authMiddleware(req, res, next) {
 /* ---------- Auth ---------- */
 
 app.post('/api/auth/register', async (req, res) => {
+  const regWait = rateLimit('register:' + req.ip, RATE_LIMITS.register)
+  if (regWait) return blockTooMany(res, regWait)
   const { name, username, email, password, avatar, about } = req.body ?? {}
   const uname = String(username ?? '').trim()
   const nm = String(name ?? '').trim() || uname
@@ -149,6 +179,8 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body ?? {}
   const idf = String(username ?? '').trim().toLowerCase()
+  const loginWait = rateLimit('login:' + req.ip + ':' + idf, RATE_LIMITS.login)
+  if (loginWait) return blockTooMany(res, loginWait)
   const pw = String(password ?? '')
   try {
     const { rows } = await pool.query(
@@ -225,6 +257,8 @@ function adminBearer(req) {
 }
 
 app.post('/api/admin/login', async (req, res) => {
+  const adminWait = rateLimit('adminLogin:' + req.ip, RATE_LIMITS.adminLogin)
+  if (adminWait) return blockTooMany(res, adminWait)
   const { username, password } = req.body ?? {}
   if (String(username ?? '') === ADMIN_USER && String(password ?? '') === ADMIN_PASS) {
     const token = makeToken()
@@ -1274,6 +1308,8 @@ app.get('/api/media/:id', async (req, res) => {
 })
 
 app.post('/api/media', authMiddleware, async (req, res) => {
+  const mediaWait = rateLimit('media:' + req.user.id, RATE_LIMITS.media)
+  if (mediaWait) return blockTooMany(res, mediaWait)
   const dataUrl = String(req.body?.dataUrl ?? '').trim()
   const m = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,([\s\S]+)$/i.exec(dataUrl)
   if (!m) return res.status(400).json({ error: 'dataUrl formati noto‘g‘ri.' })

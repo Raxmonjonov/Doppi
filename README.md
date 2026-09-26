@@ -12,7 +12,7 @@ Ishlatishdan oldin kamida quyidagilarni qo'shing:
 
 | # | Xavf | Nimaga |
 |---|------|--------|
-| 1 | **Parol saqlash** | `netlify/lib/api-core.mjs` (hashPassword) va `server/index.js` da parollar `scrypt` bilan hash qilinadi, lekin **ishlaydigan rate-limit/session rotation** yo'q. Brute-force mumkin. |
+| 1 | **Parol saqlash** | `netlify/lib/api-core.mjs` (hashPassword) va `server/index.js` da parollar `scrypt` bilan hash qilinadi. Login/register/admin-login/media uchun **rate-limit** bor (10 urinish/15 daqiqa, register 10/soat, media 120/soat, `Retry-After` bilan 429). Chegara jarayon xotirasida saqlanadi — serverless'da bir necha soatga yoyilishi, ko'p instance'li da tayyor himoya bo'lmasligi mumkin. |
 | 2 | **Rate limiting** | Hech qanday endpoint rate-limit qilinmagan — login, register, post yaratish, xabar yuborish. Bot/DoS ga ochiq. |
 | 3 | **Parol tiklash** | Yo'q. |
 | 4 | **2FA / sessiya boshqaruvi** | Minimal. |
@@ -96,10 +96,10 @@ Sinov foydalanuvchilari: `demo1/demo1`, `demo2/demo2`. Admin panel: `/admin` →
 ## Testlar
 
 ```bash
-npm run test:netlify   # 43 test: api-core business logikasi (fayl store)
-npm run test:blobs     # 43 test: blobs-store adapter (fake @netlify/blobs)
-npm run test:pg-store  # 43 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
-npm run test:all       # uchalasi (129 test)
+npm run test:netlify   # 47 test: api-core business logikasi (fayl store)
+npm run test:blobs     # 47 test: blobs-store adapter (fake @netlify/blobs)
+npm run test:pg-store  # 47 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
+npm run test:all       # uchalasi (141 test)
 npm run build          # tsc + vite
 npm run lint           # oxlint
 ```
@@ -110,6 +110,7 @@ qalqon (+30m / takror→409 / o'z posti→403) → like/comment/share → muhrla
 guruh xabari → admin dashboard → **media yuklash (bayt darajasida round-trip, 415/413/401 va
 path traversal himoyasi) → media GC (faqat admin, orphan o'chadi, havolali fayl qoladi) →
 `data:` URL migratsiyasi (URL faylga aylanadi, `data:` iz qolmaydi)** →
+**rate-limit (brute force 11-urishda 429 + `Retry-After`, to'g'ri parol ham bloklanadi)** →
 "qayta ishga tushgandan keyin saqlanish".
 
 `test:pg-store` Neon HTTP'ni bevosita emulyatsiya qilolmaydi (neon faqat HTTP ishlaydi), shuning

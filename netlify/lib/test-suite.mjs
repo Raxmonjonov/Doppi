@@ -201,7 +201,31 @@ export async function runSuite(store, label) {
     ok('migrated media is downloadable', mr2.status === 200 && !!mr2.binary, `status=${mr2.status}`)
   }
 
-  // 9) reload from a fresh store read (persistence)
+  // 9) rate limit: parol taxmin qilish bloklanadi
+  let lockStatus = 0
+  for (let i = 0; i < 12; i++) {
+    const bad = await call('POST', '/api/auth/login', { username: 'ratelimit1', password: 'wrong-pass' })
+    lockStatus = bad.status
+  }
+  ok('login brute force -> 429', lockStatus === 429, `status=${lockStatus}`)
+  const stillLocked = await call('POST', '/api/auth/login', { username: 'ratelimit1', password: 'pass123' })
+  ok('locked even with correct password', stillLocked.status === 429, `status=${stillLocked.status}`)
+  const other = await call('POST', '/api/auth/login', { username: 'nftest1', password: 'pass123' })
+  ok('lockout is per username', other.status === 200 && !!other.json.token, `status=${other.status}`)
+
+  let regStatus = 0
+  for (let i = 0; i < 11; i++) {
+    const rr = await call('POST', '/api/auth/register', {
+      username: `spammer${i}`,
+      password: 'pass123',
+      name: `Spam ${i}`,
+      email: `spam${i}@test.dev`,
+    })
+    regStatus = rr.status
+  }
+  ok('register spam -> 429', regStatus === 429, `status=${regStatus}`)
+
+  // 10) reload from a fresh store read (persistence)
   const freshStore = await relaunch(store)
   const r2 = await (async () => {
     const headers = { authorization: `Bearer ${tok2}` }
