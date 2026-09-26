@@ -1,4 +1,6 @@
 /* Live smoke: audio media + notifications + call ring (real PostgreSQL server). */
+import { LEGACY_LEAKED_ADMIN_PASSWORD } from './test-env.mjs'
+
 const BASE = 'http://127.0.0.1:4000'
 
 async function call(method, path, body, token) {
@@ -39,8 +41,8 @@ const u2 = `liveB${suffix}`
 const run = async () => {
   console.log('\n=== live smoke: voice + notifications ===')
 
-  const r1 = await call('POST', '/api/auth/register', { name: 'Live A', username: u1, password: 'pass123', email: `${u1}@test.dev` })
-  const r2 = await call('POST', '/api/auth/register', { name: 'Live B', username: u2, password: 'pass123', email: `${u2}@test.dev` })
+  const r1 = await call('POST', '/api/auth/register', { name: 'Live A', username: u1, password: 'Livepass1!', email: `${u1}@test.dev` })
+  const r2 = await call('POST', '/api/auth/register', { name: 'Live B', username: u2, password: 'Livepass1!', email: `${u2}@test.dev` })
   ok('register two users', r1.status === 200 && r2.status === 200, `${r1.status}/${r2.status}`)
   const tok1 = r1.json?.token
   const tok2 = r2.json?.token
@@ -199,10 +201,52 @@ const run = async () => {
   ok('forgot hides unknown user', r.status === 200 && !r.json?.debugCode, `status=${r.status}`)
   r = await call('POST', '/api/auth/reset', { username: u1, code: '000000', password: 'yangi123' })
   ok('reset wrong code -> 400', r.status === 400, `status=${r.status}`)
-  r = await call('POST', '/api/auth/reset', { username: u1, code: liveCode, password: 'yangi123' })
+  r = await call('POST', '/api/auth/reset', { username: u1, code: liveCode, password: 'Yangi-parol1!' })
   ok('reset with delivered code -> 200', r.status === 200 && r.json?.ok === true, `status=${r.status}`)
-  r = await call('POST', '/api/auth/login', { username: u1, password: 'yangi123' })
+  r = await call('POST', '/api/auth/login', { username: u1, password: 'Yangi-parol1!' })
   ok('login with new password -> 200', r.status === 200 && !!r.json?.token, `status=${r.status}`)
+  // Parol tiklash BARCHA sessiyalarni bekor qiladi — yangi token olamiz
+  const tok1c = r.json?.token
+
+  // 10) xavfsizlik (haqiqiy server): identifikatorni oshkor qilmaslik,
+  // shaxsiy media ruxsati, eski boshlang'ich admin paroli, security headers
+  const wrongPw = await call('POST', '/api/auth/login', { username: u1, password: 'Wr0ng-Parol!' })
+  const noSuchUser = await call('POST', '/api/auth/login', { username: 'live_yoq_foydalanuvchi', password: 'Wr0ng-Parol!' })
+  ok(
+    'login: unknown user and wrong password are indistinguishable',
+    wrongPw.status === 401 && noSuchUser.status === 401 && wrongPw.json?.error === noSuchUser.json?.error,
+    `${wrongPw.status}/${noSuchUser.status}`,
+  )
+  const weak = await call('POST', '/api/auth/register', { name: 'W', username: `weak${suffix}`, password: '12345678', email: `weak${suffix}@t.dev` })
+  ok('weak/common password rejected on register', weak.status === 400, `status=${weak.status}`)
+  const legacyAdmin = await call('POST', '/api/admin/login', { username: 'Admin', password: LEGACY_LEAKED_ADMIN_PASSWORD })
+  ok('legacy default admin password rejected', legacyAdmin.status === 401 && !legacyAdmin.json?.token, `status=${legacyAdmin.status}`)
+
+  // DM uchun maxsus media: faqat a'zolar ochishi mumkin
+  const dmScope = await call('POST', '/api/media', { dataUrl: `data:audio/webm;base64,${audioB64}`, scope: 'dm', refId: tid }, tok1c)
+  ok('dm-scoped upload -> 201', dmScope.status === 201 && !!dmScope.json?.id, `status=${dmScope.status}`)
+  if (dmScope.json?.id) {
+    const dmId = dmScope.json.id
+    await call('POST', `/api/threads/${tid}/messages`, { audio: dmScope.json.url, audioDuration: 1 }, tok1c)
+    const memberRead = await call('GET', `/api/media/${dmId}`, undefined, tok1c)
+    ok('dm media: member can read', memberRead.status === 200, `status=${memberRead.status}`)
+    const anonRead = await call('GET', `/api/media/${dmId}`)
+    ok('dm media: anonymous denied', anonRead.status === 401, `status=${anonRead.status}`)
+    // IMZO bo'lsa ham shaxsiy faylni ochib bo'lmaydi
+    const signedAnon = await call('GET', dmScope.json.url)
+    ok('dm media: valid signature does NOT bypass private scope', signedAnon.status === 401, `status=${signedAnon.status}`)
+  }
+
+  // Ochiq (omma) media: ID'ni taxmin qilib bo'lmaydi — imzo kerak
+  // (yuqoridagi audio fayli endi DM'ga bog'langan, shuning uchun yangi fayl yuklaymiz)
+  const pubUp = await call('POST', '/api/media', { dataUrl: `data:audio/webm;base64,${audioB64}` }, tok1c)
+  ok('public upload -> 201 signed url', pubUp.status === 201 && /\?s=[0-9a-f]+$/.test(pubUp.json?.url ?? ''), `url=${pubUp.json?.url}`)
+  const barePublic = await call('GET', `/api/media/${pubUp.json?.id}`)
+  ok('public media: bare id without signature denied', barePublic.status === 401, `status=${barePublic.status}`)
+  const signedPublic = await call('GET', pubUp.json?.url)
+  ok('public media: signed url works anonymously', signedPublic.status === 200, `status=${signedPublic.status}`)
+  const noAuthPrivate = await call('GET', '/api/auth/me')
+  ok('auth: /me without token -> 401', noAuthPrivate.status === 401, `status=${noAuthPrivate.status}`)
 
   // cleanup
   await call('DELETE', `/api/groups/${gid}`, undefined, tok1)

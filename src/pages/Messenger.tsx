@@ -9,9 +9,10 @@ import type { Message } from '../data/mock'
 import { useMe } from '../data/useMe'
 import { useAuth } from '../data/auth'
 import { useNotifications } from '../data/notifications'
-import { api, apiUrl } from '../api/client'
+import { api } from '../api/client'
 import { useI18n } from '../i18n'
 import { uploadImage, type UploadedAudio } from '../lib/upload'
+import { useMediaObjectUrl } from '../lib/media'
 
 interface RawThread {
   id: number
@@ -62,10 +63,20 @@ async function loadThreads(): Promise<RawThread[]> {
   }
 }
 
+/* Ro'yxatdagi oxirgi xabar rasmi. Bu yerda hook qo'llash mumkin emas
+   (map ichida), shuning uchun alohida komponent. */
+function LastThumb({ src }: { src: string }) {
+  const url = useMediaObjectUrl(src)
+  return url ? <img src={url} alt="" className="last-thumb" /> : null
+}
+
 export function MsgBubble({ m, mine, onReveal }: { m: Message; mine: boolean; onReveal: () => void }) {
   const { t } = useI18n()
   const [now, setNow] = useState(() => Date.now())
   const sealed = m.sealUntil != null
+  // DM rasmi faqat suhbat a'zolariga ochiq — `<img src>` sarlavha yubora
+  // olmagani uchun authenticated blob URL ishlatiladi
+  const imageUrl = useMediaObjectUrl(m.image)
 
   useEffect(() => {
     if (!sealed) return
@@ -105,7 +116,7 @@ export function MsgBubble({ m, mine, onReveal }: { m: Message; mine: boolean; on
 
   return (
     <div className={`msg ${mine ? 'mine' : 'theirs'}`}>
-      {m.image && <img className="msg-image" src={apiUrl(m.image)} alt="" loading="lazy" />}
+      {m.image && imageUrl && <img className="msg-image" src={imageUrl} alt="" loading="lazy" />}
       {m.audio && <VoicePlayer src={m.audio} duration={m.audioDuration} own={!mine} mine={mine} />}
       {m.text && <span className={m.image || m.audio ? 'msg-text' : ''}>{m.text}</span>}
       <span className="time">{m.time}</span>
@@ -428,7 +439,8 @@ export function Messenger() {
     e.target.value = ''
     if (!f) return
     setSendingImage(true)
-    const res = await uploadImage(f, (msg) => setError(msg))
+    // DM rasmi shu suhbatga biriktiriladi (server boshqa suhbatda ochilishiga yo'q qiladi)
+    const res = await uploadImage(f, (msg) => setError(msg), activeThreadId != null ? { scope: 'dm', refId: activeThreadId } : undefined)
     setSendingImage(false)
     if (res) setImageToSend(res.url)
   }
@@ -524,7 +536,7 @@ export function Messenger() {
                         {thread.user.name}
                       </div>
                       <div className={unread[thread.id] ? 'last unread' : 'last'}>
-                        {last?.text || (last?.image ? <img src={last.image} alt="" className="last-thumb" /> : '')}
+                        {last?.text || (last?.image ? <LastThumb src={last.image} /> : '')}
                       </div>
                     </div>
                     {unread[thread.id] != null && <span className="thread-unread">{unread[thread.id] > 99 ? '99+' : unread[thread.id]}</span>}
@@ -610,7 +622,11 @@ export function Messenger() {
               {sealMs && <span className="seal-toggle-tag">{sealMs === 3600000 ? '1' : '24'}</span>}
             </button>
             {recordingFor === active.id ? (
-              <VoiceRecorder onSend={(audio) => void sendVoice(active.id, audio)} onCancel={() => setRecordingFor(null)} />
+              <VoiceRecorder
+          onSend={(audio) => void sendVoice(active.id, audio)}
+          onCancel={() => setRecordingFor(null)}
+          scope={{ scope: 'dm', refId: active.id }}
+        />
             ) : (
               <>
                 <button type="button" className="icon-btn" aria-label={t('messenger.attachImage')} onClick={() => imageRef.current?.click()} disabled={sendingImage}>

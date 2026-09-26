@@ -257,10 +257,24 @@ CREATE TABLE IF NOT EXISTS doppi_media (
   mime text NOT NULL,
   size integer NOT NULL,
   bytes bytea NOT NULL,
+  -- Kimga ko'rinishi: 'public' (guruh/omma), 'dm' (suhbat), 'group' (guruh).
+  -- 'dm'/'group' da faqat a'zolar ko'radi (server/index.js mediaViewerAllowed).
+  scope text NOT NULL DEFAULT 'public',
+  ref_id bigint,
+  owner_id bigint REFERENCES users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Eski bazalarda jadval `scope` ustunisiz bo'lishi mumkin, shuning uchun
+-- AVVAL ustunlarni qo'shamiz, keyin indeks yaratamiz (aks holda
+-- `CREATE INDEX ... (scope)` mavjud bo'lmagan ustunga xato beradi).
+ALTER TABLE doppi_media ADD COLUMN IF NOT EXISTS scope text NOT NULL DEFAULT 'public';
+ALTER TABLE doppi_media ADD COLUMN IF NOT EXISTS ref_id bigint;
+ALTER TABLE doppi_media ADD COLUMN IF NOT EXISTS owner_id bigint REFERENCES users(id) ON DELETE SET NULL;
+
 CREATE INDEX IF NOT EXISTS idx_media_created ON doppi_media(created_at);
+CREATE INDEX IF NOT EXISTS idx_media_scope ON doppi_media(scope);
+CREATE INDEX IF NOT EXISTS idx_media_ref ON doppi_media(scope, ref_id);
 
 CREATE TABLE IF NOT EXISTS password_resets (
   username text PRIMARY KEY,

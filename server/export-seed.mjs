@@ -1,3 +1,14 @@
+/* Demo/seed ma'lumotini PostgreSQL'dan chiqaradi.
+   XAVFSIZLIK: bu skript ilgari (a) parol hash+salt, (b) LIVE sessiya
+   tokenlari va (c) email'larni faylga yozib, uni `netlify/functions/` ichiga
+   qo'yar edi — ya'ni fayl Netlify bundle'ga tushib, `git`ga ham kiritilgan
+   bo'lishi mumkin edi. Sessiya tokeni bilan kuzatilgan fayl = to'liq
+   hisobni egallash.
+
+   YANGI: sessiyalar va parol hech qachon eksport qilinmaydi, fayl
+   `.gitignore` dagi `seed.local.json` ga yoziladi, ulanish `DATABASE_URL`
+   dan olinadi va production'da skript to'liq rad etiladi. */
+
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -5,17 +16,25 @@ import pg from 'pg'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+if (process.env.NODE_ENV === 'production') {
+  console.error('[xavfsizlik] Seed eksporti production muhitida taqiqlangan.')
+  process.exit(1)
+}
+
 const { Pool, types } = pg
 types.setTypeParser(types.builtins.INT8, (v) => (v === null ? null : Number(v)))
 types.setTypeParser(types.builtins.INT4, (v) => (v === null ? null : Number(v)))
 types.setTypeParser(types.builtins.BOOL, (v) => (v === null ? null : v === true || v === 't'))
 
+const DATABASE_URL = String(process.env.DATABASE_URL ?? '').trim()
+if (!DATABASE_URL) {
+  console.error('[xavfsizlik] DATABASE_URL belgilanmagan (localhost uchun PG boshqa o‘zgaruvchilar).')
+  process.exit(1)
+}
+
 const pool = new Pool({
-  user: 'postgres',
-  password: 'postgres',
-  host: '127.0.0.1',
-  port: 5432,
-  database: "Do'ppi",
+  connectionString: DATABASE_URL,
+  ssl: process.env.DATABASE_SSL === '1' ? { rejectUnauthorized: false } : undefined,
 })
 
 const q = async (sql, params = []) => {
@@ -25,7 +44,6 @@ const q = async (sql, params = []) => {
 
 const doc = {
   users: [],
-  sessions: [],
   posts: [],
   postLikes: [],
   postComments: [],
@@ -44,9 +62,11 @@ const doc = {
   follows: [],
 }
 
-doc.users = await q(`SELECT id, name, username, email, salt, hash, avatar, about,
+/* `salt`/`hash` ataylab chiqariladi: seed fayli hech qachon parol
+   qaytarib bermasligi kerak. Demo foydalanuvchilar `ALLOW_SEED=1` bilan
+   alohida qo'lda yaratiladi. */
+doc.users = await q(`SELECT id, name, username, email, avatar, about,
   created_at AS "createdAt" FROM users ORDER BY id`)
-doc.sessions = await q(`SELECT token, user_id AS "userId" FROM sessions`)
 doc.posts = await q(`SELECT id, author_id AS "authorId", time, text, images, video, live FROM posts ORDER BY id`)
 doc.postLikes = await q(`SELECT post_id AS "postId", user_id AS "userId" FROM post_likes`)
 doc.postComments = await q(`SELECT id, post_id AS "postId", author_id AS "authorId", text, time FROM post_comments ORDER BY id`)
@@ -80,7 +100,11 @@ doc.follows = await q(`SELECT follower_id AS "followerId", followee_id AS "follo
 
 await pool.end()
 
-const outPath = path.join(__dirname, '..', 'netlify', 'functions', 'seed.json')
+/* Natija `netlify/functions/` ga EMAS, gitignore qilingan lokal faylga
+   yoziladi — avvalgi manzil faylni Netlify bundle'iga kiritib yuborardi. */
+const outPath = process.env.SEED_OUT
+  ? path.resolve(process.env.SEED_OUT)
+  : path.join(__dirname, '..', 'netlify', 'lib', 'seed.local.json')
 const dir = path.dirname(outPath)
 fs.mkdirSync(dir, { recursive: true })
 fs.writeFileSync(outPath, JSON.stringify(doc, null, 2), 'utf8')

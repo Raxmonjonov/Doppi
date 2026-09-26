@@ -5,6 +5,7 @@
    qiymatlar -> natija massivi) emulyatsiya qilinadi, SQL esa haqiqiy Postgres'da
    bajariladi. Shu bilan doppi_doc jadvali, jsonb cast va ON CONFLICT SQL'i
    tekshiriladi. */
+import './test-env.mjs'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'

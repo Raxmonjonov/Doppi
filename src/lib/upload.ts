@@ -110,7 +110,11 @@ export async function prepareImage(file: File, maxDim = MAX_DIM): Promise<Prepar
 /* data URL -> /api/media/<id> (serverda haqiqiy fayl saqlanadi).
    Backend media endpointini qo'llab-quvvatlamasa (404/501) yoki tarmoq
    uzilsa, data URL qaytariladi — post yana ko'rinadi, keyinroq sinxronlanadi. */
-export async function uploadDataUrl(dataUrl: string, kind: 'image' | 'video' | 'audio'): Promise<string> {
+export async function uploadDataUrl(
+  dataUrl: string,
+  kind: 'image' | 'video' | 'audio',
+  scope?: { scope: 'dm' | 'group'; refId: number | string },
+): Promise<string> {
   const maxMB = kind === 'video' ? MAX_VIDEO_MB : kind === 'audio' ? MAX_AUDIO_MB : MAX_IMAGE_MB
   const maxBytes = maxMB * 1024 * 1024
   const approx = Math.ceil((dataUrl.length - dataUrl.indexOf(',') - 1) * 0.75)
@@ -118,10 +122,19 @@ export async function uploadDataUrl(dataUrl: string, kind: 'image' | 'video' | '
 
   if (!getToken()) return dataUrl
 
+  // DM/guruh yuklashida `scope` yuboriladi: server faylni o'sha suhbatga
+  // bog'lab qo'yadi, shunda boshqalar havola kopiyasidan foydalana olmaydi.
+  // (Server xabarni yuborishda scope'ni yana tasdiqlaydi — mijozga ishonilmaydi.)
+  const body: Record<string, unknown> = { dataUrl }
+  if (scope) {
+    body.scope = scope.scope
+    body.refId = scope.refId
+  }
+
   const res = await fetch(`${apiUrl('/api/media')}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-    body: JSON.stringify({ dataUrl }),
+    body: JSON.stringify(body),
   })
   if (res.status === 413) throw new Error(tr('upload.fileTooLarge', { max: maxMB }))
   if (res.status === 415) throw new Error(tr('upload.unsupportedType'))
@@ -137,7 +150,11 @@ export interface UploadedAudio {
   local: boolean
 }
 
-export async function uploadAudio(blob: Blob, onError?: (msg: string) => void): Promise<UploadedAudio | null> {
+export async function uploadAudio(
+  blob: Blob,
+  onError?: (msg: string) => void,
+  scope?: { scope: 'dm' | 'group'; refId: number | string },
+): Promise<UploadedAudio | null> {
   try {
     if (!blob.size) {
       onError?.(tr('voice.empty'))
@@ -154,7 +171,7 @@ export async function uploadAudio(blob: Blob, onError?: (msg: string) => void): 
     }
     const duration = await blobDuration(blob)
     const dataUrl = await readAsDataUrl(new Blob([blob], { type: mime }))
-    const url = await uploadDataUrl(dataUrl, 'audio')
+    const url = await uploadDataUrl(dataUrl, 'audio', scope)
     return { url, duration, local: url.startsWith('data:') }
   } catch (e) {
     onError?.(e instanceof Error ? e.message : tr('upload.readError'))
@@ -192,10 +209,14 @@ export interface UploadedMedia {
 }
 
 /* Rasm: siqish -> serverga yuklash */
-export async function uploadImage(file: File, onError?: (msg: string) => void): Promise<UploadedMedia | null> {
+export async function uploadImage(
+  file: File,
+  onError?: (msg: string) => void,
+  scope?: { scope: 'dm' | 'group'; refId: number | string },
+): Promise<UploadedMedia | null> {
   try {
     const prepared = await prepareImage(file)
-    const url = await uploadDataUrl(prepared.dataUrl, 'image')
+    const url = await uploadDataUrl(prepared.dataUrl, 'image', scope)
     return { url, width: prepared.width, height: prepared.height, bytes: prepared.bytes, local: url.startsWith('data:') }
   } catch (e) {
     onError?.(e instanceof Error ? e.message : tr('upload.readError'))

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Play, Pause, Loader2 } from 'lucide-react'
-import { apiUrl } from '../api/client'
+import { useMediaObjectUrl } from '../lib/media'
 
 interface VoicePlayerProps {
   src: string
@@ -22,6 +22,8 @@ export function VoicePlayer({ src, duration, own, mine }: VoicePlayerProps) {
   const [pos, setPos] = useState(0)
   const [total, setTotal] = useState(duration ?? 0)
   const [loading, setLoading] = useState(false)
+  // Shaxsiy (DM/guruh) ovoz autentifikatsiya talab qiladi — blob orqali
+  const playUrl = useMediaObjectUrl(src)
 
   useEffect(() => {
     const el = ref.current
@@ -81,7 +83,7 @@ export function VoicePlayer({ src, duration, own, mine }: VoicePlayerProps) {
 
   return (
     <div className={cls.join(' ')}>
-      <audio ref={ref} src={apiUrl(src)} preload="metadata" />
+      <audio ref={ref} src={playUrl} preload="metadata" />
       <button
         type="button"
         className="voice-play"

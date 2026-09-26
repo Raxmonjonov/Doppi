@@ -619,7 +619,11 @@ function GroupDetail({
               {sealMs && <span className="seal-toggle-tag">{sealMs === 3600000 ? '1' : '24'}</span>}
             </button>
             {recording ? (
-              <VoiceRecorder onSend={(audio) => void sendVoice(audio)} onCancel={() => setRecording(false)} />
+              <VoiceRecorder
+                onSend={(audio) => void sendVoice(audio)}
+                onCancel={() => setRecording(false)}
+                scope={{ scope: 'group', refId: group.id }}
+              />
             ) : (
               <>
                 <VoiceRecordButton onStart={() => setRecording(true)} />

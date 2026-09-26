@@ -14,3 +14,26 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Xavfsizlik sarlavhalari. API javoblari `netlify/functions/api.mjs` da
+# qo'llaniladi; bu blok STATIK fayllar (index.html, JS, CSS) uchun.
+# Ikki manba bir xil qoidalarni ishlatadi (`netlify/lib/security.mjs`).
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(self), camera=(self), microphone=(self), payment=(), usb=()"
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Resource-Policy = "same-origin"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+    # `wasm-unsafe-eval` — Vite ishlab chiqarilgan kod uchun.
+    # Shrift uchun faqat style/font originlar ochiq (skript emas).
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' data: blob:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+
+# HTML hujjati keshga tushmasin — yangi build darhol ko'rinishi uchun
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
