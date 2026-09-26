@@ -1,7 +1,7 @@
 ﻿/* api-core functional test — file-backed store.
    Doc is emulated by a JSON file; media by binary files under a directory,
    which is the closest local equivalent of Netlify Blobs (keyed binary). */
-import { readFileSync, writeFileSync, existsSync, rmSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, rmSync, mkdirSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { emptyDoc } from './api-core.mjs'
@@ -31,6 +31,21 @@ function makeStore() {
       const p = join(MEDIA_DIR, id)
       if (!/^[A-Za-z0-9][\w.-]*$/.test(id) || id.includes('..') || !existsSync(p)) return null
       return { bytes: new Uint8Array(readFileSync(p)), mime: 'image/png' }
+    },
+    async listMedia() {
+      if (!existsSync(MEDIA_DIR)) return []
+      return readdirSync(MEDIA_DIR)
+    },
+    async deleteMedia(ids) {
+      let removed = 0
+      for (const id of ids) {
+        if (!/^[A-Za-z0-9][\w.-]*$/.test(id) || id.includes('..')) continue
+        const p = join(MEDIA_DIR, id)
+        if (!existsSync(p)) continue
+        rmSync(p, { force: true })
+        removed++
+      }
+      return removed
     },
   }
 }

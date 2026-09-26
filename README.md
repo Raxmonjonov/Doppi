@@ -52,7 +52,9 @@ To'lqinlarga qo'shiladi.
 butun data hujjati kichik va tez sinxronlanadi. Rasm brauzerda avtomatik **1600px / WebP**
 gacha siqiladi (12 MB telefon rasmi ~300 KB). Yuklash `multipart` emas, `data:` URL orqali;
 server MIME ro'yxatini (jpeg/png/webp/gif/mp4/webm) va hajm chegarasini (rasm 8 MB, video 40 MB)
-tekshiradi. Eski `data:` URL li ma'lumotlar to'g'ri ko'rinadi, lekin migratsiya qilinmagan.
+tekshiradi. Admin panelidagi **"Ishlatilmay qolgan medialarni tozalash"**
+(`POST /api/media/gc`) hujjatda havolasi qolmagan fayllarni o'chiradi. Eski `data:` URL li
+ma'lumotlar to'g'ri ko'rinadi, lekin migratsiya qilinmagan.
 
 **Muhrlanadi:** postlar, DM xabarlari, guruh xabarlari, fotoalbomlar.
 
@@ -92,10 +94,10 @@ Sinov foydalanuvchilari: `demo1/demo1`, `demo2/demo2`. Admin panel: `/admin` →
 ## Testlar
 
 ```bash
-npm run test:netlify   # 32 test: api-core business logikasi (fayl store)
-npm run test:blobs     # 32 test: blobs-store adapter (fake @netlify/blobs)
-npm run test:pg-store  # 32 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
-npm run test:all       # uchalasi (96 test)
+npm run test:netlify   # 36 test: api-core business logikasi (fayl store)
+npm run test:blobs     # 36 test: blobs-store adapter (fake @netlify/blobs)
+npm run test:pg-store  # 36 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
+npm run test:all       # uchalasi (108 test)
 npm run build          # tsc + vite
 npm run lint           # oxlint
 ```
@@ -104,7 +106,8 @@ Uchala test ham bitta suite'ni (`netlify/lib/test-suite.mjs`) ishlatadi va haqiq
 `handleRequest` eksporti orqali oqimni yuritadi: auth → data (muhrlangan post + albom) →
 qalqon (+30m / takror→409 / o'z posti→403) → like/comment/share → muhrlangan DM → muhrlangan
 guruh xabari → admin dashboard → **media yuklash (bayt darajasida round-trip, 415/413/401 va
-path traversal himoyasi)** → "qayta ishga tushgandan keyin saqlanish".
+path traversal himoyasi) → media GC (faqat admin, orphan o'chadi, havolali fayl qoladi)** →
+"qayta ishga tushgandan keyin saqlanish".
 
 `test:pg-store` Neon HTTP'ni bevosita emulyatsiya qilolmaydi (neon faqat HTTP ishlaydi), shuning
 uchun `neon()` o'rniga neon semantikasidagi `sql` shim qo'yiladi va SQL haqiqiy Postgres'da

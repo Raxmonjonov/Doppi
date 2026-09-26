@@ -1298,6 +1298,40 @@ app.post('/api/media', authMiddleware, async (req, res) => {
   }
 })
 
+app.post('/api/media/gc', async (req, res) => {
+  const token = adminBearer(req)
+  if (!token || !adminTokens.has(token)) return res.status(403).json({ error: 'Faqat admin uchun.' })
+  try {
+    const { rows: refRows } = await pool.query(
+      `SELECT DISTINCT (regexp_matches(txt, '/api/media/([A-Za-z0-9][A-Za-z0-9._-]*)', 'g'))[1] AS id
+       FROM (
+         SELECT images::text AS txt FROM posts
+         UNION ALL SELECT video::text FROM posts
+         UNION ALL SELECT image::text FROM stories
+         UNION ALL SELECT image::text FROM reels
+         UNION ALL SELECT photos::text FROM albums
+         UNION ALL SELECT cover::text FROM "groups"
+         UNION ALL SELECT avatar::text FROM users
+         UNION ALL SELECT image::text FROM messages
+         UNION ALL SELECT image::text FROM group_messages
+       ) s
+       WHERE txt LIKE '%/api/media/%'`,
+    )
+    const used = new Set(refRows.map((r) => r.id).filter(Boolean))
+    const { rows: allRows } = await pool.query('SELECT id FROM doppi_media')
+    const orphans = allRows.map((r) => r.id).filter((id) => !used.has(id))
+    let removed = 0
+    for (const id of orphans) {
+      await pool.query('DELETE FROM doppi_media WHERE id = $1', [id])
+      removed++
+    }
+    res.json({ removed, kept: allRows.length - orphans.length, scanned: allRows.length })
+  } catch (e) {
+    console.error('media gc xatosi:', e.message)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
 /* ---------- SPA (built frontend) ---------- */
 
 const DIST_PATH = path.join(__dirname, '..', 'dist')

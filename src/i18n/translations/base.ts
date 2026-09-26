@@ -317,6 +317,8 @@ export const uz: Dict = {
   'admin.submit': 'Kirish',
   'admin.invalidCredentials': 'Foydalanuvchi nomi yoki parol xato.',
   'admin.logout': 'Chiqish',
+  'admin.gcMedia': 'Ishlatilmay qolgan medialarni tozalash',
+  'admin.gcDone': 'Tozalandi: {removed} ta fayl o‘chirildi, {kept} ta saqlanadi.',
   'sidebar.labelAdmin': 'Admin',
   'bottomNav.labelAdmin': 'Admin',
   'settings.pageTitle': 'Sozlamalar',

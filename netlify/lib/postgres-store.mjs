@@ -59,5 +59,20 @@ export function createPostgresStore(databaseUrl, seedProvider, sqlClient) {
     return { bytes, mime: row.mime || 'application/octet-stream' }
   }
 
-  return { getDoc, saveDoc, putMedia, getMedia }
+  async function listMedia() {
+    await ensureMediaTable()
+    const rows = await sql`SELECT id FROM doppi_media`
+    return (rows ?? []).map((r) => r.id)
+  }
+
+  async function deleteMedia(ids) {
+    if (!ids || ids.length === 0) return 0
+    await ensureMediaTable()
+    const safe = ids.filter((id) => typeof id === 'string' && !id.includes('..'))
+    if (safe.length === 0) return 0
+    const rows = await sql`DELETE FROM doppi_media WHERE id = ANY(${safe}) RETURNING id`
+    return (rows ?? []).length
+  }
+
+  return { getDoc, saveDoc, putMedia, getMedia, listMedia, deleteMedia }
 }

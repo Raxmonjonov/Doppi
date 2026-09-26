@@ -10,6 +10,7 @@ import {
   Film,
   FolderOpen,
   BookOpen,
+  Trash2,
   Repeat,
   RefreshCw,
   LogOut,
@@ -191,6 +192,24 @@ function AdminStats({ t, onLogout }: { t: (k: string, p?: Record<string, string 
   const totals = data?.totals
   const maxGrowth = Math.max(1, ...(data?.growth ?? []).map((g) => g.count))
 
+  const [gcBusy, setGcBusy] = useState(false)
+  const [gcNote, setGcNote] = useState<string | null>(null)
+
+  const runGc = async () => {
+    setGcBusy(true)
+    setGcNote(null)
+    try {
+      const adminToken = localStorage.getItem(SESSION_KEY)
+      const r = await api<{ removed: number; kept: number }>('/api/media/gc', { method: 'POST', token: adminToken })
+      setGcNote(t('admin.gcDone', { removed: r.removed, kept: r.kept }))
+      load()
+    } catch (e) {
+      setGcNote(e instanceof Error ? e.message : 'Xatolik')
+    } finally {
+      setGcBusy(false)
+    }
+  }
+
   return (
     <div className="fade-in dash-page">
       <div className="dash-head">
@@ -199,6 +218,9 @@ function AdminStats({ t, onLogout }: { t: (k: string, p?: Record<string, string 
           <p className="page-sub">{t('admin.pageSub')}</p>
         </div>
         <div className="dash-head-actions">
+          <button type="button" className="btn btn-outline btn-sm" onClick={runGc} disabled={gcBusy}>
+            <Trash2 size={15} /> {t('admin.gcMedia')}
+          </button>
           <button type="button" className="btn btn-outline btn-sm" onClick={load} disabled={loading}>
             <RefreshCw size={15} className={loading ? 'spin' : ''} /> {t('dashboard.refresh')}
           </button>
@@ -207,6 +229,7 @@ function AdminStats({ t, onLogout }: { t: (k: string, p?: Record<string, string 
           </button>
         </div>
       </div>
+      {gcNote && <div className="upload-error">{gcNote}</div>}
 
       {error && <div className="dash-error">{error}</div>}
 

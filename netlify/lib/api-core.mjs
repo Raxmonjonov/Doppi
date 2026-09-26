@@ -141,6 +141,48 @@ export function isSafeMediaId(id) {
   return s.length > 0 && s.length <= 120 && !s.includes('..') && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(s)
 }
 
+/* Hujjatda qolib ketgan barcha media havolalari: kim vaqtincha o'chirilsa ham
+   "ishlatilgan" hisoblanadi. */
+export function collectMediaRefs(doc) {
+  const refs = new Set()
+  const take = (v) => {
+    if (typeof v !== 'string') return
+    const m = /\/api\/media\/([A-Za-z0-9][\w.-]*)$/.exec(v)
+    if (m) refs.add(m[1])
+  }
+  for (const u of doc.users ?? []) take(u.avatar)
+  for (const p of doc.posts ?? []) {
+    for (const i of p.images ?? []) take(i)
+    take(p.video)
+  }
+  for (const s of doc.stories ?? []) take(s.image)
+  for (const r of doc.reels ?? []) {
+    take(r.image)
+    take(r.video)
+  }
+  for (const a of doc.albums ?? []) {
+    take(a.cover)
+    for (const ph of a.photos ?? []) take(ph?.url)
+  }
+  for (const g of doc.groups ?? []) take(g.cover)
+  for (const m of doc.messages ?? []) take(m.image)
+  for (const m of doc.groupMessages ?? []) take(m.image)
+  return refs
+}
+
+/* Ro'yxatga olinmagan (vaqtincha o'chirilgan post yoki bekor qilingan
+   yuklash) media fayllarini o'chiradi. */
+export async function collectGarbageMedia(doc, store) {
+  if (typeof store.listMedia !== 'function' || typeof store.deleteMedia !== 'function') {
+    return { removed: 0, kept: 0, unsupported: true }
+  }
+  const used = collectMediaRefs(doc)
+  const all = await store.listMedia()
+  const orphans = all.filter((id) => !used.has(id))
+  const removed = await store.deleteMedia(orphans)
+  return { removed, kept: all.length - orphans.length, scanned: all.length }
+}
+
 export async function handleRequest(method, pathname, query, req, store) {
   const segs = pathname.split('/').filter(Boolean)
   const api = segs.length >= 1 && segs[0] === 'api' ? segs.slice(1) : segs
@@ -992,6 +1034,15 @@ export async function handleRequest(method, pathname, query, req, store) {
     doc.threadCallSignals = doc.threadCallSignals.filter((s) => s.threadId !== id)
     await store.saveDoc(doc)
     return send(200, { ok: true })
+  }
+
+  /* ---------- Media: ishlatilmay qolgan fayllarni tozalash (faqat admin) ---------- */
+
+  if (method === 'POST' && first === 'media' && second === 'gc') {
+    if (!adminAuth(doc, bearer)) return send(403, { error: 'Faqat admin uchun.' })
+    const result = await collectGarbageMedia(doc, store)
+    if (result.unsupported) return send(501, { error: 'Bu store media tozalashni qo‘llab-quvvatlamaydi.' })
+    return send(200, result)
   }
 
   /* ---------- Media yuklash ---------- */

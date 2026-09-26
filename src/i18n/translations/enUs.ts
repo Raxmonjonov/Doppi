@@ -324,6 +324,8 @@ export const en: Dict = {
   'admin.submit': 'Sign in',
   'admin.invalidCredentials': 'Wrong username or password.',
   'admin.logout': 'Log out',
+  'admin.gcMedia': 'Clean unused media',
+  'admin.gcDone': 'Cleaned: {removed} files removed, {kept} kept.',
   'sidebar.labelAdmin': 'Admin',
   'bottomNav.labelAdmin': 'Admin',
   'settings.pageTitle': 'Settings',

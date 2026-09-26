@@ -44,16 +44,34 @@ export async function runSuite(store, label) {
   const tok3 = r.json.token
   const uid2 = r.json.user?.id
 
-  // 2) PUT data with sealed post + sealed album
+  // 2) data uchun qiymatlar
   const seal = Date.now() + 7200000
   const pid = Date.now()
   const aid = Date.now() + 1
+  // 2) media yuklash (avval, chunki post rasmga havola beradi)
+  const pngBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  r = await call('POST', '/api/media', { dataUrl: `data:image/png;base64,${pngBase64}` }, tok2)
+  const mediaId = r.json.id
+  const mediaUrl = r.json.url
+  ok('media upload -> 201 + url', r.status === 201 && !!mediaId && mediaUrl === `/api/media/${mediaId}`, `status=${r.status}`)
+  ok('media returns mime + size', r.json.mime === 'image/png' && r.json.size > 0, `mime=${r.json.mime} size=${r.json.size}`)
+
+  if (mediaUrl) {
+    const mr = await call('GET', mediaUrl, undefined, undefined)
+    const bytes = mr.binary ? Buffer.from(mr.binary.body) : Buffer.alloc(0)
+    ok('media GET returns bytes', mr.status === 200 && bytes.length > 0, `status=${mr.status} len=${bytes.length}`)
+    ok('media GET content-type', mr.binary?.type === 'image/png', `type=${mr.binary?.type}`)
+    ok('media bytes intact', bytes.equals(Buffer.from(pngBase64, 'base64')))
+  }
+
+  // 3) PUT data with sealed post (with media url) + sealed album
   const post = {
     id: pid,
     author: { id: uid1, name: 'Net Test', username: 'nftest1', avatar: '', online: true, about: '' },
     time: 'hozir',
     text: 'sealed flow test',
-    images: [],
+    images: mediaUrl ? [mediaUrl] : [],
     likes: 0,
     comments: [],
     sealUntil: seal,
@@ -120,23 +138,7 @@ export async function runSuite(store, label) {
     ok('admin dashboard', r.status === 200 && !!r.json.totals, `status=${r.status}`)
   }
 
-  // 8) media upload round-trip (real binary, not base64 in the doc)
-  const pngBase64 =
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
-  r = await call('POST', '/api/media', { dataUrl: `data:image/png;base64,${pngBase64}` }, tok2)
-  const mediaId = r.json.id
-  const mediaUrl = r.json.url
-  ok('media upload -> 201 + url', r.status === 201 && !!mediaId && mediaUrl === `/api/media/${mediaId}`, `status=${r.status}`)
-  ok('media returns mime + size', r.json.mime === 'image/png' && r.json.size > 0, `mime=${r.json.mime} size=${r.json.size}`)
-
-  if (mediaUrl) {
-    const mr = await call('GET', mediaUrl, undefined, undefined)
-    const bytes = mr.binary ? Buffer.from(mr.binary.body) : Buffer.alloc(0)
-    ok('media GET returns bytes', mr.status === 200 && bytes.length > 0, `status=${mr.status} len=${bytes.length}`)
-    ok('media GET content-type', mr.binary?.type === 'image/png', `type=${mr.binary?.type}`)
-    ok('media bytes intact', bytes.equals(Buffer.from(pngBase64, 'base64')))
-  }
-
+  // 8) media cheklovlari + GC
   r = await call('POST', '/api/media', { dataUrl: 'data:text/html;base64,PHNjcmlwdD4=' }, tok2)
   ok('media bad mime -> 415', r.status === 415, `status=${r.status}`)
   r = await call('POST', '/api/media', { dataUrl: `data:image/png;base64,${'A'.repeat(12 * 1024 * 1024)}` }, tok2)
@@ -145,6 +147,23 @@ export async function runSuite(store, label) {
   ok('media upload needs auth -> 401', r.status === 401, `status=${r.status}`)
   r = await call('GET', '/api/media/../../etc/passwd', undefined, undefined)
   ok('media path traversal blocked', r.status === 404 || r.status === 400, `status=${r.status}`)
+
+  // 8b) media GC: only unreferenced files are removed (admin only)
+  const orphan = await call('POST', '/api/media', { dataUrl: `data:image/png;base64,${pngBase64}` }, tok2)
+  const orphanId = orphan.json.id
+  r = await call('POST', '/api/media/gc', undefined, tok2)
+  ok('media gc needs admin -> 403', r.status === 403, `status=${r.status}`)
+
+  const adminTok = (await call('POST', '/api/admin/login', { username: 'Admin', password: "Admin.Do'ppi.Uzbekitan.66" })).json.token
+  r = await call('POST', '/api/media/gc', undefined, adminTok)
+  ok('media gc removes orphan only', r.status === 200 && r.json.removed >= 1 && r.json.kept >= 1, `removed=${r.json.removed} kept=${r.json.kept}`)
+
+  const afterOrphan = await call('GET', `/api/media/${orphanId}`, undefined, undefined)
+  ok('orphan media is gone -> 404', afterOrphan.status === 404, `status=${afterOrphan.status}`)
+  if (mediaUrl) {
+    const afterKept = await call('GET', mediaUrl, undefined, undefined)
+    ok('referenced media survives gc', afterKept.status === 200 && !!afterKept.binary, `status=${afterKept.status}`)
+  }
 
   // 9) reload from a fresh store read (persistence)
   const freshStore = await relaunch(store)
