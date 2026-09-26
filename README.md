@@ -15,7 +15,7 @@ Ishlatishdan oldin kamida quyidagilarni qo'shing:
 | 1 | **Parol saqlash** | `netlify/lib/api-core.mjs` (hashPassword) va `server/index.js` da parollar `scrypt` bilan hash qilinadi. Login/register/admin-login/media uchun **rate-limit** bor (10 urinish/15 daqiqa, register 10/soat, media 120/soat, `Retry-After` bilan 429). Chegara jarayon xotirasida saqlanadi — serverless'da bir necha soatga yoyilishi, ko'p instance'li da tayyor himoya bo'lmasligi mumkin. |
 | 2 | **Rate limiting** | Login (10/15 daqiqa, IP+login bo'yicha), register (10/soat), admin-login (10/15 daqiqa), parol tiklash (5/15 daqiqa + 10/15 daqiqa) va media yuklash (120/soat) chegaralangan — `Retry-After` bilan 429. Post yaratish, xabar yuborish, ping va ma'lumotni saqlash (`PUT /api/data`) **chegaralanmagan**. Chegara jarayon xotirasida, ko'p instance'li serverless'da to'liq ishlaydi. |
 | 3 | **Parol tiklash** | `POST /api/auth/forgot` 6 raqamli kod beradi (10 daqiqa, 5 urinish, eski kod bekor qilinadi), `POST /api/auth/reset` parolni yangilaydi va **barcha sessiyalarni bekor qiladi**. Yetkazib berish kanali (email/Telegram bot) **hali ulanmagan**: kod faqat server logiga yoziladi va `NODE_ENV=production` da javobda qaytarilmaydi — ya'ni ishlab chiqarishda bu oqim hali ishlatilmaydi. |
-| 4 | **2FA / sessiya boshqaruvi** | Parol tiklanganda barcha qurilmalardagi sessiyalar o'chadi. Lekin token muddati (expiry), "hamma qurilmalardan chiqish" va 2FA **yo'q**. |
+| 4 | **2FA / sessiya boshqaruvi** | Sessiyalar 30 kunlik **sliding TTL** bilan ishlaydi (faol bo'lganda yangilanadi, muddati o'tgani `401` bilan rad etiladi va tozalanadi). Parol tiklanganda yoki `POST /api/auth/logout-all` da **barcha qurilmalardagi sessiyalar** yopiladi; Settings'da faol sessiyalar ro'yxati ko'rinadi (brauzer, oxirgi faollik, muddati). 2FA va qurilma tanib olish (IP/geolokatsiya) **yo'q**. |
 | 5 | **Google Identity skripti** | `index.html` da `accounts.google.com/gsi/client` yuklanadi, lekin login/registerda ishlatilmaydi (foydasiz yuk). |
 | 6 | **Media** | Rasmlar/video alohida `POST /api/media` orqali **haqiqiy fayl** sifatida saqlanadi (Postgres `bytea` yoki Blobs), hujjatda faqat URL turadi. Rasm brauzerda 1600px/WebP'gacha siqiladi. Qoldiqlar: CDN/thumbnail yo'q, video siqilmaydi, media URL'i tokensiz ochiq (faqat tasodifiy 12-baytli id bilan). Eski `data:` URL lar admin panelidan bir tugma bilan faylga ko'chiriladi. |
 | 7 | **To'lov (premium)** | UI mavjud, backend yo'q. |
@@ -96,10 +96,10 @@ Sinov foydalanuvchilari: `demo1/demo1`, `demo2/demo2`. Admin panel: `/admin` →
 ## Testlar
 
 ```bash
-npm run test:netlify   # 58 test: api-core business logikasi (fayl store)
-npm run test:blobs     # 58 test: blobs-store adapter (fake @netlify/blobs)
-npm run test:pg-store  # 58 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
-npm run test:all       # uchalasi (174 test)
+npm run test:netlify   # 66 test: api-core business logikasi (fayl store) + 7 sessiya-muddati tekshiruvi
+npm run test:blobs     # 66 test: blobs-store adapter (fake @netlify/blobs)
+npm run test:pg-store  # 66 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
+npm run test:all       # uchalasi (198 test)
 npm run build          # tsc + vite
 npm run lint           # oxlint
 ```
@@ -112,6 +112,7 @@ path traversal himoyasi) → media GC (faqat admin, orphan o'chadi, havolali fay
 `data:` URL migratsiyasi (URL faylga aylanadi, `data:` iz qolmaydi)** →
 **rate-limit (brute force 11-urishda 429 + `Retry-After`, to'g'ri parol ham bloklanadi)** →
 **parol tiklash (6 raqamli kod → eski parol 401 → yangi parol 200 → eski sessiya o'lgan)** →
+**sessiya muddati (30 kun sliding TTL, o'tgani 401) + "hamma qurilmalardan chiqish"** →
 "qayta ishga tushgandan keyin saqlanish".
 
 `test:pg-store` Neon HTTP'ni bevosita emulyatsiya qilolmaydi (neon faqat HTTP ishlaydi), shuning

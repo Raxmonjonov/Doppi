@@ -1,8 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
-import { Moon, Sun, Bell, Lock, Globe, Check, LogOut } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Moon, Sun, Bell, Lock, Globe, Check, LogOut, MonitorSmartphone, ShieldOff } from 'lucide-react'
+import { api } from '../api/client'
 import { useTheme } from '../theme/useTheme'
 import { useAuth } from '../data/auth'
 import { savedLangCodes, useI18n, languageName } from '../i18n'
+
+interface SessionInfo {
+  ua: string
+  createdAt: string | null
+  lastSeen: number | null
+  expiresAt: number | null
+  current: boolean
+}
 
 export function Settings() {
   const { theme, toggle } = useTheme()
@@ -11,6 +20,36 @@ export function Settings() {
   const [emailNotifs, setEmailNotifs] = useState(() => localStorage.getItem('doppi-email-notifs-v1') !== 'off')
   const [twoFactor, setTwoFactor] = useState(() => localStorage.getItem('doppi-2fa-v1') === 'on')
   const [langOpen, setLangOpen] = useState(false)
+  const [sessions, setSessions] = useState<SessionInfo[]>([])
+  const [sessionsBusy, setSessionsBusy] = useState(false)
+  const [sessionNote, setSessionNote] = useState<string | null>(null)
+
+  const loadSessions = useCallback(async () => {
+    try {
+      const r = await api<{ sessions: SessionInfo[] }>('/api/auth/sessions')
+      setSessions(r.sessions ?? [])
+    } catch {
+      /* sessiya yo'q bo'lsa jimgina qoldiramiz */
+    }
+  }, [])
+
+  useEffect(() => {
+    if (user) void loadSessions()
+  }, [user, loadSessions])
+
+  const logoutAll = async () => {
+    setSessionsBusy(true)
+    setSessionNote(null)
+    try {
+      const r = await api<{ revoked: number }>('/api/auth/logout-all', { method: 'POST' })
+      setSessionNote(t('settings.logoutAllDone', { count: r.revoked ?? 0 }))
+      await logout()
+    } catch (e) {
+      setSessionNote(e instanceof Error ? e.message : 'Xatolik')
+    } finally {
+      setSessionsBusy(false)
+    }
+  }
   const langRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -133,6 +172,42 @@ export function Settings() {
             {t('settings.logoutButton')}
           </button>
         </div>
+
+        <div className="setting-row">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <ShieldOff size={20} />
+            <div>
+              <div className="setting-label">{t('settings.logoutAllLabel')}</div>
+              <div className="setting-desc">{t('settings.logoutAllDesc')}</div>
+            </div>
+          </div>
+          <button type="button" className="btn btn-outline" onClick={() => void logoutAll()} disabled={sessionsBusy}>
+            {sessionsBusy ? t('auth.pleaseWait') : t('settings.logoutAllButton')}
+          </button>
+        </div>
+
+        {sessionNote && <div className="auth-note">{sessionNote}</div>}
+
+        {sessions.length > 0 && (
+          <div className="session-list">
+            <div className="setting-label">{t('settings.sessionsTitle')}</div>
+            {sessions.map((s, i) => (
+              <div className="session-row" key={`${s.lastSeen ?? 'x'}-${i}`}>
+                <MonitorSmartphone size={16} />
+                <div>
+                  <div className="setting-label">
+                    {s.ua || t('settings.sessionsUnknown')}
+                    {s.current && <span className="session-current"> · {t('settings.sessionsThis')}</span>}
+                  </div>
+                  <div className="setting-desc">
+                    {s.lastSeen ? new Date(s.lastSeen).toLocaleString() : ''}
+                    {s.expiresAt ? ` · ${t('settings.sessionsUntil')} ${new Date(s.expiresAt).toLocaleDateString()}` : ''}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
