@@ -259,6 +259,31 @@ Netlify'da **Force HTTPS** dashboard sozlamasi yoqilgan bo'lishi kerak
 | `ALLOWED_HOSTS` | sozlanmagan | Host sarlavhasi chegarasi (Django `ALLOWED_HOSTS` ekvivalenti) — noto'g'ri Host **400** oladi |
 | HSTS | production + `req.secure` | `max-age=31536000; includeSubDomains` |
 
+#### HTML hujjatga CSP qo'shilishi (2026-09)
+
+Avval `security.mjs` dagi qattiq CSP (`script-src 'self'`) **amalda
+qo'llanmasdi**: `express.static` `dist/index.html` ni o'ziga ham beradi,
+shuning uchun `res.sendFile` middleware'i umuman ishga tushmasdi va `/`
+`isStatic` deb o'tib, CSP siz qolardi. Endi `server/index.js` qaror
+`req.path` bo'yicha qabul qiladi (HTML hujjat / statik aktiv / API).
+
+Bu o'zgarishning **bilinadigan oqibati**: `media-src` da `https:` yo'q,
+shuning uchun uchinchi tomon `https://` manbadagi audio/video **yuklanmaydi**.
+Buni sezilarli qilib qoldirmaslik uchun:
+
+- Ilovaning o'z yuklash yo'li `/api/media` (server saqlaydi, imzo bilan
+  beradi) — `media-src 'self' data: blob:` uni qamrab oladi.
+- Lekin server `message.audio` maydonida **URL formatini tekshirmaydi**
+  (`server/index.js`, `const audio = ... ? req.body.audio : ''`), ya'ni
+  mijoz `https://` manba yozsa saqlanadi va `<audio src>` ga to'g'ridan
+  to'g'ri qo'yiladi (`src/lib/media.ts`, `isDirectUrl`). Bunday audio
+  foydalanuvchi IP'sini uchinchi tomonga oshkor qiladi — ya'ni tracking
+  vektor. Qattiq CSP shuni bloklab, bu teshikni **yopadi**, lekin
+  server tomonidagi validatsiya hali qo'shilmagan.
+
+Rasm uchun `img-src ... https:` ochiq qoldirilgan (avatars va `mock.ts`
+dagi `picsum.photos` shunga bog'liq).
+
 Hujumchi to'g'ridan-to'g'ri portga `X-Forwarded-Proto: https` bermoqchi bo'lsa,
 u manba loopback emasligi uchun ishonilmaydi → soxta HTTPS talab qilinmaydi.
 
