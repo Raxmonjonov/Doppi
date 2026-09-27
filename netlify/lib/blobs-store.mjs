@@ -32,6 +32,10 @@ export function createBlobsStore(blob, seedProvider) {
        belgilaydi: shaxsiy suhbat/guruh media faqat a'zo sessiyasi bilan
        o'qiladi. */
     async putMedia(id, mime, bytes, meta = {}) {
+      // Boshqa metodlar kabi id tekshiruvi: yozuv faqat `media/` prefiksi
+      // ichida va xavfsiz belgilar bilan qo'yiladi (path traversal .
+      // istalgan kelajakdagi chaqiruv uchun ham).
+      if (!/^[A-Za-z0-9][\w.-]*$/.test(String(id)) || String(id).includes('..')) return false
       await blob.set(MEDIA_PREFIX + id, new Blob([bytes], { type: mime }), {
         metadata: {
           mime,
@@ -41,6 +45,7 @@ export function createBlobsStore(blob, seedProvider) {
           ownerId: String(meta?.ownerId ?? ''),
         },
       })
+      return true
     },
     /* Faqat ko'rinish chegarasini yangilaydi (bajtalarni qayta yozmaydi).
        DM/guruh xabariga biriktirilganda media shaxsiy deb belgilanadi. */

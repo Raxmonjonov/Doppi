@@ -393,6 +393,7 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
 | 5 | Tashqi provayderlar | Bajarildi: webhook HTTPS majburiy; kiruvchi webhook **yo'q**; rate limit §5 — kirishlar **va yozishlar** (`write`/`sync`, sessiya bo'yicha 600/soat), lekin jarayon xotirasida. Cheklov: JWT/OAuth yo'q |
 | 6 | Maxfiylar + Docker | Bajarildi: `.env` yopiq, `.env.example`, majburiy kalitlar, loglar toza. Cheklov: Docker fayllar yo'q |
 | 7 | README + SECURITY | Bajarildi: README §"Xavfsizlik" + shu hujjat |
+| 8 | Kod darajasidagi audit (SQLi/travers/IDOR/XSS) | Bajarildi: SQL injection **yo'q** (hamma so'rovlar parametrli), path traversal **yo'q** (`isSafeMediaId` + imzo + `timingSafeEqual`), XSS **yo'q** (`dangerouslySetInnerHTML`/`innerHTML` ishlatilmaydi). Topilgan IDOR/mass-assignment teshiklari yopildi: `PUT /api/data` endi faqat egasini yangilaydi va yangi yozuvni sessiya egasi nomidan yaratadi (posts/stories/reels), guruhni faqat yaratuvchisi o'zgartiradi + `MAX_GROUPS` sync'da ham; push obunasi o'chirish sessiyaga bog'landi (Netlify); `GET /api/data` guruhlarda `memberIds`/`createdBy` yashirildi; noma'lum media scope fail-closed; Express admin `gc`/`migrate` `tokenRef`+TTL bilan tuzatildi (avval doim 403 edi); blobs `putMedia` id tekshiruvi; `ALLOW_LEGACY_SESSIONS` production'da o'chiq. Tekshiruv: `test:all` 486 + jonli Express probe 14/14 |
 
 ---
 
@@ -416,9 +417,26 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
    `git filter-repo` + barcha klonlarni yangilash kerak, bu esa boshqa
    ishchilarning klonlarini buzadi — alohida qaror.
 7. **Xavfsizlik testlari** — `npm run test:all` (delivery 42 tekshiruv,
-   api-core 133, blobs 133, pg-store 133 = 441) vositasi sifatida ishlaydi;
-   bind/HSTS/redirect va yozish limiti tekshiruvi qo'lda (jonli serverga
-   qarshi) amalga oshirildi (natija §1).
+   api-core 148, blobs 148, pg-store 148 = **486**) vositasi sifatida
+   ishlaydi; bind/HSTS/redirect, yozish limiti va IDOR probe'lari qo'lda
+   (jonli Express serverga qarshi) amalga oshirildi (natija §1, §8).
+8. **Albomlar — umumiy pool (qabul qilingan dizayn)** — `albums` jadvalida
+   **egalik ustuni yo'q** va `GET /api/data` barcha albomlarni hammaga
+   ko'rsatadi: har qanday autentifikatsiyalangan foydalanuvchi albomga
+   rasm qo'shadi/o'zgartiradi (limitlar ham global: 10 albom / 30 rasm).
+   Bu prototipdagi "hamma uchun ochiq album" g'oyasiga mos, shuning uchun
+   IDOR hisoblanmaydi — lekin bir foydalanuvchi umumiy pulni to'ldirib
+   qo'yishi/bo'shatishi mumkin (barqarorlik emas, huquq emas).
+   Individual egalik kerak bo'lsa: `owner_id` ustuni + migratsiya + UI'da
+   "mening albomlarim" filtri qo'shish kerak.
+9. **Sessiya TTL siljigan (sliding) + RESET_CODE_ECHO `NODE_ENV`ga bog'liq**
+   — sessiyalar har so'rovda yangilanadi (faol sessiya yakunlanmaydi);
+   parol tiklash kodi esa `NODE_ENV=production` bo'lmagan serverda javobga
+   qaytariladi (`.env.example` da `NODE_ENV=production` belgilangan,
+   rate limit ham bor). Ikkalasi ham ataylab qoldirilgan: birinchisi
+   "eslab qolish" qulayligi, ikkinchisi lokal ishlab chiqish uchun.
+   Zichlashtirish xohlasa: mutlaq sessiya muddati (`created_at + N kun`)
+   va echo uchun alohida `RESET_CODE_ECHO=1` talab qilinadi.
 
 ---
 

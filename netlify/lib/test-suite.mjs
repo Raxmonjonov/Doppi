@@ -1,7 +1,7 @@
 /* Store-agnostic functional suite for netlify/lib/api-core.mjs.
    Used by api-core.test.mjs (file store) and postgres-store.test.mjs (Postgres store). */
 import { handleRequest } from './api-core.mjs'
-import { RATE_LIMITS, resetRateLimits, tokenRef } from './security.mjs'
+import { RATE_LIMITS, resetRateLimits, tokenRef, sessionMatches } from './security.mjs'
 import { LEGACY_LEAKED_ADMIN_PASSWORD } from './test-env.mjs'
 
 /* Parol siyosati: kamida 8 belgi, keng tarqalgan parollar, foydalanuvchi
@@ -303,6 +303,9 @@ export async function runSuite(store, label) {
   ok('message works with push subscription', r.status === 200, `status=${r.status}`)
   r = await call('GET', '/api/notifications?since=0', undefined, tok3)
   ok('push subscriber still gets notification', !!r.json.notifications.find((n) => n.body === 'push bilan birga'))
+  // obuna user3 (tok3) ga tegishli — boshqa sessiya (tok2) uni o'chira olmaydi
+  r = await call('POST', '/api/push/unsubscribe', { endpoint: sub.endpoint }, tok2)
+  ok('push unsubscribe is scoped to owner', r.status === 200 && r.json.removed === 0, `removed=${r.json?.removed}`)
   r = await call('POST', '/api/push/unsubscribe', { endpoint: sub.endpoint }, tok3)
   ok('push unsubscribe', r.status === 200 && r.json.removed === 1, `removed=${r.json?.removed}`)
   r = await call('POST', '/api/push/unsubscribe', { endpoint: sub.endpoint }, tok3)
@@ -517,6 +520,118 @@ export async function runSuite(store, label) {
   // ...va shu imzo bilan eski/xom token bilan kirib bo'lmaydi
   const forgedSession = docNow.sessions.find((s) => String(s.token) === String(tok1b))
   ok('raw token cannot impersonate a session', !forgedSession, forgedSession ? 'raw token found' : 'no raw token')
+
+  // 9e) IDOR — sync (PUT /api/data): egasiz yozish va soxta mualliflik
+  // yopilgan bo'lishi kerak. Begona yozuvlar skip bo'ladi, yangi yozuv
+  // doim sessiya egasi nomidan yaratiladi.
+  resetRateLimits()
+  const tokB = (await call('POST', '/api/auth/login', { username: 'nftest2', password: PW2 })).json.token
+  ok('IDOR: user B logged in', !!tokB)
+
+  const idorPostId = Date.now() - 1000
+  const idorStoryId = Date.now() - 900
+  const idorReelId = Date.now() - 800
+  r = await call(
+    'PUT',
+    '/api/data',
+    {
+      posts: [{ id: idorPostId, author: { id: uid1 }, time: 't', text: 'A original', images: [], comments: [], likes: 0 }],
+      stories: [{ id: idorStoryId, author: { id: uid1 }, image: '/api/media/a.png' }],
+      reels: [{ id: idorReelId, author: { id: uid1 }, image: '/api/media/b.png', caption: 'A cap', comments: [], likes: 0, shares: 0 }],
+      albums: [],
+      groups: [],
+    },
+    tok1b,
+  )
+  ok('IDOR: A created own content', r.status === 200, `status=${r.status}`)
+
+  // B shu yozuvlarni o'zgartirishga urinadi (muallif A bo'lib qolgan holda)
+  r = await call(
+    'PUT',
+    '/api/data',
+    {
+      posts: [{ id: idorPostId, author: { id: uid1 }, time: 'x', text: 'B deface', images: [], comments: [], likes: 0 }],
+      stories: [{ id: idorStoryId, author: { id: uid1 }, image: '/api/media/evil.png' }],
+      reels: [{ id: idorReelId, author: { id: uid1 }, image: '/api/media/evil.png', caption: 'B cap', comments: [], likes: 0, shares: 0 }],
+      albums: [],
+      groups: [],
+    },
+    tokB,
+  )
+  ok('IDOR: B sync accepted but skips foreign rows', r.status === 200, `status=${r.status}`)
+
+  const idorView = (await call('GET', '/api/data', undefined, tokB)).json
+  const pI = idorView.posts.find((p) => Number(p.id) === idorPostId)
+  const rI = idorView.reels.find((x) => Number(x.id) === idorReelId)
+  ok('IDOR: post text not tampered', pI?.text === 'A original', `text=${pI?.text}`)
+  ok('IDOR: reel caption not tampered', rI?.caption === 'A cap', `caption=${rI?.caption}`)
+  // Hikoyalar faqat muallifga/obunachilarga ko'rinadi (GET filtri), shuning
+  // uchun tekshiruv to'g'ridan-to'g'ri hujjat ustidan o'tkaziladi.
+  const sDoc = (await store.getDoc()).stories.find((s) => Number(s.id) === idorStoryId)
+  ok('IDOR: story image not tampered', sDoc?.image === '/api/media/a.png', `image=${sDoc?.image}`)
+
+  // B begona muallifni ko'rsatib YANGI yozuv yaratmoqchi — muallif B
+  // (sessiya egasi) bo'lib qolishi kerak, A emas.
+  const idorForgeId = Date.now() - 700
+  r = await call(
+    'PUT',
+    '/api/data',
+    { posts: [{ id: idorForgeId, author: { id: uid1 }, time: 't', text: 'forged', images: [], comments: [], likes: 0 }], stories: [], reels: [], albums: [], groups: [] },
+    tokB,
+  )
+  const forged = (await call('GET', '/api/data', undefined, tokB)).json.posts.find((p) => Number(p.id) === idorForgeId)
+  ok('IDOR: forged new post attributed to session user', !!forged && Number(forged.author?.id) === Number(uid2), `author=${forged?.author?.id}`)
+
+  // Guruh: faqat yaratuvchi o'zgartira oladi (POST /api/groups bilan bir xil)
+  r = await call('POST', '/api/groups', { name: 'IDOR Guruh', cover: '' }, tok1b)
+  const idorGroupId = r.json?.group?.id
+  ok('IDOR: A created group', r.status === 200 && !!idorGroupId, `status=${r.status}`)
+  if (idorGroupId) {
+    r = await call(
+      'PUT',
+      '/api/data',
+      { posts: [], stories: [], reels: [], albums: [], groups: [{ id: idorGroupId, name: 'HIJACKED', cover: '/evil.png', joined: true }] },
+      tokB,
+    )
+    const gAfter = (await store.getDoc()).groups.find((x) => Number(x.id) === Number(idorGroupId))
+    ok('IDOR: group rename by non-creator rejected', gAfter?.name === 'IDOR Guruh', `name=${gAfter?.name}`)
+  }
+
+  // Sync orqali ham MAX_GROUPS: B 5 ta yangi guruh yuboradi
+  const bulkGroups = Array.from({ length: 5 }, (_, i) => ({ id: Date.now() + 100 + i, name: `bulk${i}`, cover: '', joined: false }))
+  await call('PUT', '/api/data', { posts: [], stories: [], reels: [], albums: [], groups: bulkGroups }, tokB)
+  const docIdor = await store.getDoc()
+  const bGroups = (docIdor.groups ?? []).filter((g) => Number(g.createdBy) === Number(uid2))
+  ok('sync enforces MAX_GROUPS', bGroups.length <= 3, `B created=${bGroups.length}`)
+
+  // GET /api/data guruh maydonlarini kengaytirmaydi (a'zolik/yaratuvchi yashirin)
+  const dataGroups = (await call('GET', '/api/data', undefined, tok1b)).json.groups ?? []
+  ok(
+    'GET /api/data hides memberIds/createdBy',
+    dataGroups.length > 0 && dataGroups.every((g) => !('memberIds' in g) && !('createdBy' in g)),
+    `n=${dataGroups.length}`,
+  )
+
+  // Noma'lum media scope fail-closed: valid sessiya bilan ham ochilmaydi
+  if (typeof store.putMedia === 'function') {
+    const weirdId = `idorscope${Date.now()}.png`
+    await store.putMedia(weirdId, 'image/png', new Uint8Array([1, 2, 3]), { scope: 'weird-scope' })
+    const mw = await call('GET', `/api/media/${weirdId}`, undefined, tok1b)
+    ok('unknown media scope denied (fail-closed)', mw.status === 401, `status=${mw.status}`)
+  }
+
+  // ALLOW_LEGACY_SESSIONS production'da yoqilmaydi (ALLOW_SEED bilan bir xil)
+  const prevLegacy = process.env.ALLOW_LEGACY_SESSIONS
+  const prevNodeEnv = process.env.NODE_ENV
+  process.env.ALLOW_LEGACY_SESSIONS = '1'
+  process.env.NODE_ENV = 'production'
+  ok('legacy raw sessions blocked in production', sessionMatches({ token: 'raw-legacy-token' }, 'raw-legacy-token') === false)
+  process.env.NODE_ENV = 'test'
+  ok('legacy raw sessions allowed outside production with flag', sessionMatches({ token: 'raw-legacy-token' }, 'raw-legacy-token') === true)
+  if (prevLegacy === undefined) delete process.env.ALLOW_LEGACY_SESSIONS
+  else process.env.ALLOW_LEGACY_SESSIONS = prevLegacy
+  if (prevNodeEnv === undefined) delete process.env.NODE_ENV
+  else process.env.NODE_ENV = prevNodeEnv
 
   // 10) reload from a fresh store read (persistence)
   const freshStore = await relaunch(store)

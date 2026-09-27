@@ -1349,61 +1349,92 @@ app.put('/api/data', authMiddleware, async (req, res) => {
   try {
     await client.query('BEGIN')
 
+    /* Yozish egaligi (IDOR himoyasi): mavjud qatorni faqat egasi
+       yangilay oladi — `ON CONFLICT ... DO UPDATE ... WHERE` da egasi
+       boshqa bo'lsa hech narsa o'zgarmaydi. Yangi qator esa har doim
+       sessiya egasi nomidan yaratiladi (boshqa muallifga "soxta"
+       kontent yaratib bo'lmaydi). Begona yozuvlar o'tkazib yuboriladi:
+       interaksiyalar (like/comment/share) alohida endpointlarda
+       saqlangan. */
     for (const p of Array.isArray(d.posts) ? d.posts : []) {
-      const authorId = Number(p.author?.id) || req.user.id
-      const exists = await client.query(`SELECT id FROM users WHERE id = $1`, [authorId])
-      if (exists.rows.length === 0) continue
+      const id = Number(p.id)
+      if (!Number.isFinite(id)) continue
       await client.query(
         `INSERT INTO posts (id, author_id, time, text, images, video, live, seal_until)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
          ON CONFLICT (id) DO UPDATE SET
-           author_id = EXCLUDED.author_id,
            time = EXCLUDED.time,
            text = EXCLUDED.text,
            images = EXCLUDED.images,
            video = EXCLUDED.video,
            live = EXCLUDED.live,
-           seal_until = EXCLUDED.seal_until`,
-        [Number(p.id), authorId, String(p.time ?? ''), String(p.text ?? ''), JSON.stringify(p.images ?? []), p.video ?? null, !!p.live, Number(p.sealUntil) || null],
+           seal_until = EXCLUDED.seal_until
+         WHERE posts.author_id = $2`,
+        [id, req.user.id, String(p.time ?? ''), String(p.text ?? ''), JSON.stringify(p.images ?? []), p.video ?? null, !!p.live, Number(p.sealUntil) || null],
       )
     }
 
     for (const s of Array.isArray(d.stories) ? d.stories : []) {
-      if (Number(s.id) < Date.now() - 24 * 60 * 60 * 1000) continue
-      const authorId = Number(s.author?.id) || req.user.id
-      const exists = await client.query(`SELECT id FROM users WHERE id = $1`, [authorId])
-      if (exists.rows.length === 0) continue
+      const id = Number(s.id)
+      if (!Number.isFinite(id) || id < Date.now() - 24 * 60 * 60 * 1000) continue
       await client.query(
         `INSERT INTO stories (id, author_id, image)
          VALUES ($1,$2,$3)
-         ON CONFLICT (id) DO UPDATE SET image = EXCLUDED.image, author_id = EXCLUDED.author_id`,
-        [Number(s.id), authorId, String(s.image ?? '')],
+         ON CONFLICT (id) DO UPDATE SET image = EXCLUDED.image
+         WHERE stories.author_id = $2`,
+        [id, req.user.id, String(s.image ?? '')],
       )
     }
 
+    let myGroupCount = Number(
+      (await client.query(`SELECT COUNT(*)::int AS n FROM groups WHERE created_by = $1`, [req.user.id])).rows[0].n,
+    )
     for (const g of Array.isArray(d.groups) ? d.groups : []) {
-      await client.query(
-        `INSERT INTO groups (id, name, cover, joined, created_by)
-         VALUES ($1,$2,$3,$4,$5)
-         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, cover = EXCLUDED.cover, joined = EXCLUDED.joined`,
-        [Number(g.id), String(g.name ?? ''), String(g.cover ?? ''), !!g.joined, req.user.id],
-      )
+      const gid = Number(g.id)
+      if (!Number.isFinite(gid)) continue
+      const ex = await client.query(`SELECT created_by FROM groups WHERE id = $1`, [gid])
+      if (ex.rows.length > 0) {
+        // Faqat yaratuvchi o'zgartira oladi (POST /api/groups bilan bir xil
+        // qoida); created_by NULL bo'lgan eski qatorlarni hech kim
+        // tahrirlamaydi.
+        if (ex.rows[0].created_by === null || Number(ex.rows[0].created_by) !== req.user.id) continue
+        await client.query(
+          `UPDATE groups SET name = $1, cover = $2, joined = $3 WHERE id = $4 AND created_by = $5`,
+          [String(g.name ?? ''), String(g.cover ?? ''), !!g.joined, gid, req.user.id],
+        )
+      } else {
+        // Sync orqali ham MAX_GROUPS chegarasi (aksi limit chetlab ketardi)
+        if (myGroupCount >= MAX_GROUPS) continue
+        // DO NOTHING: SELECT'dan keyin shu id boshqasi tomonidan yaratilgan
+        // bo'lsa (mayda yarish) egasi olinmaydi va 500 ham chiqmaydi.
+        const ins = await client.query(
+          `INSERT INTO groups (id, name, cover, joined, created_by) VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT (id) DO NOTHING RETURNING id`,
+          [gid, String(g.name ?? ''), String(g.cover ?? ''), !!g.joined, req.user.id],
+        )
+        if (ins.rows.length > 0) {
+          await client.query(
+            `INSERT INTO group_members (group_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+            [gid, req.user.id],
+          )
+          myGroupCount++
+        }
+      }
     }
 
     for (const r of Array.isArray(d.reels) ? d.reels : []) {
-      const authorId = Number(r.author?.id) || req.user.id
-      const exists = await client.query(`SELECT id FROM users WHERE id = $1`, [authorId])
-      if (exists.rows.length === 0) continue
+      const id = Number(r.id)
+      if (!Number.isFinite(id)) continue
       await client.query(
         `INSERT INTO reels (id, author_id, image, caption, sound, view_mode)
          VALUES ($1,$2,$3,$4,$5,$6)
          ON CONFLICT (id) DO UPDATE SET
-           author_id = EXCLUDED.author_id,
            image = EXCLUDED.image,
            caption = EXCLUDED.caption,
            sound = EXCLUDED.sound,
-           view_mode = EXCLUDED.view_mode`,
-        [Number(r.id), authorId, String(r.image ?? ''), String(r.caption ?? ''), String(r.sound ?? ''), String(r.viewMode ?? 'none')],
+           view_mode = EXCLUDED.view_mode
+         WHERE reels.author_id = $2`,
+        [id, req.user.id, String(r.image ?? ''), String(r.caption ?? ''), String(r.sound ?? ''), String(r.viewMode ?? 'none')],
       )
     }
 
@@ -2210,7 +2241,10 @@ async function mediaViewerAllowed(scope, refId, ownerId, req) {
     )
     return rows.length > 0
   }
-  return true
+  // 'public' — eski imzosiz havolalar: autentifikatsiya yetarli.
+  // Noma'lum scope (yuklashda faqat public/dm/group ruxsat etiladi) —
+  // fail-closed rad etish.
+  return scope === 'public'
 }
 
 /* Xabar/guruhga biriktirilganda media'ni shu suhbatga "bog'laydi" — mijoz
@@ -2309,7 +2343,15 @@ app.post('/api/media', authMiddleware, async (req, res) => {
 
 app.post('/api/media/gc', async (req, res) => {
   const token = adminBearer(req)
-  if (!token || !adminTokens.has(token)) return res.status(403).json({ error: 'Faqat admin uchun.' })
+  // Avval xato tekshirilgan: `adminTokens` kalitlari HMAC (tokenRef), xom
+  // token emas — aks holda bu yo'l hech qachon o'tmas (403) va TTL ham
+  // tekshirilmasdi. Endi /api/dashboard bilan bir xil qoida.
+  const ref = token ? tokenRef(token) : ''
+  if (!token || !adminTokens.has(ref) || Date.now() - adminTokens.get(ref) > ADMIN_SESSION_TTL) {
+    if (ref) adminTokens.delete(ref)
+    return res.status(403).json({ error: 'Faqat admin uchun.' })
+  }
+  adminTokens.set(ref, Date.now())
   try {
     const { rows: refRows } = await pool.query(
       `SELECT DISTINCT (regexp_matches(txt, '/api/media/([A-Za-z0-9][A-Za-z0-9._-]*)', 'g'))[1] AS id
@@ -2343,7 +2385,14 @@ app.post('/api/media/gc', async (req, res) => {
 
 app.post('/api/media/migrate', async (req, res) => {
   const token = adminBearer(req)
-  if (!token || !adminTokens.has(token)) return res.status(403).json({ error: 'Faqat admin uchun.' })
+  // `adminTokens` kalitlari HMAC — xom token bilan solishtirib bo'lmaydi
+  // (gc bilan bir xil: tokenRef + muddat tekshiruvi).
+  const ref = token ? tokenRef(token) : ''
+  if (!token || !adminTokens.has(ref) || Date.now() - adminTokens.get(ref) > ADMIN_SESSION_TTL) {
+    if (ref) adminTokens.delete(ref)
+    return res.status(403).json({ error: 'Faqat admin uchun.' })
+  }
+  adminTokens.set(ref, Date.now())
   const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50))
   const MEDIA_COLUMNS = [
     { table: 'posts', column: 'images', json: true },

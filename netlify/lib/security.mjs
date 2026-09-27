@@ -125,7 +125,17 @@ export function sessionMatches(row, token) {
   if (stored.length === 64 && /^[0-9a-f]{64}$/.test(stored)) {
     return constantTimeEqual(stored, tokenRef(token))
   }
-  if (String(process.env.ALLOW_LEGACY_SESSIONS ?? '') === '1' && stored === String(token)) return true
+  /* Xom (imzosiz) eski sessiyalar faqat lokal migratsiyada.
+     `ALLOW_SEED` dagidek production'da mutlaqo yoqilmaydi — aks holda
+     baza sizsa xom token bilan kirish mumkin bo'lardi. Taqqoslash ham
+     doimiy vaqtli. */
+  if (
+    String(process.env.ALLOW_LEGACY_SESSIONS ?? '') === '1' &&
+    process.env.NODE_ENV !== 'production' &&
+    constantTimeEqual(stored, String(token))
+  ) {
+    return true
+  }
   return false
 }
 

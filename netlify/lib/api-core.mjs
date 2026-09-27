@@ -361,6 +361,11 @@ export function clientIp(req) {
    logout, push — ataylab tashqarida. */
 const WRITE_LIMITED_ROOTS = new Set(['posts', 'reels', 'albums', 'threads', 'groups', 'users'])
 
+/* Bir foydalanuvchi yarata oladigan guruhlar soni (POST /api/groups bilan bir xil).
+   `PUT /api/data` sync yo'li ham shu chegaraga bo'ysunadi — aks holda
+   3 ta limitni sync orqali chetlab ketish mumkin edi. */
+const MAX_GROUPS = 3
+
 function tooMany(send, retryAfter) {
   return send(429, { error: 'Juda ko‘p urinish. Bir oz kutib, qayta yuboring.', retryAfter })
 }
@@ -397,8 +402,10 @@ async function mediaViewerAllowed(store, scope, refId, ownerId, req) {
     const g = doc.groups.find((x) => String(x.id) === String(refId))
     return !!g && (g.memberIds ?? []).includes(me.id)
   }
-  // 'public' — eski imzosiz havolalar: autentifikatsiya yetarli
-  return true
+  // 'public' — eski imzosiz havolalar: autentifikatsiya yetarli.
+  // Noma'lum scope (yuklashda faqat public/dm/group ruxsat etiladi) —
+  // fail-closed rad etish, aks holda yangi scope qo'shilsa ochiq bo'lib qolardi.
+  return scope === 'public'
 }
 
 export const RESET_CODE_TTL = 10 * 60 * 1000
@@ -587,10 +594,12 @@ export function upsertPushSubscription(doc, userId, sub, uaRaw = '') {
   return row
 }
 
-export function removePushSubscription(doc, endpoint) {
+export function removePushSubscription(doc, endpoint, userId) {
   const list = doc.pushSubscriptions ?? []
   const before = list.length
-  doc.pushSubscriptions = list.filter((s) => s.endpoint !== endpoint)
+  // Faqat o'z obunangizni o'chira olasiz: boshqa foydalanuvchining
+  // endpointi (bir xil qurilmada turli hisoblar bo'lsa ham) tegilmaydi.
+  doc.pushSubscriptions = list.filter((s) => !(s.endpoint === endpoint && s.userId === userId))
   return before - doc.pushSubscriptions.length
 }
 
@@ -621,7 +630,7 @@ export function sendPush(doc, userId, payload) {
       if (res && typeof res.then === 'function') {
         res.catch((err) => {
           const code = err?.statusCode
-          if (code === 404 || code === 410) removePushSubscription(doc, s.endpoint)
+          if (code === 404 || code === 410) removePushSubscription(doc, s.endpoint, userId)
         })
       }
       out.sent += 1
@@ -1219,7 +1228,13 @@ export async function handleRequest(method, pathname, query, req, store) {
       }))
       .sort((a, b) => b.id - a.id)
 
-    const groups = [...doc.groups].sort((a, b) => b.id - a.id)
+    /* Guruhlar faqat ko'rish uchun kerakli maydonlar bilan qaytadi —
+       `memberIds`/`createdBy` a'zolikni va yaratuvchini oshkor qilmasin
+       (Express GET /api/data bilan bir xil shakl; ro'yxat uchun
+       /api/guruhlar endpointi a'zolikni serverda filtrlab qaytaradi). */
+    const groups = [...doc.groups]
+      .map((g) => ({ id: g.id, name: g.name ?? '', cover: g.cover ?? '', joined: !!g.joined }))
+      .sort((a, b) => b.id - a.id)
     const following = doc.follows.filter((f) => f.followerId === me.id).map((f) => f.followeeId)
 
     const staleIds = doc.stories.filter((s) => s.id <= storyCutoff).map((s) => s.id)
@@ -1239,12 +1254,21 @@ export async function handleRequest(method, pathname, query, req, store) {
     const d = await readBody(req)
     const storyCutoff = Date.now() - DAY
 
+    /* Yozish egaligi: mavjud yozuvni faqat egasi yangilay oladi, yangi
+       yozuv esa har doim sessiya egasi nomidan yaratiladi — bu sync
+       (PUT /api/data) orqali boshqa odamning postini tahrirlash yoki
+       uning nomidan post yaratib ko'rsatishning oldini oladi (IDOR).
+       Interaksiyalar (like/comment/share) alohida endpointlarda
+       saqlanganligi uchun begona yozuvlarni o'tkazib yuborish qulaylikni
+       buzmaydi. */
     for (const p of Array.isArray(d.posts) ? d.posts : []) {
-      const authorId = Number(p.author?.id) || me.id
-      if (!userById(doc, authorId)) continue
+      const id = Number(p.id)
+      if (!Number.isFinite(id)) continue
+      const existing = doc.posts.find((x) => x.id === id)
+      if (existing && existing.authorId !== me.id) continue
       upsert(doc, 'posts', {
-        id: Number(p.id),
-        authorId,
+        id,
+        authorId: me.id,
         time: String(p.time ?? ''),
         text: String(p.text ?? ''),
         images: Array.isArray(p.images) ? p.images : [],
@@ -1255,30 +1279,50 @@ export async function handleRequest(method, pathname, query, req, store) {
     }
 
     for (const s of Array.isArray(d.stories) ? d.stories : []) {
-      if (Number(s.id) < storyCutoff) continue
-      const authorId = Number(s.author?.id) || me.id
-      if (!userById(doc, authorId)) continue
-      upsert(doc, 'stories', { id: Number(s.id), authorId, image: String(s.image ?? '') })
+      const id = Number(s.id)
+      if (!Number.isFinite(id) || id < storyCutoff) continue
+      const existing = doc.stories.find((x) => x.id === id)
+      if (existing && existing.authorId !== me.id) continue
+      upsert(doc, 'stories', { id, authorId: me.id, image: String(s.image ?? '') })
     }
 
+    let myGroups = doc.groups.filter((g) => g.createdBy === me.id).length
     for (const g of Array.isArray(d.groups) ? d.groups : []) {
-      const existing = doc.groups.find((x) => x.id === Number(g.id))
+      const id = Number(g.id)
+      if (!Number.isFinite(id)) continue
+      const existing = doc.groups.find((x) => x.id === id)
       if (existing) {
+        // Guruhni faqat yaratuvchisi o'zgartira oladi (POST /api/guruhlar
+        // endpointidagi qoida bilan bir xil); `createdBy` yo'q eski
+        // guruhlar hech kim tahrirlamaydi.
+        if (existing.createdBy !== me.id) continue
         existing.name = String(g.name ?? '')
         existing.cover = String(g.cover ?? '')
         existing.joined = !!g.joined
         if (g.members) existing.members = String(g.members)
       } else {
-        doc.groups.push({ id: Number(g.id), name: String(g.name ?? ''), cover: String(g.cover ?? ''), joined: !!g.joined, members: String(g.members ?? "1 a'zo"), createdBy: me.id })
+        if (myGroups >= MAX_GROUPS) continue
+        doc.groups.push({
+          id,
+          name: String(g.name ?? ''),
+          cover: String(g.cover ?? ''),
+          joined: !!g.joined,
+          members: String(g.members ?? "1 a'zo"),
+          createdBy: me.id,
+          memberIds: [me.id],
+        })
+        myGroups++
       }
     }
 
     for (const r of Array.isArray(d.reels) ? d.reels : []) {
-      const authorId = Number(r.author?.id) || me.id
-      if (!userById(doc, authorId)) continue
+      const id = Number(r.id)
+      if (!Number.isFinite(id)) continue
+      const existing = doc.reels.find((x) => x.id === id)
+      if (existing && existing.authorId !== me.id) continue
       upsert(doc, 'reels', {
-        id: Number(r.id),
-        authorId,
+        id,
+        authorId: me.id,
         image: String(r.image ?? ''),
         caption: String(r.caption ?? ''),
         sound: String(r.sound ?? ''),
@@ -1451,8 +1495,6 @@ export async function handleRequest(method, pathname, query, req, store) {
   }
 
   /* ---------- Groups ---------- */
-
-  const MAX_GROUPS = 3
 
   function groupResponse(g, meId) {
     const members = (g.memberIds ?? []).map((id) => userById(doc, id)).filter(Boolean).map((u) => ({
@@ -1878,7 +1920,7 @@ export async function handleRequest(method, pathname, query, req, store) {
     const body = await readBody(req)
     const endpoint = String(body.endpoint ?? '').slice(0, 500)
     if (!endpoint) return send(400, { error: 'endpoint talab qilinadi.' })
-    const removed = removePushSubscription(doc, endpoint)
+    const removed = removePushSubscription(doc, endpoint, me.id)
     if (removed) await store.saveDoc(doc)
     return send(200, { ok: true, removed })
   }
