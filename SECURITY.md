@@ -463,7 +463,34 @@ serverless'da esa `limit_req` yo'q — chunka cheklov §9.1 da hali ochiq.
 - **`.env` repo'ga kirmaydi**: `.gitignore` da `.env`, `.env.*`, `*.env`
   (istisno: `!.env.example`).
 - **`git ls-files` da `.env` yo'q** — haqiqiy kalitlar commit qilinmagan.
-- **`.env.example`** — barcha o'zgaruvchilar nomi va namunasi, kalsiz.
+- **Maxfiy qiymatlar BIR TIRNOQ (`'`) bilan yozilishi shart.**
+  Bu `docker-compose.yml` dagi `${ADMIN_PASSWORD}` kabi interpolatsiya
+  tufayli muhim: Docker Compose `.env` ni o'zgaruvchi interpolatsiyasi
+  uchun o'qiydi va rasmiy hujjatga ko'ra interpolatsiya **kitalsiz va
+  qo'sh tirnoqli** qiymatlarga qo'llaniladi, **bitta tirnoqli qiymatlar
+  esa butunlay (literal) olinadi**:
+
+  | `.env` yozuvi | Compose natijasi |
+  | --- | --- |
+  | `VAR='$OTHER'` | `$OTHER` — to'g'ri |
+  | `VAR="$OTHER"` | interpolatsiya qilinadi — **buziladi** |
+
+  Ya'ni `ADMIN_PASSWORD="...$..."` da `$...` kalit deb o'qilib ketadi va
+  parol production'da **jimgina buziladi** — xato xabarsiz (admin panel
+  oddiyda "parol xato" deydi, sababni ko'rsatmaydi). `SESSION_SECRET`
+  uchun ham xuddi shu.
+
+  `.env.example` ilgari **noto'g'ri** ravishda qo'sh tirnoqni tavsiya qilgan
+  edi; endi u bir tirnoqni tushuntiradi va farqni sabab bilan ko'rsatadi.
+  Node `--env-file` ham bitta tirnoqni to'g'ri talqin qiladi va
+  interpolatsiya qilmaydi — ya'ni bir tirnoq **ikkala** foydalanuvchi
+  (Node va Compose) uchun ham to'g'ri.
+
+  Tekshirish (qiymat chiqmaydi):
+  ```bash
+  node --env-file=.env -e "console.log(process.env.ADMIN_PASSWORD.length)"
+  docker compose config | grep -A1 ADMIN_PASSWORD   # interpolatsiyadan keyingi qiymat
+  ```
 - **Skaner natijasi** (tracked fayllar + git tarixi): xususiy kalit
   (`-----BEGIN ... PRIVATE KEY`), AWS/GitHub/Slack kalitlari, haqiqiy
   `postgres://user:pass@` URI **topilmadi**; tarixdagi fayl nomlari orasida
