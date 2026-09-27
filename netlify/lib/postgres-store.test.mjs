@@ -53,6 +53,42 @@ try {
   process.exit(0)
 }
 
+/* Xavfsizlik: bu test HAQIQIY baza jadvallarini DROP qiladi, va `PGDATABASE`
+   berilmasa sukut bo'yicha "Do'ppi" (loyihaning mahalliy ishlab chiqarish
+   bazasi) ochiladi. Ya'ni `npm run test:pg-store` odatda ishlab chiqarish
+   ma'lumotini o'chiradi.
+
+   Shuning uchun avval jadvallar mavjudligi va satrlar sonini tekshiramiz.
+   Agar baza bo'sh bo'lmasa, testni to'xtatamiz: foydalanuvchi ma'lumotini
+   o'chirmaslik testdan ko'ra muhimroq. Yo'lni o'zi bo'sh test bazaga
+   ko'rsatish mumkin (masalan `PGDATABASE=doppi_test`). */
+const REFUSE_MESSAGE =
+  `XAVFSIZLIK: "${CONN.database}" bazasi bo'sh emas — bu test jadvallarni ` +
+  `DROP qiladi va sizning ma'lumotiringizni o'chirib yuboradi.\n` +
+  `  TESTNI TO'XTATDI. Bo'sh test bazasi ko'rsating, masalan:\n` +
+  `    $env:PGDATABASE=doppi_test    # PowerShell\n` +
+  `    PGDATABASE=doppi_test npm run test:pg-store   # bash\n` +
+  `  (yoki haqiqiy ravishda o'chirmoqchi bo'lsangiz, avval zaxira oling.)`
+
+async function assertDatabaseIsSafeToDrop() {
+  const exists = await client.query(
+    `SELECT table_name FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name IN ('doppi_doc','doppi_media')`,
+  )
+  if (exists.rows.length === 0) return // jadvallar yo'q — DROP xavfsiz
+
+  for (const { table_name: table } of exists.rows) {
+    const { rows } = await client.query(`SELECT count(*)::int AS n FROM ${table}`)
+    if (rows[0].n > 0) {
+      console.error(`\n❌ ${REFUSE_MESSAGE}\n   (${table} jadvalida ${rows[0].n} ta qator bor)`)
+      await client.end()
+      process.exit(1)
+    }
+  }
+}
+
+await assertDatabaseIsSafeToDrop()
+
 await client.query('DROP TABLE IF EXISTS doppi_doc')
 await client.query('DROP TABLE IF EXISTS doppi_media')
 

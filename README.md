@@ -287,6 +287,19 @@ npm run lint           # oxlint
 `test:live` server'ni **o'zi qo'lamaydi** — oldindan `node server/index.js`
 4000-portda ishga tushishi kerak (yuqoridagi "Ishga tushirish" bo'limiga qarang).
 
+> ⚠️ **`test:pg-store` haqiqiy bazaga ulanadi va jadvallarni o'chiradi.**
+> `PGDATABASE` berilmasa u sukut bo'yicha `Do'ppi` (loyihaning ishlab
+> chiqarish bazasi) bazini ochadi va `doppi_doc` / `doppi_media` jadvallarini
+> `DROP` qiladi. Test endi shuni tekshiradi: agar jadvallarda qator bo'lsa,
+> **ma'lumotni yo'qotmaslik uchun to'xtaydi** va bo'sh test bazasi ko'rsatadi:
+>
+> ```bash
+> # bo'sh test bazasi (bir marta)
+> psql -U postgres -c "CREATE DATABASE doppi_test"
+> PGDATABASE=doppi_test npm run test:pg-store     # bash
+> $env:PGDATABASE='doppi_test'; npm run test:pg-store   # PowerShell
+> ```
+
 Uchala test ham bitta suite'ni (`netlify/lib/test-suite.mjs`) ishlatadi va haqiqiy
 `handleRequest` eksporti orqali oqimni yuritadi: auth → data (muhrlangan post + albom) →
 qalqon (+30m / takror→409 / o'z posti→403) → like/comment/share → muhrlangan DM → muhrlangan
