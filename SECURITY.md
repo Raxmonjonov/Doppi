@@ -346,6 +346,13 @@ location /api/auth/ { limit_req zone=api burst=5 nodelay; ... }
   (istisno: `!.env.example`).
 - **`git ls-files` da `.env` yo'q** — haqiqiy kalitlar commit qilinmagan.
 - **`.env.example`** — barcha o'zgaruvchilar nomi va namunasi, kalsiz.
+- **Skaner natijasi** (tracked fayllar + git tarixi): xususiy kalit
+  (`-----BEGIN ... PRIVATE KEY`), AWS/GitHub/Slack kalitlari, haqiqiy
+  `postgres://user:pass@` URI **topilmadi**; tarixdagi fayl nomlari orasida
+  `.env`/`.pem`/`.key` **yo'q**. "password" bo'yicha to'qnashuvlar — faqat
+  test fixture'lari (`Testpass1!`, `wrong-pass`) va `test-env.mjs` dagi
+  eski (koddan olingan) admin paroli — u faqat "rad etilishi" testida
+  ishlatiladi (tarixdagi holati §9.6).
 - **Loglar** (`api.log`, `api.err.log`, `vite.log`) tracked emas va
   `password|Bearer |api_key|secret` bo'yicha toza tekshirilgan.
 - **Production'da majburiy:**
@@ -383,7 +390,7 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
 | 2 | Nginx/TLS | Bajarildi: HSTS/CSP/redirect `netlify.toml` + `FORCE_HTTPS`; `deploy/nginx.conf.example` (TLS 1.2+, HSTS, 308 redirect, `limit_req`) + certbot yo'riqnomasi §4.0 |
 | 3 | Django `settings.py` | Bajarildi: `DEBUG=False` → `NODE_ENV=production` (RESET_CODE_ECHO o'chiq); `ALLOWED_HOSTS` → `ALLOWED_HOSTS`; `SECURE_SSL_REDIRECT` → `FORCE_HTTPS` (308); `SECURE_HSTS_*` → HSTS sarlavhasi; `TRUST_PROXY`. Cookie `*_SECURE` — tegishli emas: cookie ishlatilmaydi (Bearer token) |
 | 4 | Shifrlash transit/at-rest | Bajarildi: TLS DB (verify), reset-code HTTPS, media `?s=` imzo, scrypt. Cheklov: Redis/S3/Channels **yo'q** |
-| 5 | Tashqi provayderlar | Bajarildi: webhook HTTPS majburiy; kiruvchi webhook **yo'q**; rate limit §5 (ammo in-memory). Cheklov: JWT/OAuth yo'q |
+| 5 | Tashqi provayderlar | Bajarildi: webhook HTTPS majburiy; kiruvchi webhook **yo'q**; rate limit §5 — kirishlar **va yozishlar** (`write`/`sync`, sessiya bo'yicha 600/soat), lekin jarayon xotirasida. Cheklov: JWT/OAuth yo'q |
 | 6 | Maxfiylar + Docker | Bajarildi: `.env` yopiq, `.env.example`, majburiy kalitlar, loglar toza. Cheklov: Docker fayllar yo'q |
 | 7 | README + SECURITY | Bajarildi: README §"Xavfsizlik" + shu hujjat |
 
@@ -401,9 +408,17 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
    bog'liq; kalit o'zgarsa eski havolalar bekor bo'ladi (xohlanmagan).
 5. **2FA / qurilma tanib olish yo'q**, webhook uchun imzo mexanizmi hozircha
    kerak emas (serverda inbound webhook yo'q).
-6. **Xavfsizlik testlari** — `npm run test:all` (delivery 42 tekshiruv,
-   api-core 129, blobs 129, pg-store 129) vositasi sifatida ishlaydi;
-   bind/HSTS/redirect tekshiruvi qo'lda amalga oshirildi (natija §1).
+6. **Git tarixidagi eski admin paroli** — `REDACTED_LEGACY_ADMIN_PASSWORD` koddan
+   olib tashlangan (hozir `ADMIN_PASSWORD` faqat env'dan olinadi, testda esa
+   "rad etilishi" tekshiriladi), **lekin eski commitlar ichida qolgan**.
+   Agar u parol biror joyda ishlatilgan bo'lsa (server paneli, boshqa xizmat,
+   eski klon) — **almashtirish shart**. Tarixdan butunlay o'chirish uchun
+   `git filter-repo` + barcha klonlarni yangilash kerak, bu esa boshqa
+   ishchilarning klonlarini buzadi — alohida qaror.
+7. **Xavfsizlik testlari** — `npm run test:all` (delivery 42 tekshiruv,
+   api-core 133, blobs 133, pg-store 133 = 441) vositasi sifatida ishlaydi;
+   bind/HSTS/redirect va yozish limiti tekshiruvi qo'lda (jonli serverga
+   qarshi) amalga oshirildi (natija §1).
 
 ---
 
