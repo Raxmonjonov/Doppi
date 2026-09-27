@@ -91,19 +91,43 @@ export function constantTimeEqual(a, b) {
 
 let ephemeralSecret = null
 
-/* Ishlab chiqarishda SESSION_SECRET majburiy. Berilmasa jarayon davomida
-   tasodifiy kalit yaratiladi — bu holatda qayta ishga tushgandan keyin eski
-   sessiyalar va media imzolari bekor bo'ladi (local ishlash uchun qulay). */
+/* Ishlab chiqarishda SESSION_SECRET majburiy.
+   Esda chiqib ketgan muhim holat: Netlify funksiyalari `NODE_ENV` ni
+   `production` qilib YOQMAYDI, shuning uchun quyidagi `NODE_ENV` tekshiruvi
+   serverless'da umuman ishga tushmasdi va kod jimgina TASODIFIY secret
+   yaratardi. Natijada har bir lambda namunasi o'z secretini ishlatadi:
+   login tokeni yoziladi, keyingi so'rovda boshqa nolda tekshiriladi va
+   `401` qaytadi. Ya'ni sayt ishlaydi, lekin HECH KIM biror sayfadan o'ta
+   olmaydi — foydalanuvchi har safar "chiqib ketyapti" deb o'ylaydi.
+   Shuning uchun serverless muhitni ham aniqlaymiz. */
+const SERVERLESS = Boolean(
+  process.env.NETLIFY === 'true' ||
+    process.env.NETLIFY ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.VERCEL ||
+    process.env.NETLIFY_LOCAL,
+)
+const IS_PROD = process.env.NODE_ENV === 'production' || SERVERLESS
+
 export function serverSecret() {
   const fromEnv = String(process.env.SESSION_SECRET ?? '').trim()
   if (fromEnv.length >= 16) return fromEnv
-  if (process.env.NODE_ENV === 'production') {
+  if (IS_PROD) {
     throw new Error(
-      'SESSION_SECRET production uchun majburiy (Kamida 16 belgi). ' +
-        'Netlify va server sozlamalarida tasodifiy uzun qiymat qo‘ying.',
+      'SESSION_SECRET production uchun majburiy (kamida 16 belgi). ' +
+        'Netlify: Site configuration > Environment variables > SESSION_SECRET. ' +
+        'Qiymat tasodifiy bo\'lishi kerak, masalan `openssl rand -hex 32`. ' +
+        'Uni o\'zgartirsangiz barcha sessiyalar bekor bo\'ladi.',
     )
   }
-  if (!ephemeralSecret) ephemeralSecret = crypto.randomBytes(32).toString('hex')
+  // Lokal ishlash uchun qulay: jarayon davomida bitta tasodifiy kalit.
+  if (!ephemeralSecret) {
+    ephemeralSecret = crypto.randomBytes(32).toString('hex')
+    console.warn(
+      '[xavfsizlik] SESSION_SECRET belgilanmagan — vaqtinchalik kalit ishlatiladi. ' +
+        'Jarayon qayta ishga tushsa sessiyalar bekor bo\'ladi.',
+    )
+  }
   return ephemeralSecret
 }
 
