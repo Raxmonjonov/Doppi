@@ -1,5 +1,5 @@
 /* Live smoke: audio media + notifications + call ring (real PostgreSQL server). */
-import { LEGACY_LEAKED_ADMIN_PASSWORD } from './test-env.mjs'
+import { ADMIN_LOGIN_PROBES } from './test-env.mjs'
 
 const BASE = 'http://127.0.0.1:4000'
 
@@ -219,8 +219,15 @@ const run = async () => {
   )
   const weak = await call('POST', '/api/auth/register', { name: 'W', username: `weak${suffix}`, password: '12345678', email: `weak${suffix}@t.dev` })
   ok('weak/common password rejected on register', weak.status === 400, `status=${weak.status}`)
-  const legacyAdmin = await call('POST', '/api/admin/login', { username: 'Admin', password: LEGACY_LEAKED_ADMIN_PASSWORD })
-  ok('legacy default admin password rejected', legacyAdmin.status === 401 && !legacyAdmin.json?.token, `status=${legacyAdmin.status}`)
+  // Haqiqiy eski parol bu yozuvda yo'q; birinchi probe SOZLANGAN admin
+  // nomini ishlatadi, aks holda 401 nom tufayli kelib parolni solishtirmaydi.
+  for (const probe of ADMIN_LOGIN_PROBES) {
+    const noDefaultAdmin = await call('POST', '/api/admin/login', {
+      username: probe.username,
+      password: probe.password,
+    })
+    ok(`no default admin password: ${probe.label}`, noDefaultAdmin.status === 401 && !noDefaultAdmin.json?.token, `status=${noDefaultAdmin.status}`)
+  }
 
   // DM uchun maxsus media: faqat a'zolar ochishi mumkin
   const dmScope = await call('POST', '/api/media', { dataUrl: `data:audio/webm;base64,${audioB64}`, scope: 'dm', refId: tid }, tok1c)

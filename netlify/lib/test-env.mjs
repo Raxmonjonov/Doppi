@@ -8,9 +8,27 @@ process.env.ADMIN_USERNAME ??= 'secadmin'
 process.env.ADMIN_PASSWORD ??= 'Adm1n-Security-Pass!'
 process.env.NODE_ENV ??= 'test'
 
-/* Git tarixida ochiq bo'lgan eski boshlang'ich admin paroli. Bu qiymat
-   FAQAT "rad etilishi" ni tekshirish uchun testda ishlatiladi — bu haqiqiy
-   hisobga tegishli credential emas. Sabab: ilgari kodda stand sifatida
-   yozilgan edi, endi faqat `ADMIN_PASSWORD` env'dan olinadi. Qiymatni
-   o'zgartirmaslik kerak, aks holda regression test manosini yo'qotadi. */
-export const LEGACY_LEAKED_ADMIN_PASSWORD = "REDACTED_LEGACY_ADMIN_PASSWORD"
+/* Eski boshlang'ich admin paroli (tarixda ochiq bo'lgan) endi BU KODDA
+   saqlanmaydi. Sabab: parol ochiq repoda ko'rinib turganda, "faqat testda
+   ishlatiladi" degan izoh uni yashirmaydi — u har kimga o'qishga ochiq.
+
+   `ADMIN_PASSWORD` allaqachon faqat env'dan olinadi (qaror: kod ichida
+   default credential yo'q), shuning uchun "boshlang'ich parol rad etiladi"
+   regressiya tekshiruvi quyidagicha yoziladi.
+
+   DIQQAT: probe SOZLANGAN admin foydalanuvchi nomini ishlatishi shart.
+   Aks holda 401 foydalanuvchi nomi tufayli keladi va parol umuman
+   tekshirilmaydi — test yashirincha bo'sh qoladi (bu xato bir marta
+   sodir bo'lgandi). Ikkala holat ham tekshiriladi. */
+export const ADMIN_LOGIN_PROBES = [
+  {
+    label: 'configured admin username + non-env password',
+    username: process.env.ADMIN_USERNAME,
+    password: 'No-Default-Credential-1!',
+  },
+  {
+    label: 'documented default admin username + non-env password',
+    username: 'Admin',
+    password: 'No-Default-Credential-1!',
+  },
+]

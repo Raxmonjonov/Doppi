@@ -2,7 +2,7 @@
    Used by api-core.test.mjs (file store) and postgres-store.test.mjs (Postgres store). */
 import { handleRequest } from './api-core.mjs'
 import { RATE_LIMITS, resetRateLimits, tokenRef, sessionMatches } from './security.mjs'
-import { LEGACY_LEAKED_ADMIN_PASSWORD } from './test-env.mjs'
+import { ADMIN_LOGIN_PROBES } from './test-env.mjs'
 
 /* Parol siyosati: kamida 8 belgi, keng tarqalgan parollar, foydalanuvchi
    nomi/emaili ichida bo'lmasligi. Test parollari shu qoidaga mos. */
@@ -323,10 +323,21 @@ export async function runSuite(store, label) {
     ok('admin dashboard', r.status === 200 && !!r.json.totals, `status=${r.status}`)
   }
 
-  // 7b) default/sozlanmagan admin paroli yo'q: noto'g'ri parol ham, sozlangan
-  // parol ham bir xil javob beradi (env'siz holat ham "noto'g'ri" qaytaradi)
-  const badAdmin = await call('POST', '/api/admin/login', { username: 'Admin', password: LEGACY_LEAKED_ADMIN_PASSWORD })
-  ok('legacy default admin password is rejected', badAdmin.status === 401 && !badAdmin.json.token, `status=${badAdmin.status}`)
+  // 7b) default/sozlanmagan admin paroli yo'q: env'dan kelmagan har qanday
+  // parol — jumladan hujjatda yoki tarixda ko'rinib turgan boshlang'ich
+  // parol — 401 beradi. Haqiqiy eski parol bu yozuvda QOLMAYDI (sizib
+  // chiqmasligi uchun); rad etish mantig'i esa bir xil tekshiriladi.
+  //
+  // Muhim: birinchi probe SOZLANGAN foydalanuvchi nomini ishlatadi. Faqat
+  // eski nom bilan urinish testni bo'sh qoldiradi — 401 nom tufayli keladi
+  // va parol hech qachon solishtirilmaydi.
+  for (const probe of ADMIN_LOGIN_PROBES) {
+    const badAdmin = await call('POST', '/api/admin/login', {
+      username: probe.username,
+      password: probe.password,
+    })
+    ok(`no default admin password: ${probe.label}`, badAdmin.status === 401 && !badAdmin.json.token, `status=${badAdmin.status}`)
+  }
   resetRateLimits()
 
   // 8) media cheklovlari + GC

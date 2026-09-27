@@ -947,9 +947,11 @@ export async function handleRequest(method, pathname, query, req, store) {
 
   /* ---------- Admin ----------
 
-     OLD: `ADMIN_PASSWORD ?? 'REDACTED_LEGACY_ADMIN_PASSWORD'` — env berilmasa
+     OLD: `ADMIN_PASSWORD ?? '<redacted>'` — env berilmasa
      hujjatda yozilgan parol ishlaydi. Bu klassik "default credential"
      zaifligi: README'da ko'rinadigan parol bilan butun admin panel olinadi.
+     (Eski parolning o'zi bu yozuvda ataylab saqlanmaydi — u ochiq repodan
+     topilishi mumkin edi.)
 
      YANGI: ishlab chiqarishda ADMIN_PASSWORD majburiy. Berilmasa admin
      kirish butunlay rad etiladi (boshqa hech narsa buzilmaydi). Parol
