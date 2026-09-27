@@ -18,6 +18,7 @@ import {
   signedMediaPath,
   mediaPathOf,
   mediaRefProblem,
+  safeMediaRef,
   sanitizeAvatar,
   RATE_LIMITS,
   rateLimit,
@@ -1411,7 +1412,7 @@ app.put('/api/data', authMiddleware, async (req, res) => {
            live = EXCLUDED.live,
            seal_until = EXCLUDED.seal_until
          WHERE posts.author_id = $2`,
-        [id, req.user.id, String(p.time ?? ''), String(p.text ?? ''), JSON.stringify(p.images ?? []), p.video ?? null, !!p.live, Number(p.sealUntil) || null],
+        [id, req.user.id, String(p.time ?? ''), String(p.text ?? ''), JSON.stringify(p.images ?? []), safeMediaRef(p.video) || null, !!p.live, Number(p.sealUntil) || null],
       )
     }
 
@@ -1475,7 +1476,7 @@ app.put('/api/data', authMiddleware, async (req, res) => {
            sound = EXCLUDED.sound,
            view_mode = EXCLUDED.view_mode
          WHERE reels.author_id = $2`,
-        [id, req.user.id, String(r.image ?? ''), String(r.caption ?? ''), String(r.sound ?? ''), String(r.viewMode ?? 'none')],
+        [id, req.user.id, safeMediaRef(r.image), String(r.caption ?? ''), String(r.sound ?? ''), String(r.viewMode ?? 'none')],
       )
     }
 

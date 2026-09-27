@@ -203,7 +203,16 @@ U quyidagilarni o'z ichiga oladi (checklist item 2):
   `ALLOWED_HOSTS` tekshiruvi redirect nginx'da bo'lgani uchun ishlamaydi).
   Noma'lum Host asosiy domenga tushadi.
 - **Faqat TLS 1.2/1.3** (`ssl_protocols TLSv1.2 TLSv1.3`), eskirgan TLSv1.0/1.1
-  va zaif shifrlar ro'yxati bilan (`ssl_ciphers`), stapling + session tickets off
+  va zaif shifrlar ro'yxati bilan (`ssl_ciphers`), stapling + session tickets off.
+  **Runtime'da tekshirilgan** (Node `tls` moduli, faqat bitta versiyani
+  taklif qilib): TLSv1 va TLSv1.1 → `ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION`
+  (server faol rad etadi), TLSv1.2 → `ECDHE-RSA-AES256-GCM-SHA384`,
+  TLSv1.3 → `TLS_AES_256_GCM_SHA384`.
+
+  > Windows'dagi `curl.exe` **Schannel** bilan qurilgan va `--tlsv1.0`
+  > kabi bayroqlarni *majburlamaydi* (faqat minimal versiyani belgilaydi) —
+  > shuning uchun u har doim `200` qaytaradi va **dalil emas**. `--tls-max`
+  > esa umuman qo'llab-quvvatlanmaydi. Shu sababdan skript ishlatildi.
 - **HSTS** `max-age=63072000; includeSubDomains; preload`
 - **`X-Forwarded-Proto`** — ilova (`FORCE_HTTPS`, `req.secure`) shu headerga
   bog'liq; buni uzatmasangiz HTTPS redirect sikli yoki HSTS yuborilmaydi.
@@ -307,6 +316,47 @@ Sinovlar: `test-suite.mjs` da 16 ta (har biri uch backend'da takrorlanadi:
 fayl, blobs, postgres) + `live-voice-notif.smoke.mjs` da 4 ta (haqiqiy
 Express server'ga qarshi), jumladan **o'z serverimizdagi imzoli media
 qabul qilinishi** tekshiriladi — ya'ni qoida legitim trafikni tegmaydi.
+
+### 2.2 Qaysi maydonlar qamrab olinadi — qaror chizig'i
+
+Qoida **maydon nomiga emas, CHIZISH KONTEKSTIGA** bog'liq. Bu muhim,
+chunki CSP ikki xil kontekstni boshqacha qayta qaraydi:
+
+| Maydon | Chizilishi | CSP | Qaror |
+| --- | --- | --- | --- |
+| `message.audio` | `<audio src>` | `media-src 'self' data: blob:` | **Rad etiladi** (400) |
+| `message.image` | `<img src>` | `img-src ... https:` | **Rad etiladi** (400) — chat tori, qattiqroq |
+| `post.video` | `<video src>` (`MediaGrid.tsx`) | `media-src` | **Kesiladi** (`''`) |
+| `reel.image` | `<video src>` (`Reels.tsx:118`, `Home.tsx:241`) | `media-src` | **Kesiladi** (`''`) |
+| `avatar` | `<img src>` | `img-src ... https:` | Ochiq (`sanitizeAvatar`) |
+| `post.images` | `<img src>` | `img-src ... https:` | Ochiq — ataylab |
+| `story.image` | `<img src>` (`StoriesRow.tsx:71`) | `img-src ... https:` | Ochiq — ataylab |
+| `group.cover` | `<img src>` (`Groups.tsx:156`) | `img-src ... https:` | Ochiq — ataylab |
+
+Diqqat: **`reel.image` nomi `image` bo'lsa ham, `<video>` da chiziladi** —
+ya'ni `media-src` konteksti. Shu sababli u `post.images` dan boshqacha
+qaror oladi.
+
+### 2.3 Nega `post.video`/`reel.image` uchun 400 emas, KESISH
+
+Ular `PUT /api/data` orqali yoziladi — bu endpoint **butun hujjatni**
+(postlar, reels, guruhlar, hammasi) bitta kelishuvda saqlaydi. Unda
+birorta maydonga `400` qaytarish **foydalanuvchining butun sinxini
+buzardi**: bitta noto'g'ri maydon bo'ldimi, barcha ma'lumot yo'qolmadi.
+Yana bu tuzatishdan **OLDIN** yozilgan eski ma'lumotda ham tashqi URL
+bo'lishi mumkin, va u 400 bilan qaytib kelardi.
+
+Shuning uchun `safeMediaRef()` qiymatni **kesadi** (`''` ga), endpoint esa
+**200** qaytaradi. Sinovlar aynan shuni tekshiradi:
+`PUT /api/data accepts doc with external video (sync not bricked)`.
+
+Xabar endpointlari (`POST /api/threads/:id/messages`,
+`POST /api/groups/:id/messages`) boshqa holat: ular **tor**, bitta
+maqsadli, `image`/`audio` maydoni boshqa hech narsaga xizmat qilmaydi —
+u yerda `400` to'g'ri javob.
+
+**O'qish yo'llari (`GET /api/data`) tegilmadi**: u yerda tozalash
+ko'ruvchiga ko'rsatiladigan narsani yashirib, muammoni niqop qilardi.
 
 Rasm uchun `img-src ... https:` ochiq qoldirilgan (avatars va `mock.ts`
 dagi `picsum.photos` shunga bog'liq).
@@ -501,7 +551,7 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
      ham almashtiradi, `refs/*` ning barchasini qayta yozadi va har bir
      shaklni alohida tekshiradi.
 7. **Xavfsizlik testlari** — `npm run test:all` (delivery 42 tekshiruv,
-   api-core 165, blobs 165, pg-store 165, delivery 42 = **537**) vositasi sifatida
+   api-core 170, blobs 170, pg-store 170, delivery 42 = **552**) vositasi sifatida
    ishlaydi; bind/HSTS/redirect, yozish limiti va IDOR probe'lari qo'lda
    (jonli Express serverga qarshi) amalga oshirildi (natija §1, §8).
 8. **Albomlar — umumiy pool (qabul qilingan dizayn)** — `albums` jadvalida

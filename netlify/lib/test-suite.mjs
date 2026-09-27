@@ -200,6 +200,40 @@ export async function runSuite(store, label) {
     ok('dm accepts own /api/media url', false, `media yuklanmadi: status=${ownUpload.status}`)
   }
 
+  // 5c) `PUT /api/data` — `<video>`/`<audio>` kontekstidagi maydonlar
+  // (`post.video`, `reel.image`) KESILADI, RAD ETILMAYDI. Sabab: bu
+  // endpoint butun hujjatni yozadi; bitta maydonga 400 qaytarish
+  // foydalanuvchining butun sinxini buzardi. Kesish esa eski (bu
+  // tuzatishdan oldin yozilgan) tashqi URL'ni ham tozalaydi.
+  const extVideoPost = { id: Date.now() + 77, time: 'hozir', text: 'v', images: [], video: 'https://tracking.example.net/v.mp4' }
+  const extReel = { id: Date.now() + 78, image: 'https://tracking.example.net/r.mp4', caption: 'r' }
+  r = await call('PUT', '/api/data', { posts: [extVideoPost], stories: [], reels: [extReel], albums: [], groups: [] }, tok2)
+  ok('PUT /api/data accepts doc with external video (sync not bricked)', r.status === 200, `status=${r.status} ${JSON.stringify(r.json)}`)
+  r = await call('GET', '/api/data', undefined, tok2)
+  const strippedPost = (r.json?.posts ?? []).find((p) => p.id === extVideoPost.id)
+  const strippedReel = (r.json?.reels ?? []).find((x) => x.id === extReel.id)
+  ok('post.video external stripped (media-src context)', !!strippedPost && !strippedPost.video, `video=${JSON.stringify(strippedPost?.video)}`)
+  ok('reel.image external stripped (media-src context)', !!strippedReel && !strippedReel.image, `image=${JSON.stringify(strippedReel?.image)}`)
+
+  // ...lekin `<img>` kontekstidagi maydonlar OCHIQ qoladi (`img-src https:`).
+  // Bu ataylab qaror: avatar, post rasm, story, guruh cover.
+  const imgPost = { id: Date.now() + 79, time: 'hozir', text: 'i', images: ['https://images.example.net/a.png'], video: '' }
+  r = await call('PUT', '/api/data', { posts: [imgPost], stories: [], reels: [], albums: [], groups: [] }, tok2)
+  r = await call('GET', '/api/data', undefined, tok2)
+  const keptPost = (r.json?.posts ?? []).find((p) => p.id === imgPost.id)
+  ok('post.images external KEPT (img-src context, by design)', keptPost?.images?.[0] === 'https://images.example.net/a.png', `images=${JSON.stringify(keptPost?.images)}`)
+
+  // O'z serverimizdagi video saqlanadi (qoida legitim trafikni tegmaydi).
+  if (ownUpload.json?.url) {
+    const okPost = { id: Date.now() + 80, time: 'hozir', text: 'ok', images: [], video: ownUpload.json.url }
+    r = await call('PUT', '/api/data', { posts: [okPost], stories: [], reels: [], albums: [], groups: [] }, tok2)
+    r = await call('GET', '/api/data', undefined, tok2)
+    const keptVid = (r.json?.posts ?? []).find((p) => p.id === okPost.id)
+    ok('post.video own /api/media url kept', keptVid?.video === ownUpload.json.url, `video=${JSON.stringify(keptVid?.video)}`)
+  } else {
+    ok('post.video own /api/media url kept', false, 'media yuklanmagan')
+  }
+
   // 6) group sealed message
   r = await call('POST', '/api/groups', { name: 'G', cover: '', membersCount: 1 }, tok2)
   const gid = r.json.group ? r.json.group.id : r.json.id

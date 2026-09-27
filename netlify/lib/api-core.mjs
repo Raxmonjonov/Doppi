@@ -14,6 +14,7 @@ import {
   signedMediaPath,
   mediaPathOf,
   mediaRefProblem,
+  safeMediaRef,
   RATE_LIMITS,
   rateLimit,
   rateLimitAny,
@@ -1275,7 +1276,7 @@ export async function handleRequest(method, pathname, query, req, store) {
         time: String(p.time ?? ''),
         text: String(p.text ?? ''),
         images: Array.isArray(p.images) ? p.images : [],
-        video: p.video ?? null,
+        video: safeMediaRef(p.video) || null,
         live: !!p.live,
         ...(p.sealUntil ? { sealUntil: Number(p.sealUntil) } : {}),
       })
@@ -1326,7 +1327,7 @@ export async function handleRequest(method, pathname, query, req, store) {
       upsert(doc, 'reels', {
         id,
         authorId: me.id,
-        image: String(r.image ?? ''),
+        image: safeMediaRef(r.image),
         caption: String(r.caption ?? ''),
         sound: String(r.sound ?? ''),
         viewMode: String(r.viewMode ?? 'none'),

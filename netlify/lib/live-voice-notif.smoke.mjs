@@ -84,6 +84,22 @@ const run = async () => {
   r = await call('POST', `/api/threads/${tid}/messages`, { text: '' }, tok1)
   ok('empty message -> 400', r.status === 400, `status=${r.status}`)
 
+  // 2c) `PUT /api/data`: `<video>` kontekstidagi maydonlar kesiladi, lekin
+  // endpoint RAD ETILMAYDI (butun hujjat yoziladi — bitta maydon uchun
+  // 400 qaytarish foydalanuvchining butun sinxini buzardi).
+  const syncPost = { id: Date.now() + 91, time: 'hozir', text: 'sync', images: [], video: 'https://tracking.example.net/v.mp4' }
+  r = await call('PUT', '/api/data', { posts: [syncPost], stories: [], reels: [], albums: [], groups: [] }, tok1)
+  ok('PUT /api/data not bricked by external video (express)', r.status === 200, `status=${r.status} ${JSON.stringify(r.json)}`)
+  r = await call('GET', '/api/data', undefined, tok1)
+  const stripped = (r.json?.posts ?? []).find((p) => p.id === syncPost.id)
+  ok('post.video external stripped (express)', !!stripped && !stripped.video, `video=${JSON.stringify(stripped?.video)}`)
+  // `<img>` konteksti ochiq qoladi (img-src https: — ataylab qaror).
+  const imgPost = { id: Date.now() + 92, time: 'hozir', text: 'img', images: ['https://images.example.net/a.png'] }
+  await call('PUT', '/api/data', { posts: [imgPost], stories: [], reels: [], albums: [], groups: [] }, tok1)
+  r = await call('GET', '/api/data', undefined, tok1)
+  const kept = (r.json?.posts ?? []).find((p) => p.id === imgPost.id)
+  ok('post.images external kept (express, img-src by design)', kept?.images?.[0] === 'https://images.example.net/a.png', `images=${JSON.stringify(kept?.images)}`)
+
   // 2b) Express media manba himoyasi (haqiqiy server, emas Netlify).
   // Tashqi `https://` manba saqlansa, u `<audio>`/`<img>` ga to'g'ri
   // qo'yiladi va ko'ruvchining IP'si uchinchi tomonga oshkor bo'ladi.

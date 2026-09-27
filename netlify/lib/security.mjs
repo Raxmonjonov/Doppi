@@ -172,8 +172,8 @@ export function mediaSignatureOf(value) {
 }
 
 /* ---------- Xabar/guruh media manbasi ----------
-   Xabar ichidagi `image`/`audio` (va guruh `cover`) FAQAT o'z serverimizga
-   tegishli `/api/media/...` bo'lishi SHART.
+   Xabar ichidagi `image`/`audio` FAQAT o'z serverimizga tegishli
+   `/api/media/...` bo'lishi SHART.
 
    Sabab: tashqi `https://` manba saqlansa, u `<audio>`/`<img>` ga to'g'ri
    qo'yiladi (`src/lib/media.ts` -> `isDirectUrl`) va har bir ko'ruvchi
@@ -183,9 +183,15 @@ export function mediaSignatureOf(value) {
    shuning uchun bu qoida legitim trafikni tegmaydi.
 
    `avatar` bundan TEJILGAN: `sanitizeAvatar` ondan tashqi https avatar'ni
-   ataylab ruxsat beradi (u boshqa yo'l, boshqa qaror). */
-export function mediaRefProblem(value, label = 'Media') {
-  const s = String(value ?? '').trim()
+   ataylab ruxsat beradi (u boshqa yo'l, boshqa qaror). Xuddi shunday
+   `post.images`, `story.image` va `group.cover` ham TEJILGAN — ular
+   `<img>` da chiziladi va `img-src ... https:` ular uchun ataylab ochiq.
+
+   `<video>`/`<audio>` da chiziladigan maydonlar (`post.video`,
+   `reel.image`) esa `media-src` kontekstida — u yerda tashqi `https:`
+   ni CSP ham bloklaydi. Ular `safeMediaRef()` bilan KESILADI (rad
+   etilmaydi, chunki `PUT /api/data` butun hujjatni yozadi). */
+export function mediaRefProblem(value, label = 'Media') {  const s = String(value ?? '').trim()
   if (!s) return null
   if (s.length > 600) return `${label} havolasi juda uzun.`
   // `data:` — brauzerda har bir ochilishda qayta dekodlanadi; o'lcham
@@ -199,6 +205,21 @@ export function mediaRefProblem(value, label = 'Media') {
   if (!m) return `${label} faqat o'z serverimizdagi (/api/media/...) havolaga bo'lishi kerak.`
   if (m[1].includes('..')) return `${label} havolasi noto'g'ri.`
   return null
+}
+
+/* `PUT /api/data` — butun hujjatni bir kelishuvda yozadi (postlar, reels,
+   guruhlar, hammasi). Unda maydonga `400` qaytarish XAVFLI: bitta noto'g'ri
+   maydon foydalanuvchining butun sinxini buzadi, va bu tuzatishdan OLDIN
+   yozilgan eski ma'lumotda ham tashqi URL bo'lishi mumkin. Shuning uchun
+   bu yerda rad etish o'rniga qiymat KESILADI (`''`).
+
+   Ishlab chiqarish maydonlari (`post.video`, `reel.image`) `<video>`/
+   `<audio>` da chiziladi, ya'ni `media-src` konteksti — u yerda tashqi
+   `https:` ni CSP ham bloklaydi. `<img>` da chiziladigan maydonlar
+   (`avatar`, `post.images`, `story.image`, `group.cover`) bundan
+   TEJILGAN: `img-src ... https:` ular uchun ataylab ochiq. */
+export function safeMediaRef(value) {
+  return mediaRefProblem(value) ? '' : String(value ?? '').trim()
 }
 
 /* ---------- Rate limit / credential stuffing ---------- */
