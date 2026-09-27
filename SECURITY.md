@@ -429,20 +429,25 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
    bog'liq; kalit o'zgarsa eski havolalar bekor bo'ladi (xohlanmagan).
 5. **2FA / qurilma tanib olish yo'q**, webhook uchun imzo mexanizmi hozircha
    kerak emas (serverda inbound webhook yo'q).
-6. **Git tarixidagi eski admin paroli** — koddan olib tashlangan (hozir `ADMIN_PASSWORD` faqat env'dan olinadi), **lekin eski commitlar ichida qolgan**.
-   Agar u parol biror joyda ishlatilgan bo'lsa (server paneli, boshqa xizmat,
-   eski klon) — **almashtirish shart**. Tarixdan butunlay o'chirish uchun
-   `git filter-repo` + barcha klonlarni yangilash kerak, bu esa boshqa
-   ishchilarning klonlarini buzadi — alohida qaror.
-   **Avtomatik tozalash:** `purge-legacy-password.mjs` (repo ildizida).
-   Parol skriptga yozilMAYDI (aks holda skriptni commit qilish uni yana
-   tarixga kiritardi) — muhit o'zgaruvchisi orqali beriladi:
-   `pip install git-filter-repo`, keyin
-   `LEGACY_ADMIN_PASSWORD='...' node purge-legacy-password.mjs`
-   (PowerShell: `$env:LEGACY_ADMIN_PASSWORD='...'; node purge-legacy-password.mjs`).
-   Skript avval nechta commitda topilishini hisoblaydi, keyin tozalaydi va
-   qoldig'ini tekshiradi. So'ng `git push --force --all` va
-   `git push --force --tags`. Barcha ishchilar yangidan `clone` qilishi KERAK.
+6. **Git tarixidagi eski admin paroli** — ✅ **lokal tarix tozalandi**
+   (2026-09-27, `git filter-repo`). Parol koddan ham, tarixdan ham olib
+   tashlandi va `git fsck` hamda obyekt skaneri bilan tekshirildi (0 qoldiq).
+   ⚠️ **Bajarilishi kerak bo'lgan qolgan ishlar:**
+   - `git push --force --all && git push --force --tags` — remote'da
+     eski tarix hozir ham turibdi, u o'zi kuchli nolga ega emas.
+   - **Parolni ALMASHTIRISH shart.** U ochiq repoda ko'rinib turgan;
+     tarixni tozalash parol allaqachon oshkor bo'lganini o'zgartirmaydi.
+   - Eski klonlarni o'chirib, yangidan `clone` qilish (github.com/.../Doppi
+     forklari ham).
+   - Qayta ishlatish uchun: `purge-legacy-password.mjs` (repo ildizida).
+     Parol skriptga yozilMAYDI (aks holda skriptni commit qilish uni yana
+     tarixga kiritardi) — muhit o'zgaruvchisi orqali beriladi:
+     `pip install git-filter-repo`, keyin
+     `LEGACY_ADMIN_PASSWORD='...' node purge-legacy-password.mjs`.
+     (PowerShell: `$env:LEGACY_ADMIN_PASSWORD='...'; node purge-legacy-password.mjs`).
+     Skript xom, qochirilgan (`\'`) va URL-kodlangan (`%27`) shakllarni
+     ham almashtiradi, `refs/*` ning barchasini qayta yozadi va har bir
+     shaklni alohida tekshiradi.
 7. **Xavfsizlik testlari** — `npm run test:all` (delivery 42 tekshiruv,
    api-core 149, blobs 149, pg-store 149, delivery 42 = **489**) vositasi sifatida
    ishlaydi; bind/HSTS/redirect, yozish limiti va IDOR probe'lari qo'lda

@@ -12,14 +12,18 @@ process.env.NODE_ENV ??= 'test'
    saqlanmaydi. Sabab: parol ochiq repoda ko'rinib turganda, "faqat testda
    ishlatiladi" degan izoh uni yashirmaydi — u har kimga o'qishga ochiq.
 
-   `ADMIN_PASSWORD` allaqachon faqat env'dan olinadi (qaror: kod ichida
-   default credential yo'q), shuning uchun "boshlang'ich parol rad etiladi"
+   `ADMIN_PASSWORD` allaqachon faqat env'dan olinadi (kod ichida default
+   credential yo'q), shuning uchun "boshlang'ich parol rad etiladi"
    regressiya tekshiruvi quyidagicha yoziladi.
 
    DIQQAT: probe SOZLANGAN admin foydalanuvchi nomini ishlatishi shart.
    Aks holda 401 foydalanuvchi nomi tufayli keladi va parol umuman
    tekshirilmaydi — test yashirincha bo'sh qoladi (bu xato bir marta
-   sodir bo'lgandi). Ikkala holat ham tekshiriladi. */
+   sodir bo'lgandi). Ikkala holat ham tekshiriladi.
+
+   Aniq eski parolni tekshirish kerak bo'lsa, uni HECH QACHON repo'ga
+   yozmang: `LEGACY_ADMIN_PASSWORD` orqali mahalliy vaqtincha bering
+   (faqat shell muhitida, hech qayerga yozilmaydi). */
 export const ADMIN_LOGIN_PROBES = [
   {
     label: 'configured admin username + non-env password',
