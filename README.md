@@ -238,6 +238,36 @@ Tasodifiy `SESSION_SECRET` yaratish:
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
+> ### ⚠️ `SESSION_SECRET` bo'lmasa sayt "ishlaydi", lekin hech kim kira olmaydi
+>
+> Bu — shu loyihada eng chuqur tuzoq, shuning uchun alohida yozilgan.
+>
+> Sessiya tokeni bazada **o'ziga xos emas**, balki
+> `HMAC(token, SESSION_SECRET)` ko'rinishida saqlanadi. Agar
+> `SESSION_SECRET` berilmasa, kod vaqtinchalik tasodifiy kalit yaratadi va
+> **har bir serverless namunasi o'z kalitini oladi**. Natijada:
+>
+> | So'rov | Natija |
+> |---|---|
+> | `POST /api/auth/login` | `200` — token beriladi, foydalanuvchi bazada topiladi |
+> | `GET /api/auth/me` (shu token bilan) | **`401`** — boshqa nolda imzo solishtiriladi |
+>
+> Ya'ni kirish **muvaffaqiyatli** ko'rinadi, lekin sahifa yangilanganda
+> foydalanuvchi darhol chiqib ketadi. Ro'yxatdan o'tish esa **ishlaydi**
+> (foydalanuvchi ma'lumotida kalit ishlatilmaydi) — shuning uchun bu holat
+> "har safar qayta ro'yxatdan o'tish kerak" shaklida ko'rinadi va
+> noto'g'ri tushuniladi. Foydalanuvchi ma'lumoti saqlanib qoladi, sessiya
+> esa **har bir so'rovda** bekor bo'ladi.
+>
+> Netlify funksiyalari `NODE_ENV` ni `production` qilib **qo'ymaydi**,
+> shuning uchun bu holat avval jimgina o'tib ketardi. Endi `serverSecret()`
+> `NETLIFY` / `AWS_LAMBDA_FUNCTION_NAME` / `VERCEL` muhitini ham aniqlaydi
+> va shu holda **aniq xato** beradi — jimgina ishlamay qolmaydi.
+>
+> **Netlify → Site configuration → Environment variables** da
+> `SESSION_SECRET` **albatta** bo'lishi kerak. Uni o'zgartirsangiz
+> barcha sessiyalar bekor bo'ladi (foydalanuvchilar bir marta qayta kirsin).
+
 Ikki holat eslab qolinadi:
 
 - Eski (xom saqlangan) sessiyalar endi **rad etiladi** — ular `git`da ochiq

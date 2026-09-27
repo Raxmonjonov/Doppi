@@ -614,7 +614,16 @@ serverless'da esa `limit_req` yo'q — chunka cheklov §9.1 da hali ochiq.
 - **Loglar** (`api.log`, `api.err.log`, `vite.log`) tracked emas va
   `password|Bearer |api_key|secret` bo'yicha toza tekshirilgan.
 - **Production'da majburiy:**
-  - `SESSION_SECRET` — kamida **16 belgi**, aks holda `serverSecret()` xato tashlaydi;
+  - `SESSION_SECRET` — kamida **16 belgi**, aks holda `serverSecret()` xato
+    tashlaydi. **MUHIM:** "xato tashlaydi" qismi serverless'da
+    `NODE_ENV` tekshiruviga tayanmasligi kerak edi — Netlify funksiyalari
+    `NODE_ENV` ni `production` qilib **qo'ymaydi**, shuning uchun kod jimgina
+    vaqtinchalik kalit yaratib, saytni "ishlayotgan" holatda saqlab qolgan
+    edi. Natijada login `200` berib, keyingi har bir so'rovda `401` qaytardi
+    (sessiya imzosi boshqa nolda hisoblanadi) — foydalanuvchi esa har safar
+    "chiqib ketyapti" deb o'ylardi. Endi `NETLIFY` /
+    `AWS_LAMBDA_FUNCTION_NAME` / `VERCEL` / `NETLIFY_LOCAL` ham aniqlanadi
+    (batafsil: README, "majburiy muhit o'zgaruvchilari" bo'limi);
   - `ADMIN_USERNAME` + `ADMIN_PASSWORD` — kamida **12 belgi**, aks holda admin kirishi o'chgan holda qoladi (server ishlayveradi).
 - **Xavfli rejimlar production'da o'chiq:** `RESET_CODE_ECHO` (production'da
   o'chiq), `ALLOW_LEGACY_SESSIONS`, `ALLOW_SEED`.
