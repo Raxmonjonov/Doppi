@@ -58,30 +58,51 @@ netstat -an        # Windows
 curl -m 3 http://SERVER_IP:4000/api/health   # ECONNREFUSED bo'lishi kerak
 ```
 
-### Mahalliy audit xulosasi (bu ish stansiya)
+### Mahalliy audit xulosasi (bu ish stansiya) — TOPILDI VA TUZATILDI
+
+Auditda ikkala himoya ham yo'q edi:
 
 ```
-TCP  0.0.0.0:5432   LISTENING   <- e'tibor bering: HAMMA interfeysda
+TOPILDI (eski):                              TUZATILGAN (hozir):
+TCP  0.0.0.0:5432  LISTENING                 TCP  127.0.0.1:5432  LISTENING
+                                             TCP  [::1]:5432       LISTENING
+Windows Firewall: 4 ta "PostgreSQL Server"
+Allow (inbound) — YOQILGAN                   0 ta qoldi (hammasi o'chirildi)
 ```
 
-**Muammo:** mahalliy PostgreSQL `listen_addresses = '*'` bilan `0.0.0.0` da
-turibdi, ya'ni 5432 ichki tarmoqqa ochiq. **Tuzatish (serverda/desktopta):**
+Qilingan ishlar:
+
+1. `postgresql.conf` → `listen_addresses = '*'` o'rniga `'localhost'`
+   (zaxira: `postgresql.conf.bak-security`).
+2. `postgresql-x64-18` xizmati qayta ishga tushirildi
+   (`listen_addresses` faqat restartda qabul qilinadi — reload yetmaydi).
+3. Windows Firewall'ning 4 ta inbound **Allow** qoidasi o'chirildi.
+
+Tekshiruv natijasi:
+
+```text
+LAN 10.141.158.103:5432  -> ECONNREFUSED   (tashqi kirish yopiq)
+127.0.0.1:5432           -> OK             (app ulanishida ishlaydi)
+npm run test:all         -> 429 passed, 0 failed
+```
+
+**Xuddi shu tuzatish real serverda (Linux):**
 
 ```bash
-# 1) PostgreSQL'ni faqat loopback'ga cheklash
-#    /etc/postgresql/16/main/postgresql.conf
+# 1) faqat loopback'ga cheklash
+sudo editor /etc/postgresql/16/main/postgresql.conf
 listen_addresses = 'localhost'
-sudo systemctl restart postgresql
+sudo systemctl restart postgresql        # reload EMAS — restart shart
 
-# 2) firewall bilan baravar himoya
+# 2) firewall bilan baravar himoya (ikkala qatlam)
 sudo ufw deny 5432/tcp
+
+# 3) tasdiqlash: tashqaridan rad etilishi kerak
+ss -tlnp | grep 5432                     # 127.0.0.1:5432 ko'rinadi
+nc -vz SERVER_IP 5432                    # "refused" bo'lishi kerak
 ```
 
-Windows'da: PostgreSQL xizmati sozlamasida `port is listening on` →
-"localhost" va Windows Defender Firewall → **Inbound rules** da 5432
-`Block` yozuvi yarating.
-
-> Postgres tashqi tarmoqda e'lon qilingan bo'lsa (Neon, RDS, Manage),
+> Postgres tashqi tarmoqda e'lon qilingan bo'lsa (Neon, RDS, Managed),
 > ularning o'zi TLS majburiy qiladi; `DATABASE_CA` bilan sertifikatni
 > tekshiring (§4).
 
@@ -278,13 +299,13 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
 
 | # | Band | Holat |
 |---|---|---|
-| 1 | Portlarni yopish | ✅ `HOST=127.0.0.1` default + `0.0.0.0` ogohlantirish; UFW qoidalari §2-3; (Postgres lokal `0.0.0.0` — §1 topilmasi) |
-| 2 | Nginx/TLS | ✅ HSTS/CSP/redirect `netlify.toml` + `FORCE_HTTPS`; **nginx konfigi yo'q** (repo'da) |
-| 3 | Django `settings.py` | ✅ Ekvivalentlar: `FORCE_HTTPS` (= `SECURE_SSL_REDIRECT`), HSTS (= `SECURE_HSTS_*`), `TRUST_PROXY`. Cookie `SECURE` — **tegishli emas**, cookie ishlatilmaydi (Bearer token) |
-| 4 | Shifrlash transit/at-rest | ✅ TLS DB (verify), reset-code HTTPS, media `?s=` imzo, scrypt. ⚠️ Redis/S3/Channels **yo'q** |
-| 5 | Tashqi provayderlar | ✅ webhook HTTPS majburiy; kiruvchi webhook **yo'q**; rate limit §5 (ammo in-memory). ⚠️ JWT/OAuth yo'q |
-| 6 | Maxfiylar + Docker | ✅ `.env` yopiq, `.env.example`, majburiy kalitlar, loglar toza. ⚠️ Docker fayllar yo'q |
-| 7 | README + SECURITY | ✅ README §"Xavfsizlik" + shu hujjat |
+| 1 | Portlarni yopish | Bajarildi: `HOST=127.0.0.1` default + `0.0.0.0` ogohlantirish; UFW qoidalari §2-3; lokal Postgres 5432 **yopildi** (§1) |
+| 2 | Nginx/TLS | Bajarildi: HSTS/CSP/redirect `netlify.toml` + `FORCE_HTTPS`; **nginx konfigi yo'q** (repo'da) |
+| 3 | Django `settings.py` | Bajarildi: Ekvivalentlar: `FORCE_HTTPS` (= `SECURE_SSL_REDIRECT`), HSTS (= `SECURE_HSTS_*`), `TRUST_PROXY`. Cookie `SECURE` — **tegishli emas**, cookie ishlatilmaydi (Bearer token) |
+| 4 | Shifrlash transit/at-rest | Bajarildi: TLS DB (verify), reset-code HTTPS, media `?s=` imzo, scrypt. Cheklov: Redis/S3/Channels **yo'q** |
+| 5 | Tashqi provayderlar | Bajarildi: webhook HTTPS majburiy; kiruvchi webhook **yo'q**; rate limit §5 (ammo in-memory). Cheklov: JWT/OAuth yo'q |
+| 6 | Maxfiylar + Docker | Bajarildi: `.env` yopiq, `.env.example`, majburiy kalitlar, loglar toza. Cheklov: Docker fayllar yo'q |
+| 7 | README + SECURITY | Bajarildi: README §"Xavfsizlik" + shu hujjat |
 
 ---
 
@@ -292,16 +313,15 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
 
 1. **Rate limit in-memory** — ko'p instanceda zaif; nginx `limit_req` bilan
    qoplash kerak.
-2. **Mahalliy Postgres `0.0.0.0:5432`** — §1'dagi tuzatish hali bajarilmagan.
-3. **Docker/nginx konfigi yo'q** — deploy qoidalari hujjat, amalda emas.
-4. **Netlify Force HTTPS** — dashboardda tasdiqlash kerak.
-5. **Media ochiq URL'lari** (`?s=` imzo bilan) — imzo `SESSION_SECRET`ga
+2. **Docker/nginx konfigi yo'q** — deploy qoidalari hujjat, amalda emas.
+3. **Netlify Force HTTPS** — dashboardda tasdiqlash kerak.
+4. **Media ochiq URL'lari** (`?s=` imzo bilan) — imzo `SESSION_SECRET`ga
    bog'liq; kalit o'zgarsa eski havolalar bekor bo'ladi (xohlanmagan).
-6. **2FA / qurilma tanib olish yo'q**, webhook uchun imzo mexanizmi hozircha
+5. **2FA / qurilma tanib olish yo'q**, webhook uchun imzo mexanizmi hozircha
    kerak emas (serverda inbound webhook yo'q).
-7. **Xavfsizlik testlari** — `npm run test:all` (delivery 42 tekshiruv,
+6. **Xavfsizlik testlari** — `npm run test:all` (delivery 42 tekshiruv,
    api-core 129, blobs 129, pg-store 129) vositasi sifatida ishlaydi;
-   `bind-probe` (HOST/HSTS/redirect) bu repo'da emas, qo'lda tekshirilgan.
+   bind/HSTS/redirect tekshiruvi qo'lda amalga oshirildi (natija §1).
 
 ---
 
