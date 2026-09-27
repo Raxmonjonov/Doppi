@@ -125,9 +125,32 @@ async function main() {
     process.exit(1)
   }
 
-  const hits = await capture('git', ['log', '--all', '-S', password, '--oneline'])
-  const hitCount = hits.out.split('\n').filter((l) => l.trim()).length
-  console.log(`Tarixda topilgan tegishli commitlar: ${hitCount}`)
+  // Parol bir necha shaklda saqlangan bo'lishi mumkin: xom holda, JS
+  // satrida qochirilgan (`\'`), yoki URL-kodlangan (`%27`). Faqat xom
+  // shaklni almashtirsak, qolganlari o'tkazib ketadi — birinchi urinishda
+  // aynan shu bo'ldi: skript "bajarildi" dedi, lekin 3 ta commitda
+  // qochirilgan variant qoldi va tekshiruv buni ushladi.
+  const variants = [...new Set([
+    password,
+    password.replace(/'/g, "\\'"),
+    password.replace(/'/g, '%27'),
+  ])]
+  console.log(`Tekshiriladigan shakllar: ${variants.length}`)
+
+  const allRefs = await capture('git', ['for-each-ref', '--format=%(refname)'])
+  const refs = allRefs.out.split('\n').map((r) => r.trim()).filter(Boolean)
+  console.log(`Ko'rib chiqiladigan ref'lar: ${refs.length}`)
+
+  const totalHits = new Map()
+  for (const v of variants) {
+    const h = await capture('git', ['log', '--all', '-S', v, '--oneline'])
+    const n = h.out.split('\n').filter((l) => l.trim()).length
+    totalHits.set(v, n)
+  }
+  const hitCount = [...totalHits.values()].reduce((a, b) => a + b, 0)
+  for (const [v, n] of totalHits) {
+    console.log(`  ${n} ta commit: ${n ? v.slice(0, 6) + '…' + v.slice(-6) : 'yo\'q'}`)
+  }
   if (hitCount === 0) {
     console.log('ℹ️  Parol topilmadi — shekilli allaqachon tozalangan. Chiqish.')
     return
@@ -138,30 +161,47 @@ async function main() {
   // aniq belgilaydi.
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doppi-purge-'))
   const replacementsFile = path.join(tmpDir, 'replacements.txt')
-  fs.writeFileSync(replacementsFile, `literal:${password}==>${REPLACEMENT}\n`, 'utf8')
+  fs.writeFileSync(
+    replacementsFile,
+    variants.map((v) => `literal:${v}==>${REPLACEMENT}\n`).join(''),
+    'utf8',
+  )
 
   try {
     // `--refs` ga bir necha marta argument berish xato: oxirgisi
-    //oldingisini bosib ketiradi (argparse oxirgi qiymatni saqlaydi).
-    // Bitta `--refs` va uning ortidan ikkala naqsh.
+    // oldingisini bosib ketiradi (argparse oxirgi qiymatni saqlaydi).
+    // Bitta `--refs` va uning ortidan `for-each-ref` dan olingan haqiqiy
+    // ref ro'yxati.
+    //
+    // `refs/heads/*` va `refs/tags/*` YETARLI EMAS: `refs/remotes/origin/main`
+    // eski tarixda qolsa, `git log --all` uni ko'rib chiqadi va parol
+    // "tozalangan" deb hisoblanmasligi kerak. Barcha ref'larni qamrab
+    // olamiz, shu jumladan remote-tracking ref'lar.
     await run(frCmd, [
       ...frArgs,
       '--replace-text',
       replacementsFile,
       '--force',
       '--refs',
-      'refs/heads/*',
-      'refs/tags/*',
+      ...refs,
     ])
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   }
 
-  const after = await capture('git', ['log', '--all', '-S', password, '--oneline'])
-  const afterCount = after.out.split('\n').filter((l) => l.trim()).length
-  if (afterCount > 0) {
-    console.error(`❌ Tekshiruv: yana ${afterCount} ta commitda parol qoldi.`)
-    console.error('   Ehtimol parol boshqa shaklda (base64, URL-kodlangan) saqlangan.')
+  // Har bir shakl bo'yicha alohida tekshiramiz: umumiy "0 ta qoldiq" bir
+  // shaklni tozalanganligi bilan ikkinchisini yashirishi mumkin.
+  let remaining = 0
+  for (const v of variants) {
+    const after = await capture('git', ['log', '--all', '-S', v, '--oneline'])
+    const n = after.out.split('\n').filter((l) => l.trim()).length
+    if (n > 0) {
+      remaining += n
+      console.error(`❌ Tekshiruv: ${n} ta commitda qoldi (${v.slice(0, 6)}…${v.slice(-6)})`)
+    }
+  }
+  if (remaining > 0) {
+    console.error(`   Jami ${remaining} ta qoldiq — boshqa shaklda saqlangan bo'lishi mumkin.`)
     process.exit(1)
   }
 
