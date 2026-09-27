@@ -154,6 +154,30 @@ async function ensureSchema() {
 }
 
 const app = express()
+
+/* ---------- Tarmoq interfeysi (default-deny) ----------
+   OLD: `app.listen(PORT)` — hamma interfeysga (`0.0.0.0`) ochiq. Demak,
+   serverda ochiq turgan har qanday port (Postgres/Redis boshqa narsalar)
+   barobar ichki tarmoqqa ochiq edi.
+   ENDI: sukut bo'yicha faqat loopback (127.0.0.1) — nginx Vite shu
+   mashinadan uzatadi (vite.config.ts: `http://127.0.0.1:4000`).
+   Ichki tarmoqqa kerak bo'lsa HOST=0.0.0.0 qo'lda bering (SECURITY.md). */
+const HOST = String(process.env.HOST || '').trim() || '127.0.0.1'
+
+/* Proxy ortida `req.secure` to'g'ri ishlashi uchun (HSTS va HTTPS
+   redirect bunga bog'liq). Sukut bo'yicha faqat loopback'dan kelgan
+   so'rovlarga ishonadi — ya'ni bevosita tashqi client soxta
+   `X-Forwarded-Proto` bilan `req.secure` qila olmaydi.
+   Alohida maket (masalan Docker'da nginx) bo'lsa TRUST_PROXY bering. */
+const trustProxy = String(process.env.TRUST_PROXY || '').trim() || 'loopback'
+app.set('trust proxy', trustProxy)
+
+const FORCE_HTTPS = (() => {
+  const v = String(process.env.FORCE_HTTPS ?? '').trim().toLowerCase()
+  if (v === '0' || v === 'false' || v === 'off') return false
+  if (v === '1' || v === 'true' || v === 'on') return true
+  return process.env.NODE_ENV === 'production'
+})()
 // Media endi alohida /api/media orqali saqlanadi, shuning uchun data hujjati kichik bo'ladi.
 // 25MB — eski data:URL li ma'lumotlar uchun zaxira. Katta JSON body — xotira
 // (DoS) hujjumi, shuning uchun API uchun 2MB, media upload o'z limitida.
@@ -170,6 +194,13 @@ app.use((req, res, next) => {
   // HSTS faqat HTTPS orqasida (localhostda TLS yo'q — sinov buzilmasin)
   if (process.env.NODE_ENV === 'production' && req.secure) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+  }
+  // SECURE_SSL_REDIRECT ekvivalenti: ishlab chiqarishda HTTP -> HTTPS.
+  // 308 (301 emas) — POST/PUT metod saqlanadi, API so'rovlari buzilmaydi.
+  if (FORCE_HTTPS && !req.secure) {
+    const host = req.get('host') || ''
+    res.redirect(308, `https://${host}${req.originalUrl}`)
+    return
   }
   next()
 })
@@ -2323,9 +2354,20 @@ app.use((req, res, next) => {
 
 const PORT = Number(process.env.PORT || 4000)
 
+if (HOST === '0.0.0.0' || HOST === '::') {
+  console.error(
+    "[xavfsizlik] Server barcha interfeyslarga ulanmoqda (HOST=0.0.0.0). " +
+      "Faqat proxy/nginx ortida yoki ichki tarmoqda ishlating.",
+  )
+}
+if (process.env.NODE_ENV === 'production' && !FORCE_HTTPS) {
+  console.error('[xavfsizlik] FORCE_HTTPS=0 — HTTP so‘rovlari HTTPS‘ga yo‘naltirilmaydi.')
+}
+
 ensureSchema().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Do'ppi API ishga tushdi (PostgreSQL) → http://127.0.0.1:${PORT}`)
+  app.listen(PORT, HOST, () => {
+    const scope = HOST === '0.0.0.0' || HOST === '::' ? 'hamma interfeys (ochiq!)' : HOST
+    console.log(`Do'ppi API ishga tushdi (PostgreSQL)  ${scope}:${PORT}`)
   })
 }).catch((e) => {
   console.error('Schema yaratishda xatolik:', e)

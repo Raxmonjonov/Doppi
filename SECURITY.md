@@ -1,0 +1,324 @@
+# SECURITY — portlar, tarmoq qoidalari va shifrlash
+
+Bu hujjat loyihaning **xavfsizlik holatini** tasvirlaydi: ochiq/yopiq portlar,
+firewall qoidalari, transport shifrlash, maxfiy ma'lumotlar boshqaruvi va
+**hal qilinmagan (ochiq qolgan) xavflar**.
+
+> Izoh: holatni o'zgartirganda bu hujjatni ham yangilang — bu fayl
+> operatsion qoida, rejalashtirish emas.
+
+---
+
+## 0. Stek haqida aniqlik
+
+Ushbu xavfsizlik ro'yxati Django REST Framework + Celery/Redis + Django Channels
++ AWS S3 + Docker/Nginx degan taxmin bilan tuzilgan edi. Haqiqiy stek:
+
+| Taxmin qilingan | Loyihada bor | Izoh |
+|---|---|---|
+| Django / DRF / `settings.py` | **Yo'q** → `server/index.js` (Express) | Mos ekvivalentlar quyida (§4, §5) |
+| Celery / Redis | **Yo'q** | Chegiruvchi (rate limit) jarayon xotirasida |
+| Django Channels (WebSocket) | **Yo'q** | WebSocket/realtime kanal yo'q; Web Push (VAPID) bor |
+| AWS S3 | **Yo'q** | Fayllar Postgres `bytea` yoki Netlify Blobs'da |
+| Docker / nginx konfigi | **Yo'q** (`docker-compose.yml` yo'q) | Firewall qoidalari §3'da, host darajasida |
+| JWT (access/refresh) | **Yo'q** | Oddiy sessiya tokeni + HMAC imzosi (§5) |
+| Google OAuth callback | **Yo'q** | `index.html` da gsi skripti yuklanadi, ishlatilmaydi |
+
+Shu sababli ro'yxatdagi **mos keladigan** bandlar alohida bajarildi (§8 jadval).
+
+---
+
+## 1. Portlar holati (ochiq / yopiq)
+
+### Nima xavfsiz (qoidalarga mos)
+
+| Port | Holat | Qanday ta'minlangan |
+|---|---|---|
+| **443** (HTTPS) | Ochiq — yagona kirish nuqtasi | Netlify yoki nginx/Let's Encrypt |
+| **80** (HTTP) | Faqat 443'ga redirect | `netlify.toml` HSTS; `FORCE_HTTPS=1` (§4) |
+| **API (4000)** | **Yopiq** — faqat `127.0.0.1` | `HOST` sukut bo'yicha `127.0.0.1` |
+| **PostgreSQL (5432)** | Ichki — localhost yoki ichki tarmoq | URL/`PGHOST` bilan, tashqi ruxsat yo'q |
+| **Redis (6379)** | **Umuman yo'q** | Loyihada Redis ishlatilmaydi |
+
+App **butunlay `127.0.0.1:4000` da turadi** — ya'ni tashqi tarmoqdan port ochiq
+turmadi. Ishlab chiqarishda `0.0.0.0` berilsa (proxy ortida/ichki tarmoqda
+kerak bo'lsa) server boshida ogohlantirish yozadi:
+
+```
+[xavfsizlik] Server barcha interfeyslarga ulanmoqda (HOST=0.0.0.0). ...
+```
+
+Buni tekshirish:
+
+```bash
+# nimani kim eshitmoqda
+ss -tulpn          # Linux
+netstat -an        # Windows
+# app porti tashqaridan ochiqmi?
+curl -m 3 http://SERVER_IP:4000/api/health   # ECONNREFUSED bo'lishi kerak
+```
+
+### Mahalliy audit xulosasi (bu ish stansiya)
+
+```
+TCP  0.0.0.0:5432   LISTENING   <- e'tibor bering: HAMMA interfeysda
+```
+
+**Muammo:** mahalliy PostgreSQL `listen_addresses = '*'` bilan `0.0.0.0` da
+turibdi, ya'ni 5432 ichki tarmoqqa ochiq. **Tuzatish (serverda/desktopta):**
+
+```bash
+# 1) PostgreSQL'ni faqat loopback'ga cheklash
+#    /etc/postgresql/16/main/postgresql.conf
+listen_addresses = 'localhost'
+sudo systemctl restart postgresql
+
+# 2) firewall bilan baravar himoya
+sudo ufw deny 5432/tcp
+```
+
+Windows'da: PostgreSQL xizmati sozlamasida `port is listening on` →
+"localhost" va Windows Defender Firewall → **Inbound rules** da 5432
+`Block` yozuvi yarating.
+
+> Postgres tashqi tarmoqda e'lon qilingan bo'lsa (Neon, RDS, Manage),
+> ularning o'zi TLS majburiy qiladi; `DATABASE_CA` bilan sertifikatni
+> tekshiring (§4).
+
+---
+
+## 2. Nima ochiq bo'lishi KERAK (faqat shular)
+
+```bash
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+
+sudo ufw allow 443/tcp          # HTTPS
+sudo ufw allow 80/tcp           # faqat 443'ga redirect
+sudo ufw allow 2222/tcp         # SSH — standart bo'lmagan port
+sudo ufw enable
+```
+
+Qolgan **hamma port yopiq**. Parol bilan SSH kirishini o'chiring:
+
+```bash
+# /etc/ssh/sshd_config
+PasswordAuthentication no
+PermitRootLogin prohibit-password
+# port 2222 ga ko'chirilgan bo'lsa
+Port 2222
+sudo systemctl restart sshd
+```
+
+Bir martalik qoidalarni tahrirlash:
+
+```bash
+sudo ufw status numbered
+```
+
+---
+
+## 3. Firewall qoidalari — nima ochiq, nima yopiq
+
+| Proto/port | Kirish | Kim uchun | Inbound |
+|---|---|---|---|
+| tcp/443 | Ochiq | Hamma | `ufw allow 443/tcp` |
+| tcp/80 | Ochiq | Hamma | `ufw allow 80/tcp` |
+| tcp/2222 | Ochiq (port tanlangan) | SSH kaliti bilan | `ufw allow 2222/tcp` |
+| tcp/4000 | **Yopiq** | Faqat 127.0.0.1 (nginx) | `HOST=127.0.0.1` |
+| tcp/5432 | **Yopiq** | Faqat lokal/baza hosti | `ufw deny 5432/tcp` |
+| tcp/6379 | **Yopiq** | — | loyihamizda ishlatilmaydi |
+
+Hujum yuzasi sifatida 5432 ochiq qolsa: ma'lumotlar bazasi to'g'ridan-to'g'ri
+portfolyo tarmoqqa chiqadi (parol soni kuzatuvchi hujum). `ufw deny` +
+`listen_addresses='localhost'` **ikki tomonlama** himoya — bitta xato
+ya'ni tashqi kirish.
+
+---
+
+## 4. Transport shifrlash (transit)
+
+### 4.1 Brauzer → server (HTTPS + HSTS)
+
+`netlify.toml` (`[[headers]]`) barcha statik fayl va API uchun:
+
+- `Strict-Transport-Security = max-age=31536000; includeSubDomains`
+- CSP, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  COOP/CORP, `Referrer-Policy`
+
+Netlify'da **Force HTTPS** dashboard sozlamasi yoqilgan bo'lishi kerak
+(bu faylda emas — Netlify tomonida tasdiqlang).
+
+### 4.2 Express server (`server/index.js`)
+
+| Sozlama | Standart | Maqsad |
+|---|---|---|
+| `FORCE_HTTPS` | `1` (production'da) | HTTP so'rovni **308** bilan HTTPS'ga yo'naltiradi (`SECURE_SSL_REDIRECT` ekvivalenti) |
+| `TRUST_PROXY` | `loopback` | Faqat loopback'dan kelgan `X-Forwarded-Proto`'ga ishonish — soxta header bilan `req.secure` qilish mumkin emas |
+| HSTS | production + `req.secure` | `max-age=31536000; includeSubDomains` |
+
+Hujumchi to'g'ridan-to'g'ri portga `X-Forwarded-Proto: https` bermoqchi bo'lsa,
+u manba loopback emasligi uchun ishonilmaydi → soxta HTTPS talab qilinmaydi.
+
+```bash
+# TLS yo'q, lekin server HTTP'da turgan bo'lsa kirish to'xtaydi:
+FORCE_HTTPS=0     # faqat shunday zaruratda
+```
+
+### 4.3 PostgreSQL (sslmode=require)
+
+`resolveDatabaseSsl()`:
+
+- production'da **TLS majburiy** (default `sslmode=require`);
+- `rejectUnauthorized: true` — **sertifikat tekshiriladi**;
+- `DATABASE_CA` — o'z CA sertifikati (base64 yoki fayl);
+- `DATABASE_URL` ichidagi `sslmode=disable` **olib tashlanadi**;
+- `DATABASE_SSL_NO_VERIFY=1` — ataylab zaiflashtirish, MITM ogohlantirishi
+  bilan; `DATABASE_SSL=0` production'da ogohlantirish chiqaradi.
+
+`netlify/lib/postgres-store.mjs` (Neon) — `neon()` HTTP endpoint **https**
+orqali ishlaydi, shifrlash implicit.
+
+### 4.4 Parol tiklash kodi va tashqi webhook
+
+`netlify/lib/delivery.mjs` — kod va `Authorization: Bearer` token shu kanalda
+ketadi, shuning uchun **faqat shifrlangan kanal**:
+
+- `DELIVERY_WEBHOOK_URL` faqat `https://` (loopback `http://` mahalliy test
+  uchun ruxsat) — aks holda `sendMail` rad etadi va tarmoqqa chiqmaydi;
+- `APP_URL`/`PUBLIC_URL` faqat `https://` — `http://` bo'lsa tiklash
+  **havolasi umuman tashlab qolinadi** (matndagi kod baribir qoladi).
+
+### 4.5 WebSocket / S3 / Redis
+
+- **WebSocket (Channels) yo'q** — realtime kanal mavjud emas.
+- **AWS S3 yo'q** — SSE-S3/SSE-KMS bandi tegishli emas. Media Postgres
+  `bytea`/Netlify Blobs'da: tranzitda HTTPS, diskda blobsdagi himoya.
+- **Redis yo'q** — parol/TLS bandi tegishli emas.
+
+---
+
+## 5. Autentifikatsiya, sessiya, parollar
+
+| Himoya | Qanday ishlaydi |
+|---|---|
+| Parol saqlash | `scrypt` (N=16384, r=8, p=1, keylen=64) + 16 bayt **tasodifiy salt**, `timingSafeEqual` bilan solishtirish |
+| Sessiya tokeni | `randomBytes(32)` — bazaga **HMAC-SHA256 (`SESSION_SECRET`) imzosi** bilan yoziladi; bazada xom token yo'q |
+| Sessiya muddati | 30 kun **sliding TTL**; parol o'zgarsa / `logout-all` → hammasi bekor |
+| Admin paroli | Majburiy, kamida 12 belgi; default parol yo'q (`Admin.Do'ppi...` olib tashlangan) |
+| Xom tokenlar | Rad etiladi (`ALLOW_LEGACY_SESSIONS=1` faqat lokal migratsiya) |
+| Ochiq ma'lumot | `email` boshqa foydalanuvchilarga hech qachon ko'rsatilmaydi; API loyihasi `password*` maydonlarni tashlamaydi |
+
+### Rate limiting (chegiruvchi)
+
+`netlify/lib/security.mjs` → `RATE_LIMITS` (core va server bir xil qoida):
+
+| Endpoint | Chegara |
+|---|---|
+| login | 10 / 15 min (IP + login) |
+| admin-login | 10 / 15 min (IP), 5 / 15 min (hisob) |
+| register | 10 / soat |
+| forgot (kod) | 5 / 15 min (IP), 3 / soat (hisob) |
+| reset (kodni tekshirish) | 10 / 15 min |
+| media upload | 120 / soat |
+| yozish (`write`) | 300 / soat |
+
+429 + `Retry-After` qaytariladi.
+
+**Muhim cheklov:** chegaralar **jarayon xotirasida** (`Map`) saqlanadi. Bitta
+instanceda to'liq ishlaydi; **ko'p instanceli/serverless** muhitda har bir
+instance alohida hisoblaydi → himoya kamayadi. To'liq yechim uchun
+umumiy storage (Redis) yoki **nginx `limit_req`** darajasida qoplash kerak
+(misol `netlify.toml`/server host konfigida, bu repo'da yo'q).
+
+```nginx
+# nginx tomonida qoplash (foydali, repo'da emas)
+limit_req_zone $binary_remote_addr zone=api:10m rate=10r/m;
+location /api/auth/ { limit_req zone=api burst=5 nodelay; ... }
+```
+
+---
+
+## 6. Maxfiy ma'lumotlar
+
+- **`.env` repo'ga kirmaydi**: `.gitignore` da `.env`, `.env.*`, `*.env`
+  (istisno: `!.env.example`).
+- **`git ls-files` da `.env` yo'q** — haqiqiy kalitlar commit qilinmagan.
+- **`.env.example`** — barcha o'zgaruvchilar nomi va namunasi, kalsiz.
+- **Loglar** (`api.log`, `api.err.log`, `vite.log`) tracked emas va
+  `password|Bearer |api_key|secret` bo'yicha toza tekshirilgan.
+- **Production'da majburiy:**
+  - `SESSION_SECRET` — kamida **16 belgi**, aks holda `serverSecret()` xato tashlaydi;
+  - `ADMIN_USERNAME` + `ADMIN_PASSWORD` — kamida **12 belgi**, aks holda admin kirishi o'chgan holda qoladi (server ishlayveradi).
+- **Xavfli rejimlar production'da o'chiq:** `RESET_CODE_ECHO` (production'da
+  o'chiq), `ALLOW_LEGACY_SESSIONS`, `ALLOW_SEED`.
+- **Docker:** repoda `Dockerfile`/`docker-compose.yml` **yo'q**, shuning uchun
+  "root bo'lmagan foydalanuvchi" bandi hozircha tegishli emas. Konteyner
+  qo'shilsa: `USER` direktivi, va `expose` (sukut) / faqat gateway'ga `ports`.
+  Postgres/Redis ichki tarmoqda (`networks: internal`) qolsin.
+
+---
+
+## 7. Kiruvchi / tashqi integratsiyalar
+
+| Savol | Javob |
+|---|---|
+| Kiruvchi webhook bormi? | **Yo'q** — repoda inbound webhook endpointi yo'q (`delivery.mjs` faqat **chiqish** webhook) |
+| Xaritori webhookning imzosi tekshiriladimi? | Tashqi qabul qiluvchi bo'lgani uchun **bu tomonda tekshiruv yo'q**. Chiqish tomonida himoya = HTTPS majburiy + Bearer token |
+| OAuth callback? | Google OAuth **ishlatilmaydi**; `APP_URL` faqat HTTPS (§4.4) |
+| JWT access/refresh? | JWT yo'q → sessiya tokeni (§5) |
+| S3 event? | S3 yo'q |
+
+Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
+`rawBody + SECRET`, `timingSafeEqual` bilan tekshirish, imzosiz `401`.
+
+---
+
+## 8. Ro'yxat bo'yicha holat
+
+| # | Band | Holat |
+|---|---|---|
+| 1 | Portlarni yopish | ✅ `HOST=127.0.0.1` default + `0.0.0.0` ogohlantirish; UFW qoidalari §2-3; (Postgres lokal `0.0.0.0` — §1 topilmasi) |
+| 2 | Nginx/TLS | ✅ HSTS/CSP/redirect `netlify.toml` + `FORCE_HTTPS`; **nginx konfigi yo'q** (repo'da) |
+| 3 | Django `settings.py` | ✅ Ekvivalentlar: `FORCE_HTTPS` (= `SECURE_SSL_REDIRECT`), HSTS (= `SECURE_HSTS_*`), `TRUST_PROXY`. Cookie `SECURE` — **tegishli emas**, cookie ishlatilmaydi (Bearer token) |
+| 4 | Shifrlash transit/at-rest | ✅ TLS DB (verify), reset-code HTTPS, media `?s=` imzo, scrypt. ⚠️ Redis/S3/Channels **yo'q** |
+| 5 | Tashqi provayderlar | ✅ webhook HTTPS majburiy; kiruvchi webhook **yo'q**; rate limit §5 (ammo in-memory). ⚠️ JWT/OAuth yo'q |
+| 6 | Maxfiylar + Docker | ✅ `.env` yopiq, `.env.example`, majburiy kalitlar, loglar toza. ⚠️ Docker fayllar yo'q |
+| 7 | README + SECURITY | ✅ README §"Xavfsizlik" + shu hujjat |
+
+---
+
+## 9. Ochiq qolgan xavflar (hal qilinmagan)
+
+1. **Rate limit in-memory** — ko'p instanceda zaif; nginx `limit_req` bilan
+   qoplash kerak.
+2. **Mahalliy Postgres `0.0.0.0:5432`** — §1'dagi tuzatish hali bajarilmagan.
+3. **Docker/nginx konfigi yo'q** — deploy qoidalari hujjat, amalda emas.
+4. **Netlify Force HTTPS** — dashboardda tasdiqlash kerak.
+5. **Media ochiq URL'lari** (`?s=` imzo bilan) — imzo `SESSION_SECRET`ga
+   bog'liq; kalit o'zgarsa eski havolalar bekor bo'ladi (xohlanmagan).
+6. **2FA / qurilma tanib olish yo'q**, webhook uchun imzo mexanizmi hozircha
+   kerak emas (serverda inbound webhook yo'q).
+7. **Xavfsizlik testlari** — `npm run test:all` (delivery 42 tekshiruv,
+   api-core 129, blobs 129, pg-store 129) vositasi sifatida ishlaydi;
+   `bind-probe` (HOST/HSTS/redirect) bu repo'da emas, qo'lda tekshirilgan.
+
+---
+
+## 10. Tekshirish buyruqlari
+
+```bash
+npm run test:all          # o'zgarmalarni tekshirish
+npm run lint
+
+# portlar
+ss -tulpn                 # Linux
+netstat -an               # Windows
+
+# HTTP→HTTPS va HSTS
+curl -I http://HOST/api/health | grep -i location
+curl -I https://HOST/api/health | grep -i strict-transport
+
+# app tashqaridan ochiqmi? (ECONNREFUSED kutiladi)
+curl -m 3 http://SERVER_IP:4000/api/health
+```

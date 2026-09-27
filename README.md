@@ -17,7 +17,7 @@ Ishlatishdan oldin kamida quyidagilarni qo'shing:
 | 3 | **Parol tiklash** | `POST /api/auth/forgot` 6 raqamli kod beradi (10 daqiqa, 5 urinish, eski kod bekor qilinadi), `POST /api/auth/reset` parolni yangilaydi va **barcha sessiyalarni bekor qiladi**. Kod **real kanal orqali yetkaziladi** (`netlify/lib/delivery.mjs`: Resend yoki Telegram-botga moslashtirilgan webhook — quyida). Ishlab chiqarishda `APP_URL` berilishi shart, aks holda havola tuzilmaydi. Bir marta so'rashda bitta kod yuboriladi (60 soniyali kutish), mavjud foydalanuvchi oshkor qilinmaydi. |
 | 4 | **2FA / sessiya boshqaruvi** | Sessiyalar 30 kunlik **sliding TTL** bilan ishlaydi (faol bo'lganda yangilanadi, muddati o'tgani `401` bilan rad etiladi va tozalanadi). Parol tiklanganda yoki `POST /api/auth/logout-all` da **barcha qurilmalardagi sessiyalar** yopiladi; Settings'da faol sessiyalar ro'yxati ko'rinadi (brauzer, oxirgi faollik, muddati). 2FA va qurilma tanib olish (IP/geolokatsiya) **yo'q**. |
 | 5 | **Google Identity skripti** | `index.html` da `accounts.google.com/gsi/client` yuklanadi, lekin login/registerda ishlatilmaydi (foydasiz yuk). |
-| 6 | **Media** | Rasmlar/video alohida `POST /api/media` orqali **haqiqiy fayl** sifatida saqlanadi (Postgres `bytea` yoki Blobs), hujjatda faqat URL turadi. Rasm brauzerda 1600px/WebP'gacha siqiladi. Qoldiqlar: CDN/thumbnail yo'q, video siqilmaydi, media URL'i tokensiz ochiq (faqat tasodifiy 12-baytli id bilan). Eski `data:` URL lar admin panelidan bir tugma bilan faylga ko'chiriladi. |
+| 6 | **Media** | Rasmlar/video alohida `POST /api/media` orqali **haqiqiy fayl** sifatida saqlanadi (Postgres `bytea` yoki Blobs), hujjatda faqat URL turadi. Rasm brauzerda 1600px/WebP'gacha siqiladi. Qoldiqlar: CDN/thumbnail yo'q, video siqilmaydi, ochiq media uchun URL **HMAC imzosi** bilan beriladi (/api/media/<id>?s=...), shaxsiy media esa faqat suhbat/guruh a'zolariga ochiq. Eski `data:` URL lar admin panelidan bir tugma bilan faylga ko'chiriladi. |
 | 7 | **To'lov (premium)** | UI mavjud, backend yo'q. |
 | 8 | **Qonuniy tomon** | Ma'lumotlarni saqlash shartlari, cookie/bildirishnoma siyosati, `delete account` oqili yo'q. |
 | 9 | **Bildirishnoma tizimi** | Xabar, guruh xabari va kiruvchi qo'ng'iroq uchun server tomonda bildirishnoma yaratiladi (`GET /api/notifications?since=`, `POST /api/notifications/read`). Faqat qabul qiluvchida ko'rinadi, har bir foydalanuvchida oxirgi 200 tasi saqlanadi. SPA ochiq tursa global poll (4 s) + brauzer `Notification` API + WebAudio signal ishlaydi. **Web Push** (`/api/push/*` + `public/sw.js`) orqali brauzer yopiq bo'lganda ham yetkaziladi. **Qoldiqlar:** VAPID kaliti env'da berilmasa generatsiya qilinib `app_settings` da saqlanadi (Netlify da `doppi_doc` ichida) — kalitni almashtirsangiz obunalar qaytadan o'rnatilishi kerak; iOS'da push faqat qo'lda "Qo'shish" (Add to Home Screen) qilingan web ilovada ishlaydi. |
@@ -156,7 +156,17 @@ nuqtasida zaif hisoblanadi va `git`ga tushib qolsa butun hisobni ochib beradi.
 | `ADMIN_USERNAME` | Netlify Function + Express | Ixtiyoriy. Berilmasa admin panel yopiq. |
 | `ADMIN_PASSWORD` | Netlify Function + Express | Berilsa kamida **12 belgi**. Berilmasa admin panel yopiq. |
 | `DATABASE_URL` | Express (`production`) | **Majburiy** — kod ichida DB paroli yo'q. |
-| `DATABASE_SSL=1` | Express | Neon/hosted Postgres uchun (`rejectUnauthorized: false`). |
+| `DATABASE_SSL` | Express | `0`/`disable` **production'da ogohlantirish** bilan o'chiradi. Faqat lokal test uchun. |
+| `DATABASE_CA` | Express | O'z CA sertifikati (base64 yoki fayl yo'li) — sertifikat tekshiruvi uchun. |
+| `DATABASE_SSL_NO_VERIFY=1` | Express | Sertifikat tekshiruvi o'chiriladi (MITM ogohlantirishi chiqadi). Faqat o'z-imzozali test baza. |
+| `HOST` | Express | Sukut **`127.0.0.1`** — tashqi tarmoqqa ochiq emas. `0.0.0.0` faqat proxy ortida/ichki tarmoqda. |
+| `TRUST_PROXY` | Express | Sukut `loopback` — `X-Forwarded-Proto` faqat lokal proxy'dan qabul qilinadi. |
+| `FORCE_HTTPS` | Express | Production'da **yoqilgan**: HTTP → HTTPS **308** redirect. TLS yo'q joyda `FORCE_HTTPS=0`. |
+| `APP_URL` | Express + Function | **Faqat `https://`** — `http://` bo'lsa tiklash havolasi tashlab qolinadi. |
+| `DELIVERY_WEBHOOK_URL` | Express + Function | **Faqat `https://`** — aks holda kod yuborish rad etiladi (loopback `http` ruxsat). |
+
+Haqiqiy qiymatlarni `.env.example` dan nusxalang (`.env` gitga kirmaydi).
+Portlar, firewall va to'liq xavfsizlik holati — **[SECURITY.md](SECURITY.md)**.
 
 Tasodifiy `SESSION_SECRET` yaratish:
 
@@ -178,14 +188,33 @@ hash/saltrlari bor edi — shuning uchun endi hech qanday seed fayl avtomatik
 yuklanmaydi (`ALLOW_SEED=1` + `SEED_FILE` talab qilinadi, production'da
 rad etiladi). Seed eksporti ham parol va sessiyalarni chiqarmaydi.
 
+## Xavfsizlik qatlami — qilingan o'zgarishlar
+
+Joriy xavfsizlik ishi (portlar, shifrlash, webhook, maxfiylar) va **hal
+qilinmagan xavflar** — [SECURITY.md](SECURITY.md). Bu yerda qisqa hisobot:
+
+| Soha | Oldin | Endi |
+|---|---|---|
+| **Port / bind** | `app.listen(PORT)` — `0.0.0.0`, ya'ni hamma interfeysga ochiq | Sukut **`127.0.0.1`** (`HOST`). `0.0.0.0` faqat qo'lda va ogohlantirish bilan |
+| **HTTP → HTTPS** | Yo'q | `FORCE_HTTPS` (production'da **yoqilgan**) — **308** redirect; `TRUST_PROXY=loopback` bilan soxta header himoyasi |
+| **HSTS** | Faqat `req.secure` da (proxy'siz hech qachon ishlamagan) | `trust proxy` bilan nginx ortida ham yuboriladi, `includeSubDomains` |
+| **PostgreSQL TLS** | Opt-in (`DATABASE_SSL=1`) **+ sertifikat tekshiruvi o'chiq** (`rejectUnauthorized: false`) | Production'da **majburiy TLS**, `rejectUnauthorized: true`, `DATABASE_CA` qo'llab-quvvatlanadi, `sslmode=disable` e'tiborsiz |
+| **Webhook (chiqish)** | Har qanday URL'ga kod + Bearer token yuborilardi | **Faqat `https://`** (loopback ruxsat). `http://` → `sendMail` rad etadi, tarmoqqa chiqmaydi |
+| **Tiklash havolasi** | `http://` URL ham qo'shilardi | Xavfsiz bo'lsa **gina** qolinadi (havola o'zi credential) |
+| **Maxfiylar** | `.env` gitignored | Shu bilan birga **`.env.example`** — barcha o'zgaruvchilar, kalsiz |
+| **Kiruvchi webhook** | — | Repoda **inbound webhook yo'q** (faqat chiqish webhook) |
+
+Testlar: `npm run test:all` — 429 tekshiruv (bunda `delivery` 42 ta:
+https kirish/bandlash, webhook rad etilishi, havola tushirilishi).
+
 ## Testlar
 
 ```bash
-npm run test:netlify   # 104 test: api-core business logikasi (fayl store) + 7 sessiya-muddati tekshiruvi
-npm run test:blobs     # 104 test: blobs-store adapter (fake @netlify/blobs)
-npm run test:pg-store  # 104 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
-npm run test:delivery  # 28 test: parol tiklash kodini yetkazish kanallari
-npm run test:all       # uchalasi + delivery (340 test)
+npm run test:netlify   # 129 test: api-core business logikasi (fayl store) + 7 sessiya-muddati tekshiruvi
+npm run test:blobs     # 129 test: blobs-store adapter (fake @netlify/blobs)
+npm run test:pg-store  # 129 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
+npm run test:delivery  # 42 test: parol tiklash kodini yetkazish kanallari
+npm run test:all       # barchasi birga (429 test)
 npm run test:live      # 53 test: haqiqiy Express server + Postgres (audio, xabar, bildirishnoma, qo'ng'iroq, push)
 npm run build          # tsc + vite
 npm run lint           # oxlint
