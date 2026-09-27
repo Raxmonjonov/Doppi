@@ -279,7 +279,7 @@ npm run test:blobs     # 149 test: blobs-store adapter (fake @netlify/blobs)
 npm run test:pg-store  # 149 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
 npm run test:delivery  # 42 test: parol tiklash kodini yetkazish kanallari
 npm run test:all       # barchasi birga (489 test)
-npm run test:live      # 68 test: haqiqiy Express server + Postgres (audio, xabar, bildirishnoma, qo'ng'iroq, push)
+npm run test:live      # 69 test: haqiqiy Express server + Postgres (audio, xabar, bildirishnoma, qo'ng'iroq, push)
 npm run build          # tsc + vite
 npm run lint           # oxlint
 ```

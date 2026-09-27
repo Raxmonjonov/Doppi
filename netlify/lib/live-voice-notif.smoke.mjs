@@ -132,9 +132,15 @@ const run = async () => {
 
   // callee ends the call -> its own notification must close too
   r = await call('POST', `/api/threads/${tid}/calls`, { kind: 'ring', to: id2, data: { kind: 'video' } }, tok1)
+  ok('second ring signal -> 200', r.status === 200, `status=${r.status} ${JSON.stringify(r.json)}`)
   r = await call('GET', '/api/notifications?since=0', undefined, tok2)
-  const call2 = (r.json?.notifications ?? []).find((n) => n.kind === 'call' && n.threadId === tid && !n.closed)
-  ok('second ring notification exists', !!call2)
+  const notifList = r.json?.notifications ?? []
+  const call2 = notifList.find((n) => n.kind === 'call' && n.threadId === tid && !n.closed)
+  ok(
+    'second ring notification exists',
+    !!call2,
+    `notif=${notifList.length} [${notifList.map((n) => `${n.kind}/${n.threadId === tid ? 'tid' : n.threadId}/${n.closed ? 'closed' : 'open'}`).join(' ')}]`,
+  )
   await call('POST', `/api/threads/${tid}/calls`, { kind: 'hangup', to: id1, data: null }, tok2)
   r = await call('GET', '/api/notifications?since=0', undefined, tok2)
   const closed2 = (r.json?.notifications ?? []).find((n) => n.id === call2?.id)
