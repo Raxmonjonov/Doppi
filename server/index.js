@@ -249,13 +249,26 @@ app.get('/api/health', async (_req, res) => {
 /* ---------- Xavfsizlik sarlavhalari ----------
    Netlify function bilan bir xil to'plam (`security.mjs`), shuning uchun
    platformadan qat'i nazar brauzer bir xil qoidalarni oladi. */
+const HTML_DOC_EXT = /\.(?:html?|xhtml)$/i
+const ASSET_EXT = /\.[a-z0-9]{2,8}$/i
 app.use((req, res, next) => {
   // Avval Host tekshiriladi: noto'g'ri Host bilan redirect (open redirect)
   // yoki xavfsizlik sarlavhalari javob berilmasligi kerak.
   if (ALLOWED_HOSTS.length && !hostAllowed(req.get('host'))) {
     return res.status(400).json({ error: "Noto'g'ri Host sarlavhasi." })
   }
-  for (const [k, v] of Object.entries(securityHeaders({ isStatic: !req.path.startsWith('/api/') }))) {
+  // Qaysi javob uchun qaysi to'plam kerakligi `req.path` bo'yicha
+  // ANIQLANADI. Bu `res.sendFile(indexHtml)` dan keyin emas, oldin
+  // bajariladi — va `express.static` `index.html` ni ham o'zi beradi
+  // (SPA fallback ishlashidan oldin), ya'ni bu middleware `isHtml`
+  // ni aytib bermasa, asosiy HTML sahifa `isStatic` deb o'tib,
+  // `script-src 'self'` CSP si KADRAMASIZ qolardi.
+  const isApi = req.path.startsWith('/api/')
+  const isHtmlDoc = HTML_DOC_EXT.test(req.path) || (!isApi && !ASSET_EXT.test(req.path))
+  for (const [k, v] of Object.entries(securityHeaders({
+    isStatic: !isApi && !isHtmlDoc,
+    isHtml: isHtmlDoc,
+  }))) {
     res.setHeader(k, v)
   }
   // HSTS faqat HTTPS orqasida (localhostda TLS yo'q — sinov buzilmasin)

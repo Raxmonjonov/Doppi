@@ -19,7 +19,7 @@ async function call(method, path, body, token) {
   } catch {
     json = { raw: text.slice(0, 120) }
   }
-  return { status: res.status, json, type: res.headers.get('content-type') }
+  return { status: res.status, json, type: res.headers.get('content-type'), csp: res.headers.get('content-security-policy') }
 }
 
 let pass = 0
@@ -228,6 +228,17 @@ const run = async () => {
     })
     ok(`no default admin password: ${probe.label}`, noDefaultAdmin.status === 401 && !noDefaultAdmin.json?.token, `status=${noDefaultAdmin.status}`)
   }
+
+  // CSP: HTML HUJJAT qattiq `script-src 'self'` olishi SHART. Bu avval
+  // yo'q edi — `express.static` `index.html` ni o'zi ham beradi, shuning
+  // uchun `res.sendFile` middleware'i umuman ishga tushmasdi va asosiy
+  // sahifa `isStatic` deb o'tib, CSP siz qolardi (script-src o'lik kod).
+  const pageCsp = (await call('GET', '/')).csp ?? ''
+  ok('HTML document gets strict script-src CSP', pageCsp.includes("script-src 'self'") && pageCsp.includes("default-src 'self'"), pageCsp.slice(0, 60))
+  const spaCsp = (await call('GET', `/u/${u1}`)).csp ?? ''
+  ok('SPA route treated as HTML, not static', spaCsp.includes("script-src 'self'"), spaCsp.slice(0, 60))
+  const apiCsp = (await call('GET', '/api/data')).csp ?? ''
+  ok('API responses get locked-down CSP', apiCsp.startsWith("default-src 'none'"), apiCsp.slice(0, 60))
 
   // DM uchun maxsus media: faqat a'zolar ochishi mumkin
   const dmScope = await call('POST', '/api/media', { dataUrl: `data:audio/webm;base64,${audioB64}`, scope: 'dm', refId: tid }, tok1c)

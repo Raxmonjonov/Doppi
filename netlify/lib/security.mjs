@@ -248,7 +248,11 @@ export function securityHeaders({ isHtml = false, isStatic = false } = {}) {
     'Cross-Origin-Opener-Policy': 'same-origin',
   }
   if (isStatic) {
-    // Build chiqarilgan fayllar — immutable, lekin index.html emas
+    // Build chiqarilgan fayllar — immutable, lekin HTML hujjat emas.
+    // `isHtml` alohida o'tadi va qattiqroq CSP oladi. `server/index.js`
+    // `req.path` bo'yicha `isStatic` va `isHtml` ni BIRGA hisoblaydi:
+    // `express.static` `index.html` ni ham o'zi berdiği uchun HTML
+    // sahifaga `isStatic` ketib, CSP siz qolmasligi kerak.
     return h
   }
   // API hisoblagi hech qachon brauzerda render qilinmasligi kerak:

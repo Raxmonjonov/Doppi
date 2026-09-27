@@ -86,6 +86,10 @@ server {
     ssl_session_cache   shared:SSL:10m;
     ssl_session_tickets off;
 
+    # `Server: nginx/1.27.4` -> `Server: nginx`. Aniq versiya
+    # zaifliklarni aniqlashga yordam beradi (scannerlar undan foydalanadi).
+    server_tokens off;
+
     ssl_stapling on;
     ssl_stapling_verify on;
     resolver 1.1.1.1 8.8.8.8 valid=300s;
