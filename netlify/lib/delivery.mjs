@@ -23,6 +23,32 @@ function env(name) {
   return String(process.env[name] ?? '').trim()
 }
 
+/* Parol tiklash kodi — bitta kishni vaqtincha hisobga kirishga imkon
+ * beruvchi credential. Shu sababli u ikkala yo'lda ham faqat shifrlangan
+ * kanal orqali yuborilishi kerak:
+ *   1) DELIVERY_WEBHOOK_URL — kod + Authorization: Bearer token yuboriladi;
+ *   2) APP_URL — kod havolasi tuziladi (havola o'zi credential).
+ * `http://` faqat loopback'da ruxsat etiladi, shunda mahalliy test serveri
+ * ishlaydi. Ishlab chiqarishda boshqa har qanday `http://` rad etiladi. */
+export function isSecureTransportUrl(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return false
+  let u
+  try {
+    u = new URL(raw)
+  } catch {
+    return false
+  }
+  if (u.protocol === 'https:') return true
+  if (u.protocol !== 'http:') return false
+  const host = u.hostname.toLowerCase()
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]'
+}
+
+export function insecureUrlReason(value, label) {
+  return `${label} HTTPS bo'lishi shart (parol tiklash kodi shifrlangan kanal orqali yuboriladi): ${String(value ?? '')}`
+}
+
 export function mailMode() {
   const explicit = env('MAIL_MODE').toLowerCase()
   if (explicit === 'resend' || explicit === 'webhook' || explicit === 'log' || explicit === 'off') return explicit
@@ -97,6 +123,11 @@ export async function sendMail({ to, subject, text, html, code, username } = {})
   // webhook: Telegram bot, Mailgun, ichki microservice — hammasi shu shaklda
   const url = env('DELIVERY_WEBHOOK_URL')
   if (!url) return { ok: false, provider: 'webhook', error: 'DELIVERY_WEBHOOK_URL yo‘q' }
+  // Kod va bearer token ochiq kanalda ketmasligi kerak
+  if (!isSecureTransportUrl(url)) {
+    console.error('[yetkazish] webhook URL xavfsiz emas:', url)
+    return { ok: false, provider: 'webhook', error: insecureUrlReason(url, 'DELIVERY_WEBHOOK_URL') }
+  }
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -133,13 +164,17 @@ export function appName() {
 export function appUrl() {
   return env('APP_URL') || env('PUBLIC_URL') || ''
 }
-
 /* Parol tiklash xabari. `url` — kodni kiritish sahifasi (bo'lsa havola
- * qo'shiladi, aks holda foydalanuvchi kodni qo'lda kiritadi). */
+ * qo'shiladi, aks holda foydalanuvchi kodni qo'lda kiritadi).
+ * Havola o'zi credential: uni `http://` orqali yuborib bo'lmaydi. */
 export function resetCodeMessage({ code, username, url, minutes = 10 } = {}) {
   const app = appName()
   const minutesText = String(minutes)
-  const link = url ? `\n\n${url}` : ''
+  // Xavfsiz emasay havola umuman qo'shilmaydi — kod baribir matnda bor,
+  // lekin foydalanuvchi uni tasodifen ochiq tarmoq orqali ochmasligi kerak.
+  const safeUrl = url && isSecureTransportUrl(url) ? String(url) : ''
+  if (url && !safeUrl) console.error('[yetkazish] tiklash havolasi xavfsiz emas, tushirib qoldirildi:', url)
+  const link = safeUrl ? `\n\n${safeUrl}` : ''
   const subject = `${app}: parol tiklash kodi`
   const text =
     `Salom${username ? ', ' + username : ''}!\n\n` +
@@ -153,6 +188,6 @@ export function resetCodeMessage({ code, username, url, minutes = 10 } = {}) {
     `<p>Parol tiklash kodingiz: <b style="font-size:20px;letter-spacing:2px">${escapeHtml(code)}</b></p>` +
     `<p>Kod ${minutesText} daqiqa amal qiladi va bir marta ishlatiladi.</p>` +
     `<p>Bu so'rovni siz qilmagan bo'lsangiz kodni hech kimga bermang — parolni o'zgartirish shart emas.</p>` +
-    (url ? `<p><a href="${escapeHtml(url)}">Parolni tiklash</a></p>` : '')
+    (safeUrl ? `<p><a href="${escapeHtml(safeUrl)}">Parolni tiklash</a></p>` : '')
   return { subject, text, html, code: String(code ?? ''), username: String(username ?? '') }
 }

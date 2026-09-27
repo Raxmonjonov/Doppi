@@ -62,12 +62,69 @@ if (!DATABASE_URL && missingPgEnv.length) {
   process.exit(1)
 }
 
+/* Baza ulanishining TLS si (sslmode=require ekvivalenti).
+ *
+ * OLD: `ssl` faqat `DATABASE_SSL=1` bo'lganda yoqilardi va u ham
+ * `rejectUnauthorized: false` bilan — ya'ni sertifikat tekshiruvi
+ * O'CHIRILGAN. Bu holatda shifrlangan kanal yolg'on xavfsizlik beradi:
+ * MITM server sertifikati bilan aldash mumkin. Ishlab chiqarishda esa
+ * TLS umuman yoq bo'lishi mumkin edi (baza paroli ochiq tarmoqqa ketardi).
+ *
+ * Endi:
+ *   - ishlab chiqarishda TLS standart (sslmode=require);
+ *   - sertifikat tekshiruvi `rejectUnauthorized: true` (standart);
+ *   - `DATABASE_CA` — o'z CA sertifikatingiz (base64 yoki fayl yo'li);
+ *   - `DATABASE_SSL_NO_VERIFY=1` — ataylab zaiflashtirish, faqat
+ *     ogohlantirish bilan (mahalliy o'z-imzozali server uchun).
+ */
+function resolveDatabaseSsl() {
+  const explicit = String(process.env.DATABASE_SSL ?? '').trim().toLowerCase()
+  const isProd = process.env.NODE_ENV === 'production'
+  const wantTls =
+    explicit === '1' || explicit === 'true' || explicit === 'require'
+      ? true
+      : explicit === '0' || explicit === 'false' || explicit === 'disable'
+        ? false
+        : isProd
+  if (!wantTls) {
+    if (isProd) {
+      console.error('[xavfsizlik] DATABASE_SSL=0 — baza ulanishi shifrlanmagan (sslmode=require tavsiya etiladi).')
+    }
+    return undefined
+  }
+  const noVerify = String(process.env.DATABASE_SSL_NO_VERIFY ?? '').trim() === '1'
+  if (noVerify) {
+    console.error('[xavfsizlik] DATABASE_SSL_NO_VERIFY=1 — server sertifikatini tekshirmaydi (MITM xavfi).')
+  }
+  let ca
+  const caEnv = String(process.env.DATABASE_CA ?? '').trim()
+  if (caEnv) {
+    try {
+      ca = /^[A-Za-z0-9+/=\r\n]+$/.test(caEnv) && !caEnv.includes('-----BEGIN')
+        ? Buffer.from(caEnv, 'base64').toString('utf8')
+        : fs.readFileSync(caEnv, 'utf8')
+    } catch (e) {
+      console.error(`[xavfsizlik] DATABASE_CA o'qilmadi (${e.message}) — standart CA ishlatiladi.`)
+    }
+  }
+  return { rejectUnauthorized: !noVerify, ...(ca ? { ca } : {}) }
+}
+
+/* `sslmode=disable` URL ichida yozilgan bo'lsa, TLS yoqilgan holatda
+ * pg'ning ikki manba ziddiyat chiqarmasligi uchun olib tashlaymiz. */
+function connectionStringFor(connectionString) {
+  if (!/sslmode\s*=\s*disable/i.test(connectionString)) return connectionString
+  const cleaned = connectionString.replace(/([?&])sslmode=disable(&?)/i, (m, p1, p2) => (p2 ? p1 : ''))
+  console.error('[xavfsizlik] DATABASE_URL ichidagi sslmode=disable e’tiborsiz qoldirildi — TLS yoqildi.')
+  return cleaned
+}
+
 const pool = DATABASE_URL
   ? new Pool({
-      connectionString: DATABASE_URL,
-      ssl: process.env.DATABASE_SSL === '1' ? { rejectUnauthorized: false } : undefined,
+      connectionString: connectionStringFor(DATABASE_URL),
+      ssl: resolveDatabaseSsl(),
     })
-  : new Pool(pgEnv)
+  : new Pool({ ...pgEnv, ssl: resolveDatabaseSsl() })
 
 async function ensureSchema() {
   const sql = fs.readFileSync(SCHEMA_PATH, 'utf8')

@@ -5,7 +5,7 @@
  * muvaffaqiyatsiz bo'lsa ham `sendMail` hech qachon istisno tashlamaydi
  * (parol tiklash oqimi bu javobga bog'liq). */
 import http from 'node:http'
-import { sendMail, resetCodeMessage, mailMode, isDeliverableEmail } from './delivery.mjs'
+import { sendMail, resetCodeMessage, mailMode, isDeliverableEmail, isSecureTransportUrl } from './delivery.mjs'
 
 let passed = 0
 let failed = 0
@@ -107,6 +107,30 @@ await withServer(err500, async (url) => {
 process.env.DELIVERY_WEBHOOK_URL = 'http://127.0.0.1:1/unreachable'
 const unreachable = await sendMail({ to: 'alisher@example.com', ...msg })
 ok('unreachable webhook reported, no throw', unreachable.ok === false, JSON.stringify(unreachable))
+
+// 5b) parol tiklash kodi faqat shifrlangan kanal orqali
+ok('https url accepted', isSecureTransportUrl('https://bot.example.com/hook') === true)
+ok('http loopback accepted (local test server)', isSecureTransportUrl('http://127.0.0.1:1234/x') === true)
+ok('http localhost accepted', isSecureTransportUrl('http://localhost:1234/x') === true)
+ok('plain http to remote refused', isSecureTransportUrl('http://bot.example.com/hook') === false)
+ok('non-http scheme refused', isSecureTransportUrl('ftp://x/y') === false)
+ok('garbage refused', isSecureTransportUrl('not a url') === false)
+ok('empty refused', isSecureTransportUrl('') === false)
+
+// Kod + bearer token ochiq HTTP'da yuborilmasligi kerak
+await withServer(ok200, async (_url, got) => {
+  got.length = 0
+  process.env.DELIVERY_WEBHOOK_URL = 'http://bot.example.com/hook'
+  const r = await sendMail({ to: 'alisher@example.com', ...msg })
+  ok('plain-http webhook refused', r.ok === false && /HTTPS/.test(String(r.error)), JSON.stringify(r))
+  ok('plain-http webhook sent nothing', got.length === 0, `got=${got.length}`)
+})
+// Tiklash havolasi ham ochiq bo'lmasligi kerak (havola = credential)
+const plainLink = resetCodeMessage({ code: '482913', username: 'Alisher', url: 'http://doppi.app/reset' })
+ok('insecure reset link dropped from text', !plainLink.text.includes('http://doppi.app/reset'), plainLink.text.slice(-80))
+ok('insecure reset link dropped from html', !plainLink.html.includes('http://doppi.app/reset'))
+const secureLink = resetCodeMessage({ code: '482913', username: 'Alisher', url: 'https://doppi.app/reset' })
+ok('https reset link kept', secureLink.text.includes('https://doppi.app/reset') && secureLink.html.includes('https://doppi.app/reset'))
 
 // 6) noto'g'ri manzil hech qachon tarmoqqa chiqmaydi
 await withServer(ok200, async (url, got) => {
