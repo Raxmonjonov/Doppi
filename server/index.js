@@ -2302,16 +2302,24 @@ async function mediaViewerAllowed(scope, refId, ownerId, req) {
 }
 
 /* Xabar/guruhga biriktirilganda media'ni shu suhbatga "bog'laydi" — mijoz
-   `scope: 'public'` deb yuborsa ham, fayl faqat a'zolarga ko'rinadi. */
+   `scope: 'public'` deb yuborsa ham, fayl faqat a'zolarga ko'rinadi.
+
+   XAVFSIZLIK: faqat O'ZIGА tegishli media qayta scopelanadi. Aks holda
+   boshqa foydalanuvchi `/api/media/<id>` ni o'z xabariga yozib, bu
+   UPDATE uning faylini o'z suhbatiga tortib olar edi (IDOR). Shart
+   SQL'ning o'zida — JS da oldin tekshirib, keyin yozish orasidagi
+   poyga (TOCTOU) oyna qolmasligi uchun. */
 async function scopePrivateMedia(values, scope, refId, ownerId) {
   for (const v of values) {
     const id = mediaPathOf(v)
     if (!id || !isSafeMediaId(id)) continue
     try {
-      await pool.query(
-        `UPDATE doppi_media SET scope = $1, ref_id = $2, owner_id = $3 WHERE id = $4`,
+      const { rowCount } = await pool.query(
+        `UPDATE doppi_media SET scope = $1, ref_id = $2, owner_id = $3
+          WHERE id = $4 AND (owner_id IS NULL OR owner_id = '' OR owner_id = $3)`,
         [scope, refId ? Number(refId) : null, ownerId, id],
       )
+      if (!rowCount) console.error(`[media] begona media scopelanmadi (${id})`)
     } catch (e) {
       console.error(`[media] scope yangilanmadi (${id}):`, e?.message ?? e)
     }

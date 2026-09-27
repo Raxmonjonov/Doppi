@@ -377,6 +377,43 @@ FORCE_HTTPS=0     # faqat shunday zaruratda
 ALLOWED_HOSTS=example.uz,www.example.uz
 ```
 
+### 2.4 Media IDOR: begona faylni o'z xabariga tortish (topilgan, yopilgan)
+
+Shakl tekshiruvi (`mediaRefProblem`, 2.1) `/api/media/<id>` shaklidagi
+qiymatlarni o'tkazadi — bu **ataylab** shunday, chunki ilova har doim
+avval `/api/media` ga yuklaydi. Lekin shakl to'g'ri bo'lgani bilan
+**egalik** tekshirilmas edi.
+
+`scopePrivateMedia` xabardagi havolani `ownerId = yuboruvchi` bilan QAYTA
+scopelaydi. `setMediaMeta` esa `scope`/`refId`/`ownerId` ni shartsiz
+qayta yozadi. Natijada boshqa foydalanuvchi `/api/media/<begona-id>` ni
+o'z xabariga yozib:
+
+- fayl `public` dan `dm`/`group` ga tushib, yuboruvchining suhbatiga
+  bog'lanardi (u endi faylni ko'ra boshlardi);
+- asl egasi esa uni **yo'qotardi** — `401`, chunki u yangi scope'ning
+  a'zosi emas.
+
+Tuzatish:
+
+- **Netlify** — avval `store.getMedia()` bilan `ownerId` tekshiriladi.
+  Media yo'q yoki `ownerId` begona bo'lsa, sessiya jimgina **tashlab
+  ketiladi** (metadata yozilmaydi). `POST /api/media` yuklashda
+  `ownerId` ni `me.id` ga qo'yadi, shuning uchun legitim oqim o'tadi.
+- **Express** — shart SQL'ning **o'ziga** qo'yildi, JS oraliqsiz:
+  `WHERE id = $4 AND (owner_id IS NULL OR owner_id = '' OR owner_id = $3)`.
+  Aks holda JS da tekshirib, keyin yozish orasida poyga (TOCTOU)
+  oyna qolardi.
+
+Regressiya testlari: `test-suite.mjs` 5b-bis (3 ta) va
+`live-voice-notif.smoke.mjs` 4b (3 ta). Guruh ataylab ishlatilgan, DM
+emas: DM'da jabarda ham a'zo bo'lgani uchun scope o'zgarganini access
+orqali aniqlab bo'lmas edi.
+
+Tuzatish VAQTINCHA olib tashlab tekshirilgan: Netlify va Express
+ikkalasida ham test `401` bilan yiqiladi (jabar o'z fayliga
+kirmaydi) — demak test yuzaki emas, zaiflikni haqiqatan ushlaydi.
+
 ### 4.3 PostgreSQL (sslmode=require)
 
 `resolveDatabaseSsl()`:
@@ -538,7 +575,7 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
 | 5 | Tashqi provayderlar | Bajarildi: webhook HTTPS majburiy; kiruvchi webhook **yo'q**; rate limit §5 — kirishlar **va yozishlar** (`write`/`sync`, sessiya bo'yicha 600/soat), lekin jarayon xotirasida. Cheklov: JWT/OAuth yo'q |
 | 6 | Maxfiylar + Docker | Bajarildi: `.env` yopiq, `.env.example`, majburiy kalitlar, loglar toza. Cheklov: Docker fayllar yo'q |
 | 7 | README + SECURITY | Bajarildi: README §"Xavfsizlik" + shu hujjat |
-| 8 | Kod darajasidagi audit (SQLi/travers/IDOR/XSS) | Bajarildi: SQL injection **yo'q** (hamma so'rovlar parametrli), path traversal **yo'q** (`isSafeMediaId` + imzo + `timingSafeEqual`), XSS **yo'q** (`dangerouslySetInnerHTML`/`innerHTML` ishlatilmaydi). Topilgan IDOR/mass-assignment teshiklari yopildi: `PUT /api/data` endi faqat egasini yangilaydi va yangi yozuvni sessiya egasi nomidan yaratadi (posts/stories/reels), guruhni faqat yaratuvchisi o'zgartiradi + `MAX_GROUPS` sync'da ham; push obunasi o'chirish sessiyaga bog'landi (Netlify); `GET /api/data` guruhlarda `memberIds`/`createdBy` yashirildi; noma'lum media scope fail-closed; Express admin `gc`/`migrate` `tokenRef`+TTL bilan tuzatildi (avval doim 403 edi); blobs `putMedia` id tekshiruvi; `ALLOW_LEGACY_SESSIONS` production'da o'chiq. Tekshiruv: `test:all` 489 + jonli Express probe 69/69 |
+| 8 | Kod darajasidagi audit (SQLi/travers/IDOR/XSS) | Bajarildi: SQL injection **yo'q** (hamma so'rovlar parametrli), path traversal **yo'q** (`isSafeMediaId` + imzo + `timingSafeEqual`), XSS **yo'q** (`dangerouslySetInnerHTML`/`innerHTML` ishlatilmaydi). Topilgan IDOR/mass-assignment teshiklari yopildi: `PUT /api/data` endi faqat egasini yangilaydi va yangi yozuvni sessiya egasi nomidan yaratadi (posts/stories/reels), guruhni faqat yaratuvchisi o'zgartiradi + `MAX_GROUPS` sync'da ham; push obunasi o'chirish sessiyaga bog'landi (Netlify); `GET /api/data` guruhlarda `memberIds`/`createdBy` yashirildi; noma'lum media scope fail-closed; **boshqa foydalanuvchining media'sini o'z xabariga havola qilish (media IDOR) — `scopePrivateMedia` endi `ownerId` ni tekshiradi**; Express admin `gc`/`migrate` `tokenRef`+TTL bilan tuzatildi (avval doim 403 edi); blobs `putMedia` id tekshiruvi; `ALLOW_LEGACY_SESSIONS` production'da o'chiq. Tekshiruv: `test:all` 561 + jonli Express probe 79/79 |
 
 ---
 
@@ -578,7 +615,7 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
      ham almashtiradi, `refs/*` ning barchasini qayta yozadi va har bir
      shaklni alohida tekshiradi.
 7. **Xavfsizlik testlari** — `npm run test:all` (delivery 42 tekshiruv,
-   api-core 170, blobs 170, pg-store 170, delivery 42 = **552**) vositasi sifatida
+   api-core 173, blobs 173, pg-store 173, delivery 42 = **561**) vositasi sifatida
    ishlaydi; bind/HSTS/redirect, yozish limiti va IDOR probe'lari qo'lda
    (jonli Express serverga qarshi) amalga oshirildi (natija §1, §8).
 8. **Albomlar — umumiy pool (qabul qilingan dizayn)** — `albums` jadvalida
@@ -621,7 +658,7 @@ curl -m 3 http://SERVER_IP:4000/api/health
 
 ---
 
-## 10. Ishlab chiqarish bazasi: media audit (faqat o'qish)
+## 11. Ishlab chiqarish bazasi: media audit (faqat o'qish)
 
 Server tomonidagi tekshiruv (f44fe7a, 09b4be8) faqat **yangi yozishlarga**
 taalluqli. Baza ichidagi eski qatorlar o'zgarishmaydi. Mahalliy

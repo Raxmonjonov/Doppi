@@ -146,6 +146,30 @@ const run = async () => {
   r = await call('GET', '/api/notifications?since=0', undefined, tok2)
   ok('group member got notification', (r.json?.notifications ?? []).some((n) => n.kind === 'group' && n.groupId === gid && n.hasAudio))
 
+  // 4b) IDOR (Express/SQL yo'li): boshqa foydalanuvchining media'sini
+  // o'z guruhiga havola qilish. `scopePrivateMedia` SQL'da
+  // `owner_id = $3` shartini qo'yadi, shuning uchun begona fayl
+  // qayta scopelanmaydi va egasi o'z fayliga kirishni yo'qotmaydi.
+  const victimUp = await call('POST', '/api/media', { dataUrl: `data:audio/webm;base64,${audioB64}` }, tok2)
+  if (victimUp.status === 201 && victimUp.json?.url) {
+    const victimId = victimUp.json.id
+    const hijackGid = (await call('POST', '/api/groups', { name: 'Live Hijack', cover: '', membersCount: 1 }, tok1)).json?.group?.id
+    r = hijackGid
+      ? await call('POST', `/api/groups/${hijackGid}/messages`, { text: 'not mine', image: `/api/media/${victimId}` }, tok1)
+      : { status: 0, json: {} }
+    ok('express group accepts foreign media id shape (scope is the real guard)', r.status === 200, `status=${r.status} ${JSON.stringify(r.json)}`)
+    // Jabarning imzolangan URL'i hali ochiq bo'lishi kerak: scope `group`
+    // ga tushsa, imzo bilan kelgan GET ham 401 beradi.
+    const vSig = await call('GET', victimUp.json.url, undefined, undefined)
+    ok("victim's media NOT re-scoped into attacker's group (express)", vSig.status === 200, `status=${vSig.status} (200 = scope hali public)`)
+    const vOwn = await call('GET', `/api/media/${victimId}`, undefined, tok2)
+    ok('victim keeps access to own media after hijack attempt (express)', vOwn.status === 200, `status=${vOwn.status}`)
+  } else {
+    ok('express group accepts foreign media id shape (scope is the real guard)', false, `media yuklanmadi: ${victimUp.status}`)
+    ok("victim's media NOT re-scoped into attacker's group (express)", false, 'media yuklanmadi')
+    ok('victim keeps access to own media after hijack attempt (express)', false, 'media yuklanmadi')
+  }
+
   // 5) call ring notification + hangup close
   r = await call('POST', `/api/threads/${tid}/calls`, { kind: 'ring', to: id2, data: { kind: 'video' } }, tok1)
   ok('ring signal -> 200', r.status === 200, `status=${r.status}`)

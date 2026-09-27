@@ -191,7 +191,8 @@ export function mediaSignatureOf(value) {
    `reel.image`) esa `media-src` kontekstida — u yerda tashqi `https:`
    ni CSP ham bloklaydi. Ular `safeMediaRef()` bilan KESILADI (rad
    etilmaydi, chunki `PUT /api/data` butun hujjatni yozadi). */
-export function mediaRefProblem(value, label = 'Media') {  const s = String(value ?? '').trim()
+export function mediaRefProblem(value, label = 'Media') {
+  const s = String(value ?? '').trim()
   if (!s) return null
   if (s.length > 600) return `${label} havolasi juda uzun.`
   // `data:` — brauzerda har bir ochilishda qayta dekodlanadi; o'lcham

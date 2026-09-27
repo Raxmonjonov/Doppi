@@ -200,6 +200,41 @@ export async function runSuite(store, label) {
     ok('dm accepts own /api/media url', false, `media yuklanmadi: status=${ownUpload.status}`)
   }
 
+  // 5b-bis) IDOR: boshqa foydalanuvchining media'sini o'z yozuviga
+  // havola qilish. Shakl to'g'ri bo'lgani uchun `mediaRefProblem`
+  // o'tkazadi — himoya `scopePrivateMedia` da. Aks holda fayl
+  // yuboruvchining GURUHIGA tortilib, asl egasi (guruh a'zosi emas)
+  // uni ko'ra olmay qolardi.
+  //
+  // DM emas, GURUH ishlatiladi: agar `tid` suhbatida jabarda ham a'zo
+  // bo'lganida, scope o'zgarganini access orqali aniqlab bo'lmas edi.
+  // `guardGid` qayta ishlatiladi (faqat `tok2` a'zosi) — yangisini
+  // yaratmaymiz, chunki `MAX_GROUPS` juda kichik (3) va keyingi
+  // `IDOR: A created group` testini buzardik.
+  const victimUpload = await call('POST', '/api/media', { dataUrl: `data:image/png;base64,${pngBase64}` }, tok3)
+  if (victimUpload.status === 201 && victimUpload.json?.id && guardGid) {
+    const victimId = victimUpload.json.id
+    const victimUrl = victimUpload.json.url
+    // 1) Shakl qabul qilinadi (bu qadam muvaffaqiyatli bo'lishi kerak —
+    //    himoya shaklda emas, scope'da)
+    r = await call('POST', `/api/groups/${guardGid}/messages`, { text: 'not mine', image: `/api/media/${victimId}` }, tok2)
+    ok('group accepts another user media id shape (scope is the real guard)', r.status === 200, `status=${r.status} ${JSON.stringify(r.json)}`)
+    // 2) ENG MUHIM: imzolangan URL ochiq bo'lishi kerak edi. Agar
+    //    scope `group` ga tushsa, imzo bilan kelgan GET ham rad etiladi.
+    const sig = await call('GET', victimUrl, undefined, undefined)
+    ok("victim's media NOT re-scoped into attacker's group (signed GET still works)", sig.status === 200, `status=${sig.status} (200 = scope hali public)`)
+    // 3) Asl egasi o'z fayliga autentifikatsiya bilan kirishni davom ettirishi kerak
+    const own = await call('GET', `/api/media/${victimId}`, undefined, tok3)
+    ok('victim keeps access to own media after hijack attempt', own.status === 200, `status=${own.status}`)
+  } else {
+    ok('group accepts another user media id shape (scope is the real guard)', false, `media/guruh tayyor emas: ${victimUpload.status}`)
+    ok("victim's media NOT re-scoped into attacker's group (signed GET still works)", false, 'media yuklanmadi')
+    ok('victim keeps access to own media after hijack attempt', false, 'media yuklanmadi')
+  }
+  // Bu blok IP bo'yicha umumiy yozuv byudjetini ishlatdi (media + guruh
+  // yaratish) — keyingi testlar 403 olmasligi uchun qayta ochiamiz.
+  resetRateLimits()
+
   // 5c) `PUT /api/data` — `<video>`/`<audio>` kontekstidagi maydonlar
   // (`post.video`, `reel.image`) KESILADI, RAD ETILMAYDI. Sabab: bu
   // endpoint butun hujjatni yozadi; bitta maydonga 400 qaytarish

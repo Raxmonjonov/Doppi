@@ -103,12 +103,35 @@ export { sanitizeAvatar }
 
 /* DM/guruh xabariga biriktirilgan media shaxsiy hisoblanadi: mijoz
    yuklashda `scope: 'public'` deb yuborsa ham, server uni shu suhbat/guruhga
-   bog'lab qo'yadi. Shunda o'z yuklagan faylini boshqalarga ochib berolmaydi. */
+   bog'lab qo'yadi. Shunda o'z yuklagan faylini boshqalarga ochib berolmaydi.
+
+   XAVFSIZLIK: faqat O'ZIGА tegishli media'ni qayta scopelash mumkin.
+   Aks holda boshqa foydalanuvchi `/api/media/<id>` ni o'z xabariga yozib,
+   bu chaqiruv uning faylini `ownerId` si bilan o'z suhbatiga tortib olar
+   edi (IDOR): fayl asl egasidan uzilib qolardi, begona esa uni ko'ra
+   boshlardi. `POST /api/media` yuklashda `ownerId` ni `me.id` ga qo'yadi,
+   shuning uchun legitim oqim bu tekshiruvdan o'tadi. */
 async function scopePrivateMedia(store, values, scope, refId, ownerId) {
   if (typeof store.setMediaMeta !== 'function') return
   for (const v of values) {
     const id = mediaPathOf(v)
     if (!id || !isSafeMediaId(id)) continue
+    // `getMedia` yo'q bo'lsa (ba'zi test store'lari) eski xil oqim saqlanadi.
+    if (typeof store.getMedia === 'function') {
+      let cur = null
+      try {
+        cur = await store.getMedia(id)
+      } catch {
+        cur = null
+      }
+      // Mavjud emas — uy qidiruv (phantom) metadata yozmaymiz.
+      if (!cur) continue
+      const curOwner = String(cur.ownerId ?? '')
+      if (curOwner && curOwner !== String(ownerId)) {
+        console.error(`[media] begona media scopelanmadi (${id})`)
+        continue
+      }
+    }
     try {
       await store.setMediaMeta(id, { scope, refId, ownerId })
     } catch (e) {

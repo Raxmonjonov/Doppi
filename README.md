@@ -268,7 +268,7 @@ qilinmagan xavflar** — [SECURITY.md](SECURITY.md). Bu yerda qisqa hisobot:
 | **Maxfiylar** | `.env` gitignored | Shu bilan birga **`.env.example`** — barcha o'zgaruvchilar, kalsiz |
 | **Kiruvchi webhook** | — | Repoda **inbound webhook yo'q** (faqat chiqish webhook) |
 
-Testlar: `npm run test:all` — 552 tekshiruv (bunda `delivery` 42 ta:
+Testlar: `npm run test:all` — 561 tekshiruv (bunda `delivery` 42 ta:
 https kirish/bandlash, webhook rad etilishi, havola tushirilishi).
 
 ## Testlar
@@ -278,8 +278,8 @@ npm run test:netlify   # 165 test: api-core business logikasi (fayl store) + 8 s
 npm run test:blobs     # 165 test: blobs-store adapter (fake @netlify/blobs)
 npm run test:pg-store  # 165 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
 npm run test:delivery  # 42 test: parol tiklash kodini yetkazish kanallari
-npm run test:all       # barchasi birga (552 test)
-npm run test:live      # 76 test: haqiqiy Express server + Postgres (audio, xabar, bildirishnoma, qo'ng'iroq, push)
+npm run test:all       # barchasi birga (561 test)
+  npm run test:live      # 79 test: haqiqiy Express server + Postgres (audio, xabar, bildirishnoma, qo'ng'iroq, push)
 npm run build          # tsc + vite
 npm run lint           # oxlint
 ```
