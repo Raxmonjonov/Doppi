@@ -1,0 +1,136 @@
+# Do'ppi — nginx konfiguratsiyasi (misol)
+#
+# Bu fayl deploy uchun KO'RSANISH (example). Foydalanish:
+#   1) domen va sertifikat yo'llarini o'zgartiring
+#   2) /etc/nginx/conf.d/doppi.conf sifatida joylang
+#   3) nginx -t && systemctl reload nginx
+#
+# Lozim: nginx + certbot (Let's Encrypt). Netlify'da ishlatilmaydi —
+# Netlify TLS'ni o'zi boshqaradi (SECURITY.md §4.1).
+#
+# Muhim: ilova o'zi 127.0.0.1:4000 da turadi (HOST sukuti). Shu sababli
+# bu konfig ochiq portlar qoidasini buzmaydi: tashqaridan faqat 80/443.
+
+upstream doppi_app {
+    server 127.0.0.1:4000;
+    keepalive 32;
+}
+
+# --- 1) Rate limiting (item 5: API endpoint'lari uchun) ---
+# Chegaralar ilova ichida ham bor (server/index.js), lekin ular jarayon
+# xotirasida — ko'p instanceda to'liq ishlamaydi. nginx qatlami buni
+# to'ldiradi: hujumchi chegarani qayta ishga tushish bilan yumshata olmaydi.
+limit_req_zone $binary_remote_addr zone=api_login:10m rate=5r/m;
+limit_req_zone $binary_remote_addr zone=api_media:10m  rate=10r/m;
+limit_req_zone $binary_remote_addr zone=api_any:10m    rate=60r/m;
+
+# ---- HTTP -> HTTPS majburiy redirect ----
+server {
+    listen 80;
+    listen [::]:80;
+    server_name example.uz www.example.uz;
+
+    # Lets Encrypt tekshiruvi
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # Hammasini HTTPS'ga (308 — metod saqlanadi)
+    location / {
+        return 308 https://$host$request_uri;
+    }
+}
+
+server {
+    # Eski nginx (1.25.1 dan oldin) uchun: `listen 443 ssl http2;` va
+    # keyingi `http2 on;` qatorini o'chiring.
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name example.uz www.example.uz;
+
+    # ---- 2) TLS: faqat 1.2+ , zaif shifrlar o'chirilgan ----
+    ssl_certificate     /etc/letsencrypt/live/example.uz/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.uz/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;                 # TLSv1.0/1.1 YO'Q
+    ssl_prefer_server_ciphers off;                 # TLSv1.3'da klient tanlaydi
+    ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305';
+    ssl_session_timeout 1d;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_tickets off;
+
+    ssl_stapling on;
+    ssl_stapling_verify on;
+    resolver 1.1.1.1 8.8.8.8 valid=300s;
+
+    # ---- HSTS (item 2) ----
+    # includeSubDomains + preload. 1 yil -> keyin 2 yil (max-age 63072000).
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+
+    # ---- Xavfsizlik sarlavhalari (security.mjs bilan bir xil to'plam) ----
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "geolocation=(self), camera=(self), microphone=(self), payment=(), usb=()" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Cross-Origin-Resource-Policy "same-origin" always;
+
+    # SPA (Vite build) statikasi
+    root /var/www/doppi/dist;
+    index index.html;
+    client_max_body_size 45m;      # media yuklash: rasm 8MB, video 40MB
+
+    # ---- SPA route'lar (history mode) ----
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # ---- API ----
+    location /api/ {
+        limit_req zone=api_any burst=30 nodelay;
+        limit_req_status 429;
+
+        proxy_pass http://doppi_app;
+        proxy_http_version 1.1;
+        proxy_set_header Connection      "";
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        # MUHIM: app req.secure va FORCE_HTTPS bunga bog'liq
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_connect_timeout 10s;
+        proxy_send_timeout    120s;
+        proxy_read_timeout    120s;
+    }
+
+    # ---- Kirishni cheklovchi endpoint'lar (item 5) ----
+    location ~ ^/api/auth/(login|register|forgot|reset) {
+        limit_req zone=api_login burst=5 nodelay;
+        limit_req_status 429;
+
+        proxy_pass http://doppi_app;
+        proxy_http_version 1.1;
+        proxy_set_header Connection      "";
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /api/media {
+        limit_req zone=api_media burst=20 nodelay;
+        limit_req_status 429;
+
+        client_max_body_size 45m;
+        proxy_pass http://doppi_app;
+        proxy_http_version 1.1;
+        proxy_set_header Connection      "";
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout    300s;
+    }
+}

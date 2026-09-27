@@ -58,7 +58,40 @@ netstat -an        # Windows
 curl -m 3 http://SERVER_IP:4000/api/health   # ECONNREFUSED bo'lishi kerak
 ```
 
-### Mahalliy audit xulosasi (bu ish stansiya) — TOPILDI VA TUZATILDI
+### To'liq port auditi (bu ish stansiya)
+
+`netstat -ano` bo'yicha **barcha** LISTENING portlar, tashqi tegishliligi
+(`0.0.0.0` / `[::]` = hamma interfeys) va qilingan harakat:
+
+| Port | Jarayon | Tegishlilik | Holat / harakat |
+|---|---|---|---|
+| **4000** | Do'ppi API (`server/index.js`) | `127.0.0.1` | **Yopiq** — default-deny bind |
+| **5432** | PostgreSQL 18 | `0.0.0.0` → `127.0.0.1` | **Yopildi** (§1 lockdown: konfig + restart + firewall) |
+| 6379 | — | — | Redis umuman yo'q |
+| **3000** | boshqa loyiha (`Desktop\Hibon\server\server.js`) | `0.0.0.0` | **Yopildi** — inbound **Block** qoidasi (lokal ishlashda davom etadi) |
+| 445 / 139 | Windows SMB | `0.0.0.0` | Ochiq qoldirildi (foydalanuvchi qarori). Tashqi tarmoq serverida: `ufw deny 445/tcp` |
+| 135 + 49664-49669 | Windows RPC/DCOM | `0.0.0.0` | Ochiq qoldirildi (Windows standarti) |
+| 5040 | svchost (Local Session Manager) | `0.0.0.0` | Windows standarti |
+| 22 (SSH) | — | tinglamaydi | OpenSSH server o'rnatilmagan → SSH bandi tegishli emas |
+| 3389 (RDP) | — | tinglamaydi | Yopiq |
+
+**Tekshirish cheklovi (muhim):** bu mashinadan o'zining LAN IP'siga ulanish
+firewall qoidalaridan **o'tmaydi** (host→self), shuning uchun audit paytida
+`3000 -> OPEN` ko'rinishi haqiqiy masofaviy test **emas**. Muhim qismi
+listener bind'i: 4000/5432 loopback'ga cheklangani uchun ular tashqaridan
+`ECONNREFUSED` bo'ladi. Qoida konfiguratsiyasi esa alohida tekshirildi —
+3000 bo'yicha yagona inbound qoida: **Inbound + Block + TCP 3000 + Profile
+Any**, ya'ni boshqa hech qanday Allow uni qayta ochmaydi.
+
+Aniq tasdiq **boshqa qurilmadan** (telefon/Wi-Fi):
+
+```bash
+nc -vz 10.141.158.103 3000    # refused bo'lishi kerak
+nc -vz 10.141.158.103 4000    # refused bo'lishi kerak
+nc -vz 10.141.158.103 5432    # refused bo'lishi kerak
+```
+
+### Mahalliy audit xulosasi (eski holat) — TOPILDI VA TUZATILDI
 
 Auditda ikkala himoya ham yo'q edi:
 
@@ -158,6 +191,42 @@ ya'ni tashqi kirish.
 ---
 
 ## 4. Transport shifrlash (transit)
+
+### 4.0 Nginx + Let's Encrypt (o'z hostingizda)
+
+Tayyor, qattiq sozlangan konfiguratsiya: **`deploy/nginx.conf.example`**.
+U quyidagilarni o'z ichiga oladi (checklist item 2):
+
+- **HTTP → HTTPS majburiy redirect** (`return 308 https://...`)
+- **Faqat TLS 1.2/1.3** (`ssl_protocols TLSv1.2 TLSv1.3`), eskirgan TLSv1.0/1.1
+  va zaif shifrlar ro'yxati bilan (`ssl_ciphers`), stapling + session tickets off
+- **HSTS** `max-age=63072000; includeSubDomains; preload`
+- **`X-Forwarded-Proto`** — ilova (`FORCE_HTTPS`, `req.secure`) shu headerga
+  bog'liq; buni uzatmasangiz HTTPS redirect sikli yoki HSTS yuborilmaydi
+- **`limit_req`** — login/register/forgot/reset va media uchun alohida zonalar
+  (item 5: ko'p instanceda ham ishlaydigan rate limit qatlami)
+- `client_max_body_size 45m` (media: rasm 8MB, video 40MB)
+
+Sertifikat o'rnatish (certbot):
+
+```bash
+# nginx o'rnatilgandan keyin, DNS'ga A yozuvini qo'yib
+sudo certbot certonly --webroot -w /var/www/certbot -d example.uz -d www.example.uz
+
+# yoki nginx plugin bilan (80-port ochiq bo'lishi kerak)
+sudo certbot --nginx -d example.uz -d www.example.uz
+
+# avtomatik yangilash
+sudo systemctl status certbot.timer
+
+# tekshirish
+sudo nginx -t && sudo systemctl reload nginx
+curl -I https://example.uz/        # HSTS borligini tekshiring
+curl -I http://example.uz/         # 308 kutiladi
+```
+
+> Netlify'da bu kerak emas: TLS, redirect va HSTS platforma tomonidan
+> boshqariladi (`netlify.toml` dagi sarlavhalar bilan birgalikda).
 
 ### 4.1 Brauzer → server (HTTPS + HSTS)
 
@@ -300,7 +369,7 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
 | # | Band | Holat |
 |---|---|---|
 | 1 | Portlarni yopish | Bajarildi: `HOST=127.0.0.1` default + `0.0.0.0` ogohlantirish; UFW qoidalari §2-3; lokal Postgres 5432 **yopildi** (§1) |
-| 2 | Nginx/TLS | Bajarildi: HSTS/CSP/redirect `netlify.toml` + `FORCE_HTTPS`; **nginx konfigi yo'q** (repo'da) |
+| 2 | Nginx/TLS | Bajarildi: HSTS/CSP/redirect `netlify.toml` + `FORCE_HTTPS`; `deploy/nginx.conf.example` (TLS 1.2+, HSTS, 308 redirect, `limit_req`) + certbot yo'riqnomasi §4.0 |
 | 3 | Django `settings.py` | Bajarildi: Ekvivalentlar: `FORCE_HTTPS` (= `SECURE_SSL_REDIRECT`), HSTS (= `SECURE_HSTS_*`), `TRUST_PROXY`. Cookie `SECURE` — **tegishli emas**, cookie ishlatilmaydi (Bearer token) |
 | 4 | Shifrlash transit/at-rest | Bajarildi: TLS DB (verify), reset-code HTTPS, media `?s=` imzo, scrypt. Cheklov: Redis/S3/Channels **yo'q** |
 | 5 | Tashqi provayderlar | Bajarildi: webhook HTTPS majburiy; kiruvchi webhook **yo'q**; rate limit §5 (ammo in-memory). Cheklov: JWT/OAuth yo'q |
@@ -313,7 +382,9 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
 
 1. **Rate limit in-memory** — ko'p instanceda zaif; nginx `limit_req` bilan
    qoplash kerak.
-2. **Docker/nginx konfigi yo'q** — deploy qoidalari hujjat, amalda emas.
+2. **Nginx/Docker hali deploy qilinmagan** — `deploy/nginx.conf.example`
+   repo'da, lekin real serverga o'rnatilmagan; `Dockerfile`/`docker-compose.yml`
+   esa umuman yo'q (Docker bandlari shu sababli tegishli emas).
 3. **Netlify Force HTTPS** — dashboardda tasdiqlash kerak.
 4. **Media ochiq URL'lari** (`?s=` imzo bilan) — imzo `SESSION_SECRET`ga
    bog'liq; kalit o'zgarsa eski havolalar bekor bo'ladi (xohlanmagan).

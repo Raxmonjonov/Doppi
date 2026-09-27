@@ -145,6 +145,12 @@ npm run dev                                         # http://localhost:5173
 Netlify uchun: `netlify.toml` `dist` publish qiladi, `/api/*` → Function. `DATABASE_URL` berilsa
 Neon, aks holda Blobs ishlatiladi.
 
+O'z serveringizda (nginx + Let's Encrypt): tayyor konfiguratsiya —
+[`deploy/nginx.conf.example`](deploy/nginx.conf.example). Unda HTTP→HTTPS
+redirect, faqat TLS 1.2+, HSTS va API uchun `limit_req` chegaralari bor.
+Ilova `127.0.0.1:4000` da turadi (default `HOST`), tashqaridan ochiq emas;
+portlar va firewall qoidalari — [SECURITY.md](SECURITY.md).
+
 ### Xavfsizlik: majburiy muhit o'zgaruvchilari
 
 Loyihada **ishlaydigan boshlang'ich parol yo'q** — bunday parollar xavfsizlik
