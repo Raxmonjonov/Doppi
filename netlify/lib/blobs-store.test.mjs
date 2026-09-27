@@ -112,4 +112,29 @@ await store.deleteMedia([newId])
 check('yangi media o\'chirildi', (await store.getMedia(newId)) === null)
 check('meta blob ham tozalandi', !remote.entries.has('media-meta/' + newId))
 
+/* --- VAQTINCHA xato chegarasi: noma'lum scope = FAIL-CLOSED ------------
+   `getMedia` ichida chegara o'qib bo'lmasa, `public` deb taxmin qilish
+   XAVFSIZ EMAS — shunda shaxsiy DM rasmni har qanday autentifikatsiyalangan
+   foydalanuvchi ko'rardi. Fail-closed bo'lishi kerak. */
+const realGet = remote.get
+const realGetMeta = remote.getMetadata
+remote.get = async (k) => {
+  if (String(k).startsWith('media-meta/')) throw new Error('vaqtincha xato')
+  return realGet(k)
+}
+remote.getMetadata = async (k) => {
+  if (String(k).startsWith('media/')) throw new Error('vaqtincha xato')
+  return realGetMeta(k)
+}
+const fcId = 'failclosed.png'
+await remote.set('media/' + fcId, new Blob([new Uint8Array([5])], { type: 'image/png' }), {
+  metadata: { mime: 'image/png', size: '1' },
+})
+check('chegara o\'qib bo\'lmasa media RAD etiladi (fail-closed)', (await store.getMedia(fcId)) === null)
+check('chegara o\'qib bo\'lmasa getMediaMeta null qaytaradi', (await store.getMediaMeta(fcId)) === null)
+check('chegara o\'qib bo\'lmasa public deb TAXMIN QILINMAYDI', (await store.getMedia(fcId))?.scope !== 'public')
+remote.get = realGet
+remote.getMetadata = realGetMeta
+check('xatoni tiklashdan keyin media o\'qiladi', (await store.getMedia(fcId))?.bytes?.length === 1)
+
 process.exit(failed + legacyFailed > 0 ? 1 : 0)

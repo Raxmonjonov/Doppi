@@ -85,16 +85,17 @@ export function createBlobsStore(blob, seedProvider) {
       return true
     },
     /* Faqat ko'rinish chegarasini yangilaydi (bajtalarni qayta yozmaydi).
-       DM/guruh xabariga biriktirilganda media shaxsiy deb belgilanadi. */
+       DM/guruh xabariga biriktirilganda media shaxsiy deb belgilanadi.
+
+       Xato JIMGINA yutilmaydi: avval `catch { return false }` edi, ya'ni
+       yozish muvaffaqiyatsiz bo'lsa ham media `public` da qolardi va hech
+       kim log ko'rmardi. Endi xato yuqoriga ko'tariladi — `scopePrivateMedia`
+       uni media id bilan loglaydi. */
     async setMediaMeta(id, meta = {}) {
       if (!validId(id)) return false
-      try {
-        // Kichik blob — metadata yozish mumkin emas, lekin `setJSON` bor.
-        await writeMetaBlob(id, meta)
-        return true
-      } catch {
-        return false
-      }
+      // Kichik blob — metadata yozish mumkin emas, lekin `setJSON` bor.
+      await writeMetaBlob(id, meta)
+      return true
     },
     /* Faqat chegara (fayl tanasi YUKLANMAYDI) — egalik tekshiruvi uchun.
        `getMedia` baytni tortib kelardi, ya'ni har bir media havolasi
@@ -102,19 +103,29 @@ export function createBlobsStore(blob, seedProvider) {
     async getMediaMeta(id) {
       if (!validId(id)) return null
       // ESKI ma'lumot: 'media-meta/' joriy bo'lishidan OLDIN yuklangan
-      // fayllarda chegara tananing metadata'sida turadi. Ularni ham
-      // ko'rib chiqamiz, aks holda eski media begona deb hisoblanib
-      // egalik tekshiruvidan o'tib ketardi.
+      // fayllarda chegara tananing metadata'sida turadi — `readScope` uni
+      // ham o'qiydi. Aks holda eski media "egasi yo'q" deb hisoblanib,
+      // begona tomonidan tortib olinishi mumkin edi.
       return readScope(id)
     },
     async getMedia(id) {
       if (!validId(id)) return null
       const res = await blob.getWithMetadata(MEDIA_PREFIX + id, { type: 'arrayBuffer' })
       if (!res || !res.data) return null
+      // FAIL-CLOSED: fayl bor, lekin chegara o'qib bo'lmadi (vaqtincha
+      // xato yoki bo'sh metadata). Chegara noma'lum bo'lsa `public` deb
+      // taxmin qilish XAVFSIZ EMAS — shunda shaxsiy DM rasmni har kim
+      // o'qiy olardi. `readScope` legacy'ni ham qamrab olgani uchun
+      // null bu yerda "aniqlab bo'lmadi" degani, demak rad etamiz.
+      const scope = await readScope(id)
+      if (!scope) {
+        console.error(`[blobs] chegara o'qib bo'lmadi, rad etildi (${id})`)
+        return null
+      }
       return {
         bytes: new Uint8Array(res.data),
         mime: res.metadata?.mime || mimeFromId(id),
-        ...((await readScope(id)) ?? normMeta(res.metadata)),
+        ...scope,
       }
     },
     async listMedia() {

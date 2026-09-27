@@ -460,6 +460,36 @@ Yangi regressiya: `own media becomes private after DM (public -> dm
 re-bound)` — bu test aynan shu yo'li tekshiradi va u **blobs store'da
 dastlab `200` bilan yiqilgan** edi (ya'ni privacy buzilgan holat).
 
+### 2.6 "Jimgina muvaffaqiyat" — xavfsizlik chegarasida fail-open
+
+Yuqoridagi tuzatishdan keyin xuddi shu sinf boshqa joylarda ham bormi
+degan savolga `catch { return false }` naqshi bo'yicha audit qilindi.
+Ikkita muammo topildi va ikkalasi ham tuzatildi:
+
+1. **`setMediaMeta` yozish xatosini yutardi.** `catch { return false }`
+   -> media `public` da qolardi, `scopePrivateMedia` esa qaytarilgan
+   qiymatni umuman tekshirmardi, log ham yo'q edi. Ya'ni yozish muvaffaqiyatsiz
+   bo'lsa, xabar "shaxsiy" deb ko'rinib turib **ochiq** qolardi.
+   Endi blobs store xatoni yuqoriga ko'taradi, `api-core` esa aniq
+   `false` qaytishni ham ochiq log qiladi (file store `undefined`
+   qaytaradi — bu "yo'q" degani, xato emas, shuning uchun farqlanadi).
+
+2. **`getMedia` chegara o'qib bo'lmasa `public` deb taxmin qilardi.**
+   `?? normMeta(res.metadata)` — vaqtincha xato bo'lganda yoki metadata
+   bo'lmaganda shaxsiy DM rasm **har qanday autentifikatsiyalangan**
+   foydalanuvchiga ochiq bo'lib ketardi. Bu **fail-OPEN** xavfsizlik
+   chegarasi edi. `readScope` allaqachon legacy fayllarni ham qamrab
+   olgani uchun bu fallback keraksiz ham, xavfli ham edi — olib
+   tashlandi. Endi chegara aniqlanmasa media **fail-closed**: rad etiladi
+   va log yoziladi.
+
+   4 ta test (chegara o'qib bo'lmaganda rad etish, `public` deb taxmin
+   qilinmasligi, tiklashdan keyin o'qilishi).
+
+Bu ikki kalit qoida kelgusi uchun `SECURITY.md` ga: **xavfsizlik
+tekshiruvida `catch` xatoni yutmasin** — yoki aniq rad etsin, yoki
+butun yo'lni to'xtatsin, lekin "muvaffaqiyat" qaytarmasin.
+
 ### 4.3 PostgreSQL (sslmode=require)
 
 `resolveDatabaseSsl()`:

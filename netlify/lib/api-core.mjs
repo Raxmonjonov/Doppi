@@ -150,7 +150,13 @@ async function scopePrivateMedia(store, values, scope, refId, ownerId) {
       }
     }
     try {
-      await store.setMediaMeta(id, { scope, refId, ownerId })
+      // `false` = store yozishni ataylab rad etdi (blobs `setJSON` xatosi,
+      // postgres `UPDATE` 0 qator). Bu JIM holda media `public` da qoladi,
+      // ya'ni xabar "shaxsiy" deb ko'rinib turib ochiq bo'lib qoladi.
+      // Shuning uchun `catch`ga tushmagan holatni ham ochiq log qilamiz.
+      // (file store `undefined` qaytaradi — bu "yo'q" degani, xato emas.)
+      const ok = await store.setMediaMeta(id, { scope, refId, ownerId })
+      if (ok === false) console.error(`[media] scope yozilmadi (${id}) — media ${scope} bo'lib qolmaydi`)
     } catch (e) {
       console.error(`[media] scope yangilanmadi (${id}):`, e?.message ?? e)
     }
