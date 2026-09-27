@@ -71,15 +71,21 @@ async function resolvePassword() {
 }
 
 async function findFilterRepo() {
-  // Windows'da ko'pincha `git filter-repo` (git subcommand), Linux'da
-  // `git-filter-repo` (PATH dagi executable) ishlaydi — ikkalasini urib ko'ramiz.
-  for (const [cmd, args] of [
-    ['git', ['filter-repo', '--version']],
-    ['git-filter-repo', ['--version']],
-  ]) {
+  // Windows'da `git filter-repo` (git subcommand), Linux'da `git-filter-repo`
+  // (PATH dagi executable) ishlaydi. Lekin `pip install` ko'pincha skriptni
+  // PATH'ga qo'shmaydi (Windows: %APPDATA%\Python\Python3xx\Scripts), shuning
+  // uchun `python -m git_filter_repo` — PATH'ga bog'liq bo'lmagan usul —
+  // oxirgi urinish sifatida qo'shiladi.
+  const candidates = [
+    ['git', ['filter-repo']],
+    ['git-filter-repo', []],
+    ['python', ['-m', 'git_filter_repo']],
+    ['py', ['-m', 'git_filter_repo']],
+  ]
+  for (const [cmd, prefix] of candidates) {
     try {
-      await run(cmd, args, { stdio: 'ignore' })
-      return [cmd, args[0]]
+      await run(cmd, [...prefix, '--version'], { stdio: 'ignore' })
+      return [cmd, prefix]
     } catch {
       /* keyingiga o'tamiz */
     }
@@ -104,7 +110,7 @@ async function main() {
     console.error('❌ `git-filter-repo` topilmadi. O\'rnatish: pip install git-filter-repo')
     process.exit(1)
   }
-  const [frCmd, frSub] = filterRepo
+  const [frCmd, frArgs] = filterRepo
 
   const status = await capture('git', ['status', '--porcelain'])
   if (status.code !== 0) {
@@ -139,7 +145,7 @@ async function main() {
     //oldingisini bosib ketiradi (argparse oxirgi qiymatni saqlaydi).
     // Bitta `--refs` va uning ortidan ikkala naqsh.
     await run(frCmd, [
-      frSub,
+      ...frArgs,
       '--replace-text',
       replacementsFile,
       '--force',
