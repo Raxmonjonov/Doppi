@@ -429,9 +429,7 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
    bog'liq; kalit o'zgarsa eski havolalar bekor bo'ladi (xohlanmagan).
 5. **2FA / qurilma tanib olish yo'q**, webhook uchun imzo mexanizmi hozircha
    kerak emas (serverda inbound webhook yo'q).
-6. **Git tarixidagi eski admin paroli** — `REDACTED_LEGACY_ADMIN_PASSWORD` koddan
-   olib tashlangan (hozir `ADMIN_PASSWORD` faqat env'dan olinadi, testda esa
-   "rad etilishi" tekshiriladi), **lekin eski commitlar ichida qolgan**.
+6. **Git tarixidagi eski admin paroli** — koddan olib tashlangan (hozir `ADMIN_PASSWORD` faqat env'dan olinadi), **lekin eski commitlar ichida qolgan**.
    Agar u parol biror joyda ishlatilgan bo'lsa (server paneli, boshqa xizmat,
    eski klon) — **almashtirish shart**. Tarixdan butunlay o'chirish uchun
    `git filter-repo` + barcha klonlarni yangilash kerak, bu esa boshqa
