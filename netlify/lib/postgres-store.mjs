@@ -77,6 +77,20 @@ export function createPostgresStore(databaseUrl, seedProvider, sqlClient) {
     return (rows ?? []).length > 0
   }
 
+  /* Faqat metadata (baytni YUKLAMAYDI) — egalik tekshiruvi uchun.
+     `getMedia` butun `bytea` ni tortib kelardi. */
+  async function getMediaMeta(id) {
+    await ensureMediaTable()
+    const rows = await sql`SELECT scope, ref_id, owner_id FROM doppi_media WHERE id = ${id}`
+    if (!rows || rows.length === 0) return null
+    const row = rows[0]
+    return {
+      scope: String(row.scope ?? 'public'),
+      refId: String(row.ref_id ?? ''),
+      ownerId: String(row.owner_id ?? ''),
+    }
+  }
+
   async function getMedia(id) {
     await ensureMediaTable()
     const rows = await sql`SELECT mime, size, bytes, scope, ref_id, owner_id FROM doppi_media WHERE id = ${id}`
@@ -107,5 +121,5 @@ export function createPostgresStore(databaseUrl, seedProvider, sqlClient) {
     return (rows ?? []).length
   }
 
-  return { getDoc, saveDoc, putMedia, setMediaMeta, getMedia, listMedia, deleteMedia }
+  return { getDoc, saveDoc, putMedia, setMediaMeta, getMediaMeta, getMedia, listMedia, deleteMedia }
 }

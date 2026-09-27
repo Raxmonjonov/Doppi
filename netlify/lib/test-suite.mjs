@@ -196,6 +196,13 @@ export async function runSuite(store, label) {
   if (ownUpload.status === 201 && ownUpload.json?.url) {
     r = await call('POST', `/api/threads/${tid}/messages`, { text: 'own media', image: ownUpload.json.url }, tok2)
     ok('dm accepts own /api/media url', r.status === 200 && r.json?.message?.image === ownUpload.json.url, `status=${r.status} ${JSON.stringify(r.json?.message)}`)
+    // scopePrivateMedia ning IJOBIY yo'li: o'z mediamiz DM'ga yuborilgandan
+    // keyin ochiq bo'lib qolMASLIGI kerak. Bu IDOR tuzatishidan keyin ham
+    // ishlayotganini isbotlaydi - store `getMediaMeta` nol qaytarsa yoki
+    // xato bersa, media xususiy bo'lmay qolardi (privacy buziladi) va bu
+    // test yiqilardi.
+    const afterDm = await call('GET', ownUpload.json.url, undefined, undefined)
+    ok('own media becomes private after DM (public -> dm re-bound)', afterDm.status === 401, `status=${afterDm.status} (401 = endi faqat suhbat a'zolari)`)
   } else {
     ok('dm accepts own /api/media url', false, `media yuklanmadi: status=${ownUpload.status}`)
   }

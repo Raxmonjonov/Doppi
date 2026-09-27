@@ -54,6 +54,11 @@ function makeStore() {
       if (!existsSync(join(MEDIA_DIR, id))) return
       writeMeta({ ...readMeta(), [id]: { ...readMeta()[id], ...meta } })
     },
+    async getMediaMeta(id) {
+      if (!/^[A-Za-z0-9][\w.-]*$/.test(id) || id.includes('..') || !existsSync(join(MEDIA_DIR, id))) return null
+      const m = readMeta()[id] ?? {}
+      return { scope: String(m.scope ?? 'public'), refId: String(m.refId ?? ''), ownerId: String(m.ownerId ?? '') }
+    },
     async getMedia(id) {
       const p = join(MEDIA_DIR, id)
       if (!/^[A-Za-z0-9][\w.-]*$/.test(id) || id.includes('..') || !existsSync(p)) return null

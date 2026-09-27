@@ -414,6 +414,52 @@ Tuzatish VAQTINCHA olib tashlab tekshirilgan: Netlify va Express
 ikkalasida ham test `401` bilan yiqiladi (jabar o'z fayliga
 kirmaydi) — demak test yuzaki emas, zaiflikni haqiqatan ushlaydi.
 
+### 2.5 Blobs store: media privacy butunlay ishlamagan (topilgan, yopilgan)
+
+Yuqoridagi tuzatishni yozararken aniqlangan **ikkinchi**, undan ham
+jiddiy muammo: `blobs-store.mjs` `blob.setMetadata(...)` deb chaqirardi.
+**@netlify/blobs v11 da bunday metodi YO'Q** — mavjud API lar: `set`,
+`setJSON`, `get`, `getWithMetadata`, `getMetadata`, `list`, `delete`.
+
+Natija production'da `TypeError` -> `try/catch` uni yutadi ->
+`setMediaMeta` `false` qaytaradi -> **scope hech qachon yozilmaydi**.
+Ya'ni Netlify Blobs deployment'ida DM/guruh media `public` da qolardi va
+**har qanday autentifikatsiyalangan foydalanuvchi** uni o'qiy olar edi.
+Xabar yuborishdagi privacy umuman ishlamagan.
+
+Nima uchun hech kim sezmagan:
+
+1. `try/catch` xatoni yutadi (test `false` ko'rmaydi, faqat "muvaffaqiyatli"
+   deb hisoblanadi);
+2. testdagi **fake** store ham `setMetadata` siz edi, ya'ni xuddi shu
+   xil xato qilardi — testlar bir-birini "tasdiqladi", lekin hech qanday
+   tekshiruv privacy yo'lini **haqiqatan** urmaydi.
+
+Tuzatish: ko'rinish chegarasi (`scope`/`refId`/`ownerId`) endi alohida
+kichik blob'da (`media-meta/<id>`) saqlanadi — `setJSON` bilan yoziladi.
+Sabab: v11 da metadata'ni yangilash yo'li yo'q, faqat `set` bor va u butun
+tanani qayta yozadi, ya'ni scope o'zgarishi 8 MB rasm/13 MB ovozni har bir
+xabar yuborilganda qayta yuklashni talab qilardi. Chegara o'zgaruvchan va
+mayda o'lchamli ma'lumot, shuning uchun u tanasiz yerga ajratildi.
+
+- `getMediaMeta()` — faqat kichik blob (tana **yuklanmaydi**). Bu egalik
+  tekshiruvini ham arzonlashtiradi: avval `getMedia` 8 MB gacha faylni
+  xotiraga tortardi.
+- **Legacy:** `media-meta/` joriy bo'lishidan oldin yuklangan fayllarda
+  chegara tananing metadata'sida turadi — `getMediaMeta` uni ham o'qiydi,
+  aks holda eski fayl "egasi yo'q" deb hisoblanib begona tomonidan tortib
+  olinishi mumkin edi. `blobs-store.test.mjs` da 5 ta legacy test.
+- `listMedia()` `media-meta/` ni qaytarmaydi (`media-` bilan boshlanadi),
+  `deleteMedia()` esa ikkalasini ham tozalaydi.
+
+Fake store ham tuzatildi: u endi `getMetadata` ni beradi va `setMetadata`
+ga **ataylab xato` bilan** javob beradi — ya'ni kelgusi da mavjud bo'lmagan
+API chaqirilsa, test jimgina "o'tib" keta olmaydi.
+
+Yangi regressiya: `own media becomes private after DM (public -> dm
+re-bound)` — bu test aynan shu yo'li tekshiradi va u **blobs store'da
+dastlab `200` bilan yiqilgan** edi (ya'ni privacy buzilgan holat).
+
 ### 4.3 PostgreSQL (sslmode=require)
 
 `resolveDatabaseSsl()`:
@@ -575,7 +621,7 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
 | 5 | Tashqi provayderlar | Bajarildi: webhook HTTPS majburiy; kiruvchi webhook **yo'q**; rate limit §5 — kirishlar **va yozishlar** (`write`/`sync`, sessiya bo'yicha 600/soat), lekin jarayon xotirasida. Cheklov: JWT/OAuth yo'q |
 | 6 | Maxfiylar + Docker | Bajarildi: `.env` yopiq, `.env.example`, majburiy kalitlar, loglar toza. Cheklov: Docker fayllar yo'q |
 | 7 | README + SECURITY | Bajarildi: README §"Xavfsizlik" + shu hujjat |
-| 8 | Kod darajasidagi audit (SQLi/travers/IDOR/XSS) | Bajarildi: SQL injection **yo'q** (hamma so'rovlar parametrli), path traversal **yo'q** (`isSafeMediaId` + imzo + `timingSafeEqual`), XSS **yo'q** (`dangerouslySetInnerHTML`/`innerHTML` ishlatilmaydi). Topilgan IDOR/mass-assignment teshiklari yopildi: `PUT /api/data` endi faqat egasini yangilaydi va yangi yozuvni sessiya egasi nomidan yaratadi (posts/stories/reels), guruhni faqat yaratuvchisi o'zgartiradi + `MAX_GROUPS` sync'da ham; push obunasi o'chirish sessiyaga bog'landi (Netlify); `GET /api/data` guruhlarda `memberIds`/`createdBy` yashirildi; noma'lum media scope fail-closed; **boshqa foydalanuvchining media'sini o'z xabariga havola qilish (media IDOR) — `scopePrivateMedia` endi `ownerId` ni tekshiradi**; Express admin `gc`/`migrate` `tokenRef`+TTL bilan tuzatildi (avval doim 403 edi); blobs `putMedia` id tekshiruvi; `ALLOW_LEGACY_SESSIONS` production'da o'chiq. Tekshiruv: `test:all` 561 + jonli Express probe 79/79 |
+| 8 | Kod darajasidagi audit (SQLi/travers/IDOR/XSS) | Bajarildi: SQL injection **yo'q** (hamma so'rovlar parametrli), path traversal **yo'q** (`isSafeMediaId` + imzo + `timingSafeEqual`), XSS **yo'q** (`dangerouslySetInnerHTML`/`innerHTML` ishlatilmaydi). Topilgan IDOR/mass-assignment teshiklari yopildi: `PUT /api/data` endi faqat egasini yangilaydi va yangi yozuvni sessiya egasi nomidan yaratadi (posts/stories/reels), guruhni faqat yaratuvchisi o'zgartiradi + `MAX_GROUPS` sync'da ham; push obunasi o'chirish sessiyaga bog'landi (Netlify); `GET /api/data` guruhlarda `memberIds`/`createdBy` yashirildi; noma'lum media scope fail-closed; **boshqa foydalanuvchining media'sini o'z xabariga havola qilish (media IDOR) — `scopePrivateMedia` endi `ownerId` ni tekshiradi**; Express admin `gc`/`migrate` `tokenRef`+TTL bilan tuzatildi (avval doim 403 edi); blobs `putMedia` id tekshiruvi; `ALLOW_LEGACY_SESSIONS` production'da o'chiq. Tekshiruv: `test:all` 564 + jonli Express probe 79/79 |
 
 ---
 
@@ -615,7 +661,7 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
      ham almashtiradi, `refs/*` ning barchasini qayta yozadi va har bir
      shaklni alohida tekshiradi.
 7. **Xavfsizlik testlari** — `npm run test:all` (delivery 42 tekshiruv,
-   api-core 173, blobs 173, pg-store 173, delivery 42 = **561**) vositasi sifatida
+   api-core 174, blobs 174, pg-store 174, delivery 42 = **564**) vositasi sifatida
    ishlaydi; bind/HSTS/redirect, yozish limiti va IDOR probe'lari qo'lda
    (jonli Express serverga qarshi) amalga oshirildi (natija §1, §8).
 8. **Albomlar — umumiy pool (qabul qilingan dizayn)** — `albums` jadvalida

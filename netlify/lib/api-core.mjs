@@ -116,13 +116,30 @@ async function scopePrivateMedia(store, values, scope, refId, ownerId) {
   for (const v of values) {
     const id = mediaPathOf(v)
     if (!id || !isSafeMediaId(id)) continue
-    // `getMedia` yo'q bo'lsa (ba'zi test store'lari) eski xil oqim saqlanadi.
-    if (typeof store.getMedia === 'function') {
+    // `getMediaMeta` afzal: u faqat metadata o'qiydi. `getMedia` baytni
+    // ham tortib keladi (8 MB rasm/13 MB ovoz) — bu har bir media
+    // havolasida xotira beharasiga aylanardi.
+    //
+    // LEKIN `getMediaMeta` null qaytarsa bu "media yo'q" DEGANI emas:
+    // store/SDK `getMetadata`'ni qo'llab-quvvatlamasligi mumkin. Shuning
+    // uchun `getMedia` bilan ANIQ tekshiramiz va faqat ikkalasi ham
+    // bo'sh bo'lsa "mavjud emas" deymiz.
+    const canReadMeta = typeof store.getMediaMeta === 'function' || typeof store.getMedia === 'function'
+    if (canReadMeta) {
       let cur = null
-      try {
-        cur = await store.getMedia(id)
-      } catch {
-        cur = null
+      if (typeof store.getMediaMeta === 'function') {
+        try {
+          cur = await store.getMediaMeta(id)
+        } catch {
+          cur = null
+        }
+      }
+      if (!cur && typeof store.getMedia === 'function') {
+        try {
+          cur = await store.getMedia(id)
+        } catch {
+          cur = null
+        }
       }
       // Mavjud emas — uy qidiruv (phantom) metadata yozmaymiz.
       if (!cur) continue
