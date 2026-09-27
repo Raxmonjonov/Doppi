@@ -171,6 +171,36 @@ export function mediaSignatureOf(value) {
   return m ? m[1] : null
 }
 
+/* ---------- Xabar/guruh media manbasi ----------
+   Xabar ichidagi `image`/`audio` (va guruh `cover`) FAQAT o'z serverimizga
+   tegishli `/api/media/...` bo'lishi SHART.
+
+   Sabab: tashqi `https://` manba saqlansa, u `<audio>`/`<img>` ga to'g'ri
+   qo'yiladi (`src/lib/media.ts` -> `isDirectUrl`) va har bir ko'ruvchi
+   o'z IP'sini, brauzeri va "o'qildi" holatini shu uchinchi tomonga
+   oshkor qiladi — bu kuzatish (tracking) vektori. Ilovaning o'z oqimi
+   (`POST /api/media` -> `signedMediaPath`) har doim shu shaklda URL beradi,
+   shuning uchun bu qoida legitim trafikni tegmaydi.
+
+   `avatar` bundan TEJILGAN: `sanitizeAvatar` ondan tashqi https avatar'ni
+   ataylab ruxsat beradi (u boshqa yo'l, boshqa qaror). */
+export function mediaRefProblem(value, label = 'Media') {
+  const s = String(value ?? '').trim()
+  if (!s) return null
+  if (s.length > 600) return `${label} havolasi juda uzun.`
+  // `data:` — brauzerda har bir ochilishda qayta dekodlanadi; o'lcham
+  // chegarasi ishlab chiqarishda emas, bu yerda tekshiriladi.
+  if (/^data:/i.test(s)) return `${label} uchun data: URL qabul qilinmaydi.`
+  // To'liq shaklni tekshiramiz, faqat prefiksni emas: aks holda
+  // `/api/media/<id>@boshqa.host/x` kabi qiymatlar o'tib ketar edi
+  // (`mediaPathOf` `@` da to'xtaydi). Ular xavfli bo'lmasa ham
+  // saqlangan URL buzilgan bo'ladi.
+  const m = /^\/api\/media\/([A-Za-z0-9][A-Za-z0-9._-]{0,119})(?:\?s=[0-9a-f]{8,64})?$/.exec(s)
+  if (!m) return `${label} faqat o'z serverimizdagi (/api/media/...) havolaga bo'lishi kerak.`
+  if (m[1].includes('..')) return `${label} havolasi noto'g'ri.`
+  return null
+}
+
 /* ---------- Rate limit / credential stuffing ---------- */
 
 /* Ikki darajali hisob: IP bo'yicha VA hisob bo'yicha. Hisob bo'yicha

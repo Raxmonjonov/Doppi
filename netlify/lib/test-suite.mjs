@@ -163,6 +163,43 @@ export async function runSuite(store, label) {
   const thread = r.json.threads.find((x) => x.id === tid)
   ok('thread GET carries sealed msg', thread && thread.messages.some((m) => Number(m.sealUntil) === seal))
 
+  // 5b) Tashqi media manbasi xabarda rad etiladi.
+  // Sabab: `https://` manba `<audio>`/`<img>` ga to'g'ri qo'yiladi va
+  // ko'ruvchining IP'sini uchinchi tomonga oshkor qiladi (kuzatish).
+  // Ilova har doim avval `/api/media` ga yuklab, o'sha URL ni yuboradi.
+  const external = [
+    ['https://tracking.example.net/pixel.mp3', 'https audio'],
+    ['https://tracking.example.net/pixel.png', 'https image'],
+    ['//tracking.example.net/pixel.png', 'protocol-relative'],
+    ['data:image/png;base64,iVBORw0KGgo=', 'data: URL'],
+    ['/etc/passwd', 'local file path'],
+    ['/api/media/../../etc/passwd', 'path traversal'],
+    [`/api/media/${mediaId}@evil.example/x`, 'id with @ host'],
+  ]
+  for (const [value, label] of external) {
+    r = await call('POST', `/api/threads/${tid}/messages`, { text: 'x', audio: value }, tok2)
+    ok(`dm rejects ${label} as audio`, r.status === 400, `status=${r.status} ${JSON.stringify(r.json)}`)
+    r = await call('POST', `/api/threads/${tid}/messages`, { text: 'x', image: value }, tok2)
+    ok(`dm rejects ${label} as image`, r.status === 400, `status=${r.status} ${JSON.stringify(r.json)}`)
+  }
+  // Xuddi shu qoida guruh xabarida ham kuchli.
+  const guardGid = (await call('POST', '/api/groups', { name: 'MediaGuard', cover: '', membersCount: 1 }, tok2)).json.group?.id
+  if (guardGid) {
+    r = await call('POST', `/api/groups/${guardGid}/messages`, { text: 'x', audio: 'https://tracking.example.net/p.mp3' }, tok2)
+    ok('group message rejects external audio', r.status === 400, `status=${r.status} ${JSON.stringify(r.json)}`)
+  }
+  // O'z serverimizdagi haqiqiy media esa MUTLAQ qabul qilinishi kerak.
+  // DIqqat: umumiy `mediaUrl` ni ishlatmamiz — uni bu DM'ga yuborish
+  // `scopePrivateMedia` orqali 'dm' ga o'tkazadi va keyingi testlar
+  // uni ochiq (public) deb kutadi. Shuning uchun o'z mediamizni yuklaymiz.
+  const ownUpload = await call('POST', '/api/media', { dataUrl: `data:image/png;base64,${pngBase64}` }, tok2)
+  if (ownUpload.status === 201 && ownUpload.json?.url) {
+    r = await call('POST', `/api/threads/${tid}/messages`, { text: 'own media', image: ownUpload.json.url }, tok2)
+    ok('dm accepts own /api/media url', r.status === 200 && r.json?.message?.image === ownUpload.json.url, `status=${r.status} ${JSON.stringify(r.json?.message)}`)
+  } else {
+    ok('dm accepts own /api/media url', false, `media yuklanmadi: status=${ownUpload.status}`)
+  }
+
   // 6) group sealed message
   r = await call('POST', '/api/groups', { name: 'G', cover: '', membersCount: 1 }, tok2)
   const gid = r.json.group ? r.json.group.id : r.json.id

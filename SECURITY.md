@@ -278,8 +278,35 @@ Buni sezilarli qilib qoldirmaslik uchun:
   mijoz `https://` manba yozsa saqlanadi va `<audio src>` ga to'g'ridan
   to'g'ri qo'yiladi (`src/lib/media.ts`, `isDirectUrl`). Bunday audio
   foydalanuvchi IP'sini uchinchi tomonga oshkor qiladi — ya'ni tracking
-  vektor. Qattiq CSP shuni bloklab, bu teshikni **yopadi**, lekin
-  server tomonidagi validatsiya hali qo'shilmagan.
+  vektor. Qattiq CSP shuni bloklab, bu teshikni yopadi, va endi **server
+  tomoni ham rad etadi** (§2.1).
+
+### 2.1 Media manba validatsiyasi (server tomoni)
+
+CSP — bu **defenziv qatlam**: eski yozilgan xabarlar, boshqa mijozlar yoki
+CSP'siz kirishda `https://` manba hali ham `<audio>` ga tushishi mumkin.
+Shuning uchun `security.mjs` ga `mediaRefProblem()` qo'shildi va u
+**yozish** yo'llarida `400` qaytaradi:
+
+- `POST /api/threads/:id/messages` (DM) — `image` va `audio`
+- `POST /api/groups/:id/messages` — `image` va `audio`
+
+Netlify (`api-core.mjs`) va Express (`server/index.js`) — **ikkalasi ham**.
+
+Qabul qilinadigan yagona shakl: `/api/media/<id>` yoki imzo bilan
+`/api/media/<id>?s=<hex>`. Rad etiladi: `https://`, `//host` (protocol-relative),
+`data:`, `/etc/passwd`, `/api/media/../../...` va ortiqcha "kirvona" qism
+(masalan `/api/media/<id>@boshqa.host/x` — `mediaPathOf` prefiksni olib
+to'xtar edi, endi to'liq shakl tekshiriladi). 600 belgidan uzun qiymat
+ham rad etiladi. Bo'sh qiymatga ruxsat beriladi (oddiy matnli xabar).
+
+**`avatar` bundan TEJILGAN**: `sanitizeAvatar()` tashqi `https://` avatar'ni
+ataylab ruxsat beradi — bu boshqa yo'l va boshqa qaror.
+
+Sinovlar: `test-suite.mjs` da 16 ta (har biri uch backend'da takrorlanadi:
+fayl, blobs, postgres) + `live-voice-notif.smoke.mjs` da 4 ta (haqiqiy
+Express server'ga qarshi), jumladan **o'z serverimizdagi imzoli media
+qabul qilinishi** tekshiriladi — ya'ni qoida legitim trafikni tegmaydi.
 
 Rasm uchun `img-src ... https:` ochiq qoldirilgan (avatars va `mock.ts`
 dagi `picsum.photos` shunga bog'liq).
@@ -474,7 +501,7 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
      ham almashtiradi, `refs/*` ning barchasini qayta yozadi va har bir
      shaklni alohida tekshiradi.
 7. **Xavfsizlik testlari** — `npm run test:all` (delivery 42 tekshiruv,
-   api-core 149, blobs 149, pg-store 149, delivery 42 = **489**) vositasi sifatida
+   api-core 165, blobs 165, pg-store 165, delivery 42 = **537**) vositasi sifatida
    ishlaydi; bind/HSTS/redirect, yozish limiti va IDOR probe'lari qo'lda
    (jonli Express serverga qarshi) amalga oshirildi (natija §1, §8).
 8. **Albomlar — umumiy pool (qabul qilingan dizayn)** — `albums` jadvalida

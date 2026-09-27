@@ -13,6 +13,7 @@ import {
   mediaSignatureValid,
   signedMediaPath,
   mediaPathOf,
+  mediaRefProblem,
   RATE_LIMITS,
   rateLimit,
   rateLimitAny,
@@ -1610,6 +1611,12 @@ export async function handleRequest(method, pathname, query, req, store) {
     const body = await readBody(req)
     const text = String(body.text ?? '').trim()
     if (!text && !body.image && !body.audio) return send(400, { error: "Xabar bo'sh bo'lishi mumkin emas." })
+    // Tashqi manba saqlanmasin: u `<audio>`/`<img>` da kuzatish vektoriga
+    // aylanadi (ko'ruvchi IP'si va "o'qildi" holati oshkor bo'ladi).
+    for (const [field, label] of [['image', 'Rasm'], ['audio', 'Ovoz']]) {
+      const problem = mediaRefProblem(body[field], label)
+      if (problem) return send(400, { error: problem })
+    }
     const mid = Date.now()
     const time = nowTime()
     const msg = { id: mid, groupId: id, senderId: me.id, text, time }
@@ -1812,6 +1819,10 @@ export async function handleRequest(method, pathname, query, req, store) {
     const body = await readBody(req)
     const text = String(body.text ?? '').trim()
     if (!text && !body.image && !body.audio) return send(400, { error: "Xabar bo'sh bo'lishi mumkin emas." })
+    for (const [field, label] of [['image', 'Rasm'], ['audio', 'Ovoz']]) {
+      const problem = mediaRefProblem(body[field], label)
+      if (problem) return send(400, { error: problem })
+    }
     const t = doc.threads.find((x) => x.id === id && (x.memberA === me.id || x.memberB === me.id))
     if (!t) return send(404, { error: 'Suhbat topilmadi.' })
     const mid = Date.now()

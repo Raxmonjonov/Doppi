@@ -17,6 +17,7 @@ import {
   mediaSignatureValid,
   signedMediaPath,
   mediaPathOf,
+  mediaRefProblem,
   sanitizeAvatar,
   RATE_LIMITS,
   rateLimit,
@@ -1829,6 +1830,12 @@ app.post('/api/threads/:id/messages', authMiddleware, async (req, res) => {
   const image = String(req.body?.image ?? '').trim()
   const audio = String(req.body?.audio ?? '').trim()
   if (!text && !image && !audio) return res.status(400).json({ error: "Xabar bo'sh bo'lishi mumkin emas." })
+  // Tashqi manba saqlanmasin: u `<audio>`/`<img>` da kuzatish vektoriga
+  // aylanadi (ko'ruvchi IP'si va "o'qildi" holati oshkor bo'ladi).
+  for (const [v, label] of [[image, 'Rasm'], [audio, 'Ovoz']]) {
+    const problem = mediaRefProblem(v, label)
+    if (problem) return res.status(400).json({ error: problem })
+  }
   try {
     const { rows } = await pool.query(
       `SELECT * FROM threads WHERE id = $1 AND (member_a = $2 OR member_b = $2)`,
@@ -2116,6 +2123,12 @@ app.post('/api/groups/:id/messages', authMiddleware, async (req, res) => {
     const image = typeof req.body?.image === 'string' ? req.body.image : ''
     const audio = typeof req.body?.audio === 'string' ? req.body.audio : ''
     if (!text && !image && !audio) return res.status(400).json({ error: "Xabar bo'sh bo'lishi mumkin emas." })
+    // Tashqi manba saqlanmasin: u `<audio>`/`<img>` da kuzatish vektoriga
+    // aylanadi (ko'ruvchi IP'si va "o'qildi" holati oshkor bo'ladi).
+    for (const [v, label] of [[image, 'Rasm'], [audio, 'Ovoz']]) {
+      const problem = mediaRefProblem(v, label)
+      if (problem) return res.status(400).json({ error: problem })
+    }
     const mid = Date.now()
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     const seal = Number(req.body?.sealUntil) || null

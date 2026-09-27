@@ -84,6 +84,18 @@ const run = async () => {
   r = await call('POST', `/api/threads/${tid}/messages`, { text: '' }, tok1)
   ok('empty message -> 400', r.status === 400, `status=${r.status}`)
 
+  // 2b) Express media manba himoyasi (haqiqiy server, emas Netlify).
+  // Tashqi `https://` manba saqlansa, u `<audio>`/`<img>` ga to'g'ri
+  // qo'yiladi va ko'ruvchining IP'si uchinchi tomonga oshkor bo'ladi.
+  for (const [value, label] of [
+    ['https://tracking.example.net/pixel.mp3', 'https audio'],
+    ['data:audio/webm;base64,AAAA', 'data: audio'],
+    ['/api/media/../../etc/passwd', 'path traversal'],
+  ]) {
+    r = await call('POST', `/api/threads/${tid}/messages`, { text: 'x', audio: value }, tok1)
+    ok(`DM rejects ${label} (express)`, r.status === 400, `status=${r.status} ${JSON.stringify(r.json)}`)
+  }
+
   // 3) notifications for messages
   r = await call('GET', '/api/notifications?since=0', undefined, tok2)
   const notifs2 = r.json?.notifications ?? []
@@ -113,6 +125,8 @@ const run = async () => {
   ok('group voice message -> 200', r.status === 200 && r.json?.message?.audio === audioUrl, `status=${r.status} ${JSON.stringify(r.json?.message)}`)
   r = await call('GET', `/api/groups/${gid}`, undefined, tok1)
   ok('group voice in history', (r.json?.group?.messages ?? []).some((m) => m.audio === audioUrl))
+  r = await call('POST', `/api/groups/${gid}/messages`, { text: 'x', image: 'https://tracking.example.net/p.png' }, tok1)
+  ok('group message rejects external image (express)', r.status === 400, `status=${r.status} ${JSON.stringify(r.json)}`)
   r = await call('GET', '/api/notifications?since=0', undefined, tok2)
   ok('group member got notification', (r.json?.notifications ?? []).some((n) => n.kind === 'group' && n.groupId === gid && n.hasAudio))
 
