@@ -618,3 +618,63 @@ curl -I https://HOST/api/health | grep -i strict-transport
 # app tashqaridan ochiqmi? (ECONNREFUSED kutiladi)
 curl -m 3 http://SERVER_IP:4000/api/health
 ```
+
+---
+
+## 10. Ishlab chiqarish bazasi: media audit (faqat o'qish)
+
+Server tomonidagi tekshiruv (f44fe7a, 09b4be8) faqat **yangi yozishlarga**
+taalluqli. Baza ichidagi eski qatorlar o'zgarishmaydi. Mahalliy
+`Do'ppi` da tekshirilgan natija: `https://` tashqi manba **yo'q**, faqat
+bitta `data:` URL (uzilib qolgan, qo'lda sinov qoldig'i) — u uchinchi
+tomonga so'rov yubormaydi.
+
+Production bazasi remote bo'lgani uchun uni **joyida** shu tarzda
+tekshirish kerak. Quyidagi so'rovlar FAQAT O'QISHI bilan
+(`count`, `information_schema`) — hech narsani o'zgartirmaydi:
+
+```sql
+-- 1) Avval jadvallar borligini ko'ring
+SELECT table_name FROM information_schema.tables
+ WHERE table_schema='public' ORDER BY table_name;
+
+-- 2) Media maydonlarida tashqi manba bormi?
+--    (<jadval> va <ustun> ni 2-bosqichdagi ro'yxatdan oling)
+SELECT count(*) FROM group_messages
+ WHERE COALESCE(image,'') <> ''
+   AND (image LIKE 'https://%' OR image LIKE 'http://%'
+        OR image LIKE '//%' OR image LIKE 'data:%');
+```
+
+> **Natija > 0 bo'lsa darhol tozalama.** Yuqoridagi so'rov `data:` ni ham
+> hisobga oladi, lekin `data:` URL uchinchi tomonga **so'rov yubormaydi** —
+> u ko'ruvchining IP'sini oshkor qilmaydi. Faqat `https://`, `http://`
+> va `//` (protocol-relative) qatorlari haqiqiy kuzatish muammosi.
+> Avval ularni ajrating:
+> ```sql
+> SELECT count(*) FILTER (WHERE image LIKE 'data:%')      AS xavfsiz_data_url,
+>        count(*) FILTER (WHERE image LIKE 'https://%'
+>                           OR image LIKE '//%')            AS HAQIQIY_MUAMMO
+>   FROM group_messages WHERE COALESCE(image,'') <> '';
+> ```
+
+Tekshirilishi lozim bo'lgan ustunlar (chizish konteksti bo'yicha):
+
+| Jadval | Ustun | Kontekst | Zarar |
+| --- | --- | --- | --- |
+| `messages` | `image` | `<img>` | ko'ruvchi IP oshkor (CSP `img-src https:` ochiq) |
+| `messages` | `audio` | `<audio>` | CSP `media-src` bloklaydi — xavfsiz |
+| `group_messages` | `image` | `<img>` | ko'ruvchi IP oshkor |
+| `group_messages` | `audio` | `<audio>` | CSP bloklaydi |
+| `posts` | `video` | `<video>` | CSP bloklaydi |
+| `reels` | `image` | `<video>` | CSP bloklaydi |
+| `stories`, `groups` | `image`, `cover` | `<img>` | ataylab ochiq (`img-src https:`) |
+
+**Natija nol bo'lsa, hech narsa qilish shart emas.** Natija nolga teng
+bo'lmasa ham, `audio`/`video`/`reel.image` uchun hech narsa qilish
+shart emas — ularni CSP allaqachon bloklaydi. Faqat `messages.image` va
+`group_messages.image` haqida qaror qabul qish kerak: ular `<img>`
+kontekstida, ya'ni `img-src ... https:` ular uchun ataylab ochiq.
+Tozalash (`UPDATE ... SET image=''`) foydalanuvchi ma'lumotini
+BUZADI, shuning uchun u avval **backup** olinib, keyin va faqat
+aniq ruxsat bilan bajariladi.
