@@ -433,7 +433,36 @@ export async function runSuite(store, label) {
   }
   ok('register spam -> 429', regStatus === 429, `status=${regStatus}`)
 
-  // 9b) parol tiklash: noto'g'ri kod, eski parol, yangi parol, sessiya bekor bo'lishi
+  // 9b) yozish rate limit — sessiya bo'yicha (IP emas). Mavjud
+  // foydalanuvchi holatiga tegmaslik uchun alohida yangi hisob va
+  // mavjud bo'lmagan post id'si ishlatiladi: limit so'rovga qo'llanadi,
+  // handlerga yetib bormaydi ham.
+  resetRateLimits()
+  const floodReg = await register('writeflood1', PW1, 'Flood', 'writeflood1@test.dev')
+  const floodTok = floodReg.json.token
+  ok('flood user registered', !!floodTok, `status=${floodReg.status}`)
+  let writeStatus = 0
+  for (let i = 0; i < RATE_LIMITS.write.max + 2; i++) {
+    const rr = await call('POST', '/api/posts/yok-post-429/like', undefined, floodTok)
+    writeStatus = rr.status
+  }
+  ok('content write flood -> 429', writeStatus === 429, `status=${writeStatus}`)
+
+  let syncStatus = 0
+  for (let i = 0; i < RATE_LIMITS.sync.max + 2; i++) {
+    const rr = await call('PUT', '/api/data', { posts: [], stories: [], reels: [], albums: [], groups: [] }, floodTok)
+    syncStatus = rr.status
+  }
+  ok('PUT /api/data flood -> 429', syncStatus === 429, `status=${syncStatus}`)
+
+  // cheklanmaydigan yo'nalishlar chegaradan keyin ham ishlaydi (stories/view,
+  // notifications/read, ping) — ular bloklansa foydalanuvchi qulflanardi
+  resetRateLimits()
+  const unblocked = await call('POST', '/api/ping', undefined, tok3)
+  ok('non-limited write (ping) still works', unblocked.status !== 429, `status=${unblocked.status}`)
+  resetRateLimits()
+
+  // 9c) parol tiklash: noto'g'ri kod, eski parol, yangi parol, sessiya bekor bo'lishi
   const forgot = await call('POST', '/api/auth/forgot', { username: 'nftest1' })
   ok('forgot returns ok', forgot.status === 200 && forgot.json.ok === true, `status=${forgot.status}`)
   ok('forgot has 6-digit code', /^\d{6}$/.test(String(forgot.json.debugCode ?? '')), `code=${forgot.json.debugCode}`)

@@ -356,6 +356,11 @@ export function clientIp(req) {
   return 'local'
 }
 
+/* Yozish limiti qo'llanadigan yo'nalishlar (Express bilan bir xil ro'yxat).
+   Yuqori chastotali halol amallar — stories/view, notifications/read, ping,
+   logout, push — ataylab tashqarida. */
+const WRITE_LIMITED_ROOTS = new Set(['posts', 'reels', 'albums', 'threads', 'groups', 'users'])
+
 function tooMany(send, retryAfter) {
   return send(429, { error: 'Juda ko‘p urinish. Bir oz kutib, qayta yuboring.', retryAfter })
 }
@@ -722,6 +727,21 @@ export async function handleRequest(method, pathname, query, req, store) {
   const send = async (status, json) => ({ status, json })
 
   const bearer = String(req.headers?.authorization ?? req.headers?.get?.('authorization') ?? '').replace(/^Bearer\s+/i, '').trim()
+
+  /* Yozish rate limit (sessiya bo'yicha) — server/index.js dagi
+     `sessionWriteLimit` bilan bir xil qoida. Kalit sessiya HMAC'i, IP emas
+     (NAT ortida to'g'ri ishlaydi, proxy almashsa ham chetlab bo'lmaydi).
+     `PUT /api/data` butun holat blobini yozadi — u alohida `sync` hisobida. */
+  const writeMethod = method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE'
+  if (writeMethod && bearer) {
+    const isSync = method === 'PUT' && first === 'data' && second === undefined
+    const tag = isSync ? 'sync' : WRITE_LIMITED_ROOTS.has(first) ? 'write' : null
+    if (tag) {
+      const wait = rateLimit(`${tag}:${tokenRef(bearer)}`, RATE_LIMITS[tag])
+      if (wait) return tooMany(send, wait)
+    }
+  }
+
   const auth = (d, token) => {
     if (!token) return null
     const s = d.sessions.find((x) => sessionMatches(x, token))

@@ -320,7 +320,9 @@ ketadi, shuning uchun **faqat shifrlangan kanal**:
 | forgot (kod) | 5 / 15 min (IP), 3 / soat (hisob) |
 | reset (kodni tekshirish) | 10 / 15 min |
 | media upload | 120 / soat |
-| yozish (`write`) | 300 / soat |
+| kontent amallari + xabar (`write`) | 600 / soat, **sessiya bo'yicha** (like/comment/share/shield/follow, thread/guruh yaratish, xabar yuborish) |
+| `PUT /api/data` (`sync`) | 600 / soat, **sessiya bo'yicha** (butun holat blobi, 2MB gacha — eng qimmat yozish) |
+| **ataylab chegaralanmaydiganlar** | `stories/view` (5 soniyada bir avtomatik o'tish), `notifications/read`, `ping`, `logout`, `push` — ularni bloklash foydalanuvchini qulflab qo'yardi |
 
 429 + `Retry-After` qaytariladi.
 

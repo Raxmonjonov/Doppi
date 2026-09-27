@@ -176,7 +176,19 @@ export const RATE_LIMITS = {
   forgotAccount: { max: 3, windowMs: 60 * 60 * 1000 },
   reset: { max: 10, windowMs: 15 * 60 * 1000 },
   media: { max: 120, windowMs: 60 * 60 * 1000 },
-  write: { max: 300, windowMs: 60 * 60 * 1000 },
+  /* Yozish chegaralari (sessiya bo'yicha — IP emas, chunki NAT ortidagi
+     bir nechta foydalanuvchi bir IP'ni bahashmaydi).
+     - write: kontent amallari + xabar yuborish (like/comment/share/shield,
+       follow, thread/group yaratish, xabar). 600/soat = 10/daq. insonga
+       sig'maydi; cheklash faqat avtomatlashtirilgan spamni to'sadi.
+     - sync:  PUT /api/data — butun holat blobi (2MB gacha). Bu eng qimmat
+       yozish, shuning uchun alohida hisoblanadi. Debounce (400ms) tufayli
+       oddiy foydalanuvchi ~100-300/soat, 600 ortiqcha xavfsizlik zaxirasi.
+     - Yuqori chastotali halol amallar (stories/view, notifications/read,
+       ping, logout, push) chegaralanmaydi — ularni bloklash foydalanuvchini
+       qulflab qo'yardi. */
+  write: { max: 600, windowMs: 60 * 60 * 1000 },
+  sync: { max: 600, windowMs: 60 * 60 * 1000 },
 }
 
 const buckets = new Map()

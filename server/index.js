@@ -247,6 +247,46 @@ app.use((req, res, next) => {
   next()
 })
 
+/* ---------- Yozish rate limit (sessiya bo'yicha) ----------
+   Auth endpointlari va media yuklash o'z limitlari bilan himoyalangan
+   (login/register/forgot/reset/admin/media). Bu yerda qolgan yozishlar:
+   kontent amallari + xabar yuborish (`write`) va eng qimmat yozish —
+   butun holat blobini yozadigan `PUT /api/data` (`sync`).
+
+   - Kalit sessiya HMAC'idir, IP emas: NAT/CGNAT ortidagi bir nechta
+     foydalanuvchi bir xil byudjetni bahashmaydi va proxy IP almashtirsa
+     ham chetlab o'tib bo'lmaydi.
+   - Yuqori chastotali halol amallar ro'yxatdan tashqarida: stories/view
+     (5 soniyada bir avtomatik o'tadi), notifications/read, ping, logout,
+     push — ularni bloklash foydalanuvchini qulflab qo'yardi.
+   - Chegara odam uchun baland (600/soat = 10/daq): cheklash faqat
+     avtomatlashtirilgan spamni to'sadi. */
+const WRITE_LIMITED_PREFIXES = [
+  '/api/posts',
+  '/api/reels',
+  '/api/albums',
+  '/api/threads',
+  '/api/groups',
+  '/api/users',
+]
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+
+function sessionWriteLimit(limit, tag) {
+  return (req, res, next) => {
+    if (!WRITE_METHODS.has(req.method)) return next()
+    const h = req.headers.authorization || ''
+    const token = h.startsWith('Bearer ') ? h.slice(7) : null
+    // Token bo'lmasa: keyin authMiddleware 401 qaytaradi, limit kerak emas
+    if (!token) return next()
+    const wait = rateLimit(`${tag}:${tokenRef(token)}`, limit)
+    if (wait) return blockTooMany(res, wait)
+    next()
+  }
+}
+
+app.use('/api/data', sessionWriteLimit(RATE_LIMITS.sync, 'sync'))
+app.use(WRITE_LIMITED_PREFIXES, sessionWriteLimit(RATE_LIMITS.write, 'write'))
+
 /* ---------- Parol kriptografiyasi va rate limit ----------
    Barcha himoyalar `netlify/lib/security.mjs` da — Netlify function va Express
    bir xil qoidalarni qo'llaydi. */
