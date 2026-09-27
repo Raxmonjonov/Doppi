@@ -1,0 +1,151 @@
+# Do'ppi — ishlab chiqarish to'plami (nginx + Express + PostgreSQL).
+#
+# Ishga tushirish:
+#   1) cp .env.example .env  → POSTGRES_PASSWORD, SESSION_SECRET,
+#      ADMIN_USERNAME, ADMIN_PASSWORD, ALLOWED_HOSTS, APP_URL to'ldiriladi
+#   2) docker compose build
+#   3) dastlabki sertifikat (bir marta):
+#      docker compose run --rm certbot certonly --webroot -w /var/www/certbot \
+#        -d example.uz -d www.example.uz --agree-tos -m admin@example.uz
+#   4) docker compose up -d
+#
+# Tashqariga faqat 80/443 ochiq. PostgreSQL faqat `internal` tarmoqda —
+# tashqi dunyoga umuman ko'rinmaydi (`internal: true`).
+
+services:
+  # ---------- PostgreSQL ----------
+  postgres:
+    image: postgres:16-alpine
+    container_name: doppi-db
+    restart: unless-stopped
+    environment:
+      # Nom oddiy: `Do'ppi` kabi apostrofli nom connection string'ni
+      # buzadi (`postgres://...@postgres:5432/Do'ppi` — apostrof URI'da
+      # ruxsat etilgan belgi emas). Parol ham URL'da emas, alohida
+      # `PGPASSWORD` orqali beriladi.
+      POSTGRES_DB: ${POSTGRES_DB:-doppi}
+      POSTGRES_USER: ${POSTGRES_USER:-doppi}
+      # Sukut qiymat (masalan `changeme`) — tayyor credential zaifligi.
+      # Berilmasa compose darhol to'xtaydi.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD ni .env ichida belgiling}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-doppi} -d ${POSTGRES_DB:-doppi}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ---------- Express ilova ----------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: doppi-app:latest
+    container_name: doppi-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "4000"
+
+      # nginx — boshqa konteyner, uning IP loopback EMAS. `loopback`
+      # qo'yilsa X-Forwarded-Proto e'tiborsiz qoladi → req.secure=false
+      # → FORCE_HTTPS o'z so'roviga o'zi 308 qaytaradi (sonsiz redirect
+      # loop). `1` = birinchi hop'ga ishonish (bu yerda faqat nginx).
+      TRUST_PROXY: "1"
+
+      # Alohida maydonlar, DATABASE_url emas: parol/maxsus belgilar
+      # URL'ni buzmasligi kerak.
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${POSTGRES_DB:-doppi}
+      PGUSER: ${POSTGRES_USER:-doppi}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD ni .env ichida belgiling}
+
+      # postgres konteyneri TLS'siz; `internal: true` tarmoqda faqat
+      # ikkita konteyner bir-borini ko'radi. .env dagi DATABASE_SSL=1
+      # shu to'plamda ulanishni sindiradi (server "server does not
+      # support SSL" bilan o'ladi) — shuning uchun majburan o'chiriladi.
+      # Server ogohlantirish chiqaradi: bu qasddan qabul qilingan.
+      DATABASE_SSL: "0"
+
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET ni .env ichida belgiling}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Bo'sh qoldirilmaydi: production'da Host chegarasiz ochiq
+      # redirect qoladi.
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:?ALLOWED_HOSTS ni .env ichida belgiling}
+      FORCE_HTTPS: "1"
+
+      APP_URL: ${APP_URL:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      # Qiymatlar tirnoq ichida: `Do'ppi <no-reply@example.uz>` kabi
+      # bo'shliq va `<>` belgilarini YAML buzmasligi uchun.
+      MAIL_FROM: "${MAIL_FROM:-}"
+      DELIVERY_WEBHOOK_URL: "${DELIVERY_WEBHOOK_URL:-}"
+      DELIVERY_WEBHOOK_TOKEN: "${DELIVERY_WEBHOOK_TOKEN:-}"
+      VAPID_PUBLIC_KEY: "${VAPID_PUBLIC_KEY:-}"
+      VAPID_PRIVATE_KEY: "${VAPID_PRIVATE_KEY:-}"
+      VAPID_SUBJECT: "${VAPID_SUBJECT:-}"
+    networks:
+      - internal
+      - frontend
+
+  # ---------- nginx (TLS + rate limit) ----------
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: doppi-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # `/etc/nginx/conf.d/default.conf` — bu konteynerning o'z default
+      # server fayli. Shuning uchun (1) 80-port to'qnashuvi bo'lmaydi,
+      # (2) `/etc/nginx/nginx.conf` ga mount QILMAYDI: u butun konfig
+      # bo'lib, `events {}`/`http {}` bloklarini o'z ichiga oladi —
+      # `conf.d` fayllari esa `http {}` ICHIGA include qilinadi.
+      - ./deploy/nginx.conf.example:/etc/nginx/conf.d/default.conf:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+    depends_on:
+      app:
+        # healthcheck `/api/health` ga uradi; ilova `ensureSchema()`
+        # tugagach `listen` qiladi, ya'ni bu bazaning tayyorligi.
+        condition: service_healthy
+    networks:
+      - frontend
+
+  # ---------- Let's Encrypt ----------
+  # Bu service faqat YANGILAYDI. Dastlabki sertifikat yuqoridagi
+  # `docker compose run --rm certbot certonly ...` bilan olinadi —
+  # aks holda nginx 443'da ishga tushmaydi (sertifikat yo'q).
+  certbot:
+    image: certbot/certbot:v3.0
+    container_name: doppi-certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --quiet; sleep 12h & wait $${!}; done'"
+    networks:
+      - frontend
+
+networks:
+  # `internal: true` — bu tarmoqdan tashqariga chiqish yo'q.
+  # PostgreSQL faqat shu yerda, shuning uchun portlarni ochish ham,
+  # alohida `expose` ham shart emas.
+  internal:
+    driver: bridge
+    internal: true
+  frontend:
+    driver: bridge
+
+volumes:
+  pgdata:

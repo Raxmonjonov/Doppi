@@ -1,18 +1,32 @@
 # Do'ppi — nginx konfiguratsiyasi (misol)
 #
-# Bu fayl deploy uchun KO'RSANISH (example). Foydalanish:
-#   1) domen va sertifikat yo'llarini o'zgartiring
-#   2) /etc/nginx/conf.d/doppi.conf sifatida joylang
-#   3) nginx -t && systemctl reload nginx
+# Bu faylning IKKI xil ishlatilishi bor:
+#
+#   A) Docker Compose (asl yo'l) — docker-compose.yml shu faylni
+#      `/etc/nginx/conf.d/default.conf` sifatida mount qiladi. `upstream`
+#      quyidagicha `app:4000` bo'lishi SHART (service nomi + ichki port).
+#
+#   B) Bare-metal — `server 127.0.0.1:4000;` qatorini faollashtiring va
+#      faylni `/etc/nginx/conf.d/doppi.conf` sifatida joylang:
+#      nginx -t && systemctl reload nginx
+#
+# Bu fayl TO'LIQ `/etc/nginx/nginx.conf` EMAS — u `http {}` blok ichiga
+# include qilinadi (`upstream`, `limit_req_zone`, `server` shu yerda
+# ruxsat etiladi). Butun nginx konfig sifatida mount qilinsa, `events {}`
+# va `http {}` bloklari yetishmaydi va nginx ishga tushmaydi.
 #
 # Lozim: nginx + certbot (Let's Encrypt). Netlify'da ishlatilmaydi —
 # Netlify TLS'ni o'zi boshqaradi (SECURITY.md §4.1).
 #
-# Muhim: ilova o'zi 127.0.0.1:4000 da turadi (HOST sukuti). Shu sababli
-# bu konfig ochiq portlar qoidasini buzmaydi: tashqaridan faqat 80/443.
+# Muhim: ilova tashqariga port ochmaydi. Bare-metal'da u 127.0.0.1:4000 da
+# turadi (HOST sukuti), Docker'da esa `internal`/`frontend` tarmoqlarda —
+# tashqaridan faqat 80/443.
 
 upstream doppi_app {
-    server 127.0.0.1:4000;
+    # Docker Compose (A):
+    server app:4000;
+    # Bare-metal (B):
+    # server 127.0.0.1:4000;
     keepalive 32;
 }
 
@@ -23,6 +37,17 @@ upstream doppi_app {
 limit_req_zone $binary_remote_addr zone=api_login:10m rate=5r/m;
 limit_req_zone $binary_remote_addr zone=api_media:10m  rate=10r/m;
 limit_req_zone $binary_remote_addr zone=api_any:10m    rate=60r/m;
+
+# --- Open redirect himoyasi (80 -> 443) ---
+# Redirect `$host` dan foydalansa, `Host: evil.com` yuborgan so'rov
+# `https://evil.com/...` ga ketadi (ilovaning ALLOWED_HOSTS tekshiruvi
+# bu yerda ishlaydi — redirect nginx'da bo'ladi). Shuning uchun faqat
+# o'z server_name'larimizdan biriga yo'naltiramiz, qolgan hamma narsa
+# asosiy domenga tushadi.
+map $host $canonical_host {
+    default        example.uz;
+    www.example.uz  www.example.uz;
+}
 
 # ---- HTTP -> HTTPS majburiy redirect ----
 server {
@@ -35,9 +60,10 @@ server {
         root /var/www/certbot;
     }
 
-    # Hammasini HTTPS'ga (308 — metod saqlanadi)
+    # Hammasini HTTPS'ga (308 — metod saqlanadi). `$canonical_host` —
+    # `$host` emas, sababi yuqoridagi `map` ga qarang.
     location / {
-        return 308 https://$host$request_uri;
+        return 308 https://$canonical_host$request_uri;
     }
 }
 
@@ -69,21 +95,48 @@ server {
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
 
     # ---- Xavfsizlik sarlavhalari (security.mjs bilan bir xil to'plam) ----
+    # Quyidagi 6 sarlavhani ilova ham o'zi yuboradi (`security.mjs` +
+    # HSTS). Ikkala manba birga yuborilsa, mijoz qaysi qatorni qo'llashi
+    # header tartibiga bog'liq bo'lib qoladi — kuchliroq qator tasodifan
+    # yo'qolishi mumkin. Shu sababli ilovaning qatorlari yashiriladi,
+    # yagona manba nginx bo'lib qoladi.
+    proxy_hide_header Strict-Transport-Security;
+    proxy_hide_header X-Content-Type-Options;
+    proxy_hide_header X-Frame-Options;
+    proxy_hide_header Referrer-Policy;
+    proxy_hide_header Permissions-Policy;
+    proxy_hide_header Cross-Origin-Opener-Policy;
+    # `Cross-Origin-Resource-Policy` va `Content-Security-Policy` ni
+    # yashirmaymiz: birinchisini faqat nginx, ikkinchisini faqat ilova
+    # yuboradi — ikkalasi ham o'tkazib yuborilishi kerak.
+
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Permissions-Policy "geolocation=(self), camera=(self), microphone=(self), payment=(), usb=()" always;
+    # `geolocation=()` — ilova ham shuni yuboradi (qat'iyroq), shuning
+    # uchun bu yerda ham `()`; `usb=()` faqat nginx qo'shadi. Ikkala
+    # manba birga kelganda eng qat'iy qator saqlanadi.
+    add_header Permissions-Policy "geolocation=(), microphone=(self), camera=(self), payment=(), usb=()" always;
     add_header Cross-Origin-Opener-Policy "same-origin" always;
     add_header Cross-Origin-Resource-Policy "same-origin" always;
 
-    # SPA (Vite build) statikasi
-    root /var/www/doppi/dist;
-    index index.html;
+    # ---- SPA va statika ----
+    # Uzatishni ilova o'zi qiladi: `server/index.js` `dist/` ni
+    # `express.static` bilan beradi (Docker imajida `dist` mavjud).
+    # Eski variant `root /var/www/doppi/dist;` + `try_files` edi —
+    # Docker'da bu yo'l mount qilinmagandi, natijada index.html ham,
+    # barcha JS/CSS ham 404 qaytarardi (API ishlardi, sayt ochilmasdi).
     client_max_body_size 45m;      # media yuklash: rasm 8MB, video 40MB
 
-    # ---- SPA route'lar (history mode) ----
     location / {
-        try_files $uri $uri/ /index.html;
+        proxy_pass http://doppi_app;
+        proxy_http_version 1.1;
+        proxy_set_header Connection      "";
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        # MUHIM: app req.secure va FORCE_HTTPS bunga bog'liq
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     # ---- API ----

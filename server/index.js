@@ -41,10 +41,6 @@ types.setTypeParser(types.builtins.INT4, (v) => (v === null ? null : Number(v)))
    qoladi). Endi hech qanday standart credential yo'q: DATABASE_URL yoki
    PGUSER/PGPASSWORD/PGDATABASE to'liq berilishi shart. */
 const DATABASE_URL = String(process.env.DATABASE_URL ?? '').trim()
-if (!DATABASE_URL && process.env.NODE_ENV === 'production') {
-  console.error('[xavfsizlik] DATABASE_URL belgilanmagan — server ishga tushmaydi.')
-  process.exit(1)
-}
 
 const pgEnv = {
   user: String(process.env.PGUSER ?? '').trim(),
@@ -54,9 +50,21 @@ const pgEnv = {
   database: String(process.env.PGDATABASE ?? '').trim(),
 }
 const missingPgEnv = ['user', 'password', 'host', 'database'].filter((k) => !pgEnv[k])
+
+/* OLD: production'da FAQAT `DATABASE_URL` talab qilinardi. Bu izohdagi
+   niyatga zid edi: `.env.example` va pastdagi `new Pool({...pgEnv})` allaqachon
+   alohida maydonlarni to'liq qo'llab-quvvatlaydi, lekin ular production'da
+   ishlarmidi. Natijada `docker-compose.yml` (PGHOST/PGUSER/PGPASSWORD/
+   PGDATABASE beradi, URL yo'q) `DATABASE_URL belgilanmagan` deb
+   ishga tusholmadi. `test-env.mjs` esa `NODE_ENV=test` qo'ygani uchun
+   bu yo'l sinovlarda hech qachon yurilmasdi.
+   ENDI: production'da `DATABASE_URL` YOKI to'liq `PG*` to'plami talab qilinadi
+   — izohdagi niyat bilan mos. Alohida maydonlar afzal, chunki paroldagi
+   maxsus belgilar connection string'ni buzmaydi (URL'ni kodlash kerak). */
 if (!DATABASE_URL && missingPgEnv.length) {
+  const prefix = process.env.NODE_ENV === 'production' ? '[xavfsizlik] ' : ''
   console.error(
-    '[xavfsizlik] Baza ulanishi belgilanmagan. DATABASE_URL yoki ' +
+    `${prefix}Baza ulanishi belgilanmagan. DATABASE_URL yoki ` +
       `${missingPgEnv.map((k) => 'PG' + k.toUpperCase()).join(', ')} bering.`,
   )
   process.exit(1)
@@ -220,6 +228,23 @@ if (process.env.NODE_ENV === 'production' && !ALLOWED_HOSTS.length) {
 // (DoS) hujjumi, shuning uchun API uchun 2MB, media upload o'z limitida.
 app.use('/api/media', express.json({ limit: '25mb' }))
 app.use(express.json({ limit: '2mb' }))
+
+/* ---------- Health (healthcheck / `depends_on: service_healthy`) ----------
+
+   `/api/ping` buni bajarishi mumkin emas: u POST va `authMiddleware` ostida
+   (401 qaytaradi). Bu route ochiq, lekin hech narsa oshkor qilmaydi —
+   muvaffaqiyatda `{"ok":true}`, muvaffaqiyatsiz bo'lsa 503 (baza holati
+   sizga aytilmaydi). Route ataylab xavfsizlik sarlavhalari va HTTPS
+   redirectidan OLDIN turadi: aks holda konteyner ichidan kelgan oddiy
+   HTTP so'rovi 308 olib, healthcheck doim `unhealthy` bo'lib qolardi. */
+app.get('/api/health', async (_req, res) => {
+  try {
+    await pool.query('SELECT 1')
+    res.json({ ok: true })
+  } catch {
+    res.status(503).json({ error: 'Unavailable.' })
+  }
+})
 
 /* ---------- Xavfsizlik sarlavhalari ----------
    Netlify function bilan bir xil to'plam (`security.mjs`), shuning uchun

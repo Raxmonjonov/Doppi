@@ -20,7 +20,7 @@ Ushbu xavfsizlik ro'yxati Django REST Framework + Celery/Redis + Django Channels
 | Celery / Redis | **Yo'q** | Chegiruvchi (rate limit) jarayon xotirasida |
 | Django Channels (WebSocket) | **Yo'q** | WebSocket/realtime kanal yo'q; Web Push (VAPID) bor |
 | AWS S3 | **Yo'q** | Fayllar Postgres `bytea` yoki Netlify Blobs'da |
-| Docker / nginx konfigi | **Yo'q** (`docker-compose.yml` yo'q) | Firewall qoidalari §3'da, host darajasida |
+| Docker / nginx konfigi | **Bor** (`Dockerfile`, `docker-compose.yml`, `deploy/nginx.conf.example`) | §4.0; tashqaridan faqat 80/443, PostgreSQL `internal` tarmoqda |
 | JWT (access/refresh) | **Yo'q** | Oddiy sessiya tokeni + HMAC imzosi (§5) |
 | Google OAuth callback | **Yo'q** | `index.html` da gsi skripti yuklanadi, ishlatilmaydi |
 
@@ -197,14 +197,25 @@ ya'ni tashqi kirish.
 Tayyor, qattiq sozlangan konfiguratsiya: **`deploy/nginx.conf.example`**.
 U quyidagilarni o'z ichiga oladi (checklist item 2):
 
-- **HTTP → HTTPS majburiy redirect** (`return 308 https://...`)
+- **HTTP → HTTPS majburiy redirect** (`return 308 https://$canonical_host$request_uri`)
+  — `$host` emas, `map $host $canonical_host`: aks holda `Host: evil.com`
+  yuborgan so'rov `https://evil.com/...` ga ketardi (ilovaning
+  `ALLOWED_HOSTS` tekshiruvi redirect nginx'da bo'lgani uchun ishlamaydi).
+  Noma'lum Host asosiy domenga tushadi.
 - **Faqat TLS 1.2/1.3** (`ssl_protocols TLSv1.2 TLSv1.3`), eskirgan TLSv1.0/1.1
   va zaif shifrlar ro'yxati bilan (`ssl_ciphers`), stapling + session tickets off
 - **HSTS** `max-age=63072000; includeSubDomains; preload`
 - **`X-Forwarded-Proto`** — ilova (`FORCE_HTTPS`, `req.secure`) shu headerga
-  bog'liq; buni uzatmasangiz HTTPS redirect sikli yoki HSTS yuborilmaydi
+  bog'liq; buni uzatmasangiz HTTPS redirect sikli yoki HSTS yuborilmaydi.
+  `TRUST_PROXY` ham shu yerda: nginx boshqa konteynerda bo'lsa `loopback`
+  EMAS (`1` yoki subnet) — aks holda header e'tiborsiz qoladi
 - **`limit_req`** — login/register/forgot/reset va media uchun alohida zonalar
   (item 5: ko'p instanceda ham ishlaydigan rate limit qatlami)
+- **`proxy_hide_header`** — ilova ham xavfsizlik sarlavhalarini o'zi
+  yuboradi (`security.mjs` + HSTS). Ikkala manba birga yuborilsa, mijoz
+  qaysi qatorni qo'llashini tushunmaydi; yagona manba nginx qoldiriladi.
+  `Content-Security-Policy` va `Cross-Origin-Resource-Policy` yashirilmaydi
+  (ular faqat bitta manbada bor)
 - `client_max_body_size 45m` (media: rasm 8MB, video 40MB)
 
 Sertifikat o'rnatish (certbot):
@@ -330,13 +341,18 @@ ketadi, shuning uchun **faqat shifrlangan kanal**:
 instanceda to'liq ishlaydi; **ko'p instanceli/serverless** muhitda har bir
 instance alohida hisoblaydi → himoya kamayadi. To'liq yechim uchun
 umumiy storage (Redis) yoki **nginx `limit_req`** darajasida qoplash kerak
-(misol `netlify.toml`/server host konfigida, bu repo'da yo'q).
+(misol `netlify.toml`/server host konfigida).
 
 ```nginx
-# nginx tomonida qoplash (foydali, repo'da emas)
+# nginx tomonida qoplash — repo'da `deploy/nginx.conf.example` da bajarilgan
 limit_req_zone $binary_remote_addr zone=api:10m rate=10r/m;
 location /api/auth/ { limit_req zone=api burst=5 nodelay; ... }
 ```
+
+Docker Compose'da bu qatlam **yoqiq**: nginx `app` oldida turadi, shuning
+uchun chegaralar ilova o'zgarishidan qat'i narsa (va `depends_on:
+service_healthy` orqali ilova tayyor bo'lgandan keyin ochiladi). Netlify
+serverless'da esa `limit_req` yo'q — chunka cheklov §9.1 da hali ochiq.
 
 ---
 
@@ -401,9 +417,13 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
 
 1. **Rate limit in-memory** — ko'p instanceda zaif; nginx `limit_req` bilan
    qoplash kerak.
-2. **Nginx/Docker hali deploy qilinmagan** — `deploy/nginx.conf.example`
-   repo'da, lekin real serverga o'rnatilmagan; `Dockerfile`/`docker-compose.yml`
-   esa umuman yo'q (Docker bandlari shu sababli tegishli emas).
+2. **Nginx/Docker hali deploy qilinmagan** — `deploy/nginx.conf.example`,
+   `Dockerfile` va `docker-compose.yml` repo'da tayyor, lekin real serverga
+   o'rnatilmagan. `docker compose up` dan keyin quyidagilarni qo'lda
+   tekshirish kerak: `docker compose ps` da `app` va `nginx` `healthy`,
+   `curl -I https://domen.uz` da HSTS sarlavhasi, `GET /api/health` da
+   `{"ok":true}`, va PostgreSQL porti tashqaridan yopiq (`docker compose
+   exec postgres pg_isready` — tashqaridan esa ulanish yo'q).
 3. **Netlify Force HTTPS** — dashboardda tasdiqlash kerak.
 4. **Media ochiq URL'lari** (`?s=` imzo bilan) — imzo `SESSION_SECRET`ga
    bog'liq; kalit o'zgarsa eski havolalar bekor bo'ladi (xohlanmagan).
@@ -416,6 +436,15 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
    eski klon) — **almashtirish shart**. Tarixdan butunlay o'chirish uchun
    `git filter-repo` + barcha klonlarni yangilash kerak, bu esa boshqa
    ishchilarning klonlarini buzadi — alohida qaror.
+   **Avtomatik tozalash:** `purge-legacy-password.mjs` (repo ildizida).
+   Parol skriptga yozilMAYDI (aks holda skriptni commit qilish uni yana
+   tarixga kiritardi) — muhit o'zgaruvchisi orqali beriladi:
+   `pip install git-filter-repo`, keyin
+   `LEGACY_ADMIN_PASSWORD='...' node purge-legacy-password.mjs`
+   (PowerShell: `$env:LEGACY_ADMIN_PASSWORD='...'; node purge-legacy-password.mjs`).
+   Skript avval nechta commitda topilishini hisoblaydi, keyin tozalaydi va
+   qoldig'ini tekshiradi. So'ng `git push --force --all` va
+   `git push --force --tags`. Barcha ishchilar yangidan `clone` qilishi KERAK.
 7. **Xavfsizlik testlari** — `npm run test:all` (delivery 42 tekshiruv,
    api-core 148, blobs 148, pg-store 148 = **486**) vositasi sifatida
    ishlaydi; bind/HSTS/redirect, yozish limiti va IDOR probe'lari qo'lda

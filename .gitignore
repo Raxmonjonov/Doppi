@@ -24,6 +24,11 @@ netlify/functions/seed.json
 .env.*
 !.env.example
 
+# Let's Encrypt — docker-compose.yml bu papkani yaratadi va ichida
+# DOMERNING MAXFIY KALITLARI bor (`conf/live/<domen>/privkey.pem`,
+# `archive/`). Hech qachon commit qilinmasin.
+certbot/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

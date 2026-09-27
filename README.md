@@ -151,6 +151,63 @@ redirect, faqat TLS 1.2+, HSTS va API uchun `limit_req` chegaralari bor.
 Ilova `127.0.0.1:4000` da turadi (default `HOST`), tashqaridan ochiq emas;
 portlar va firewall qoidalari — [SECURITY.md](SECURITY.md).
 
+### Docker Compose (nginx + Express + PostgreSQL)
+
+To'plam to'rt konteynerdan iborat: `nginx` (80/443), `app` (4000, faqat ichki
+tarmoqda), `postgres` (faqat `internal` tarmoqda), `certbot` (sertifikat
+yangilash). Tashqariga faqat 80/443 ochiq.
+
+```bash
+cp .env.example .env        # POSTGRES_PASSWORD, SESSION_SECRET,
+                            # ADMIN_*, ALLOWED_HOSTS, APP_URL to'ldiriladi
+docker compose build
+docker compose run --rm certbot certonly --webroot -w /var/www/certbot \
+  -d example.uz -d www.example.uz --agree-tos -m admin@example.uz   # bir marta
+docker compose up -d
+```
+
+Muhim nuanslar:
+
+- **`deploy/nginx.conf.example` to'g'ridan-to'g'ri mount qilinadi**
+  (`/etc/nginx/conf.d/default.conf`). Bu fayl to'liq `nginx.conf` emas —
+  `events {}`/`http {}` bloklari uning ichida yo'q. Domen va sertifikat
+  yo'llarini (`example.uz`) o'zgartiring. Bare-metal'da faqat `upstream`
+  dagi `server app:4000;` ni `server 127.0.0.1:4000;` bilan almashtirib,
+  faylni `/etc/nginx/conf.d/doppi.conf` ga joylang.
+- **`TRUST_PROXY=1`** compose'da qat'iy: nginx boshqa konteynerda, uning IP
+  loopback emas. Sukut `loopback` qolsa `X-Forwarded-Proto` e'tiborsiz
+  qoladi va `FORCE_HTTPS` o'z so'roviga o'zi 308 qaytaradi (redirect loop).
+- **`DATABASE_SSL=0`** compose'da qat'iy: postgres konteyneri TLS'siz, lekin
+  `internal: true` tarmoqda faqat ikkita konteyner bir-borini ko'radi.
+  Server bu haqda ogohlantirish chiqaradi — bu qasddan.
+- **`.dockerignore` majburiy** — aks holda `.env` (kalitlar) va lokal
+  `node_modules` image ichiga ko'chiriladi.
+- **`GET /api/health`** — auth'siz, `{"ok":true}`. Docker healthcheck va
+  nginx'ning `depends_on: service_healthy` shu endpointga uradi.
+  (`/api/ping` ishlatib bo'lmaydi: u POST + sessiya talab qiladi.)
+- **SPA va statikani ilova beradi** (`dist/` image ichida), nginx esa
+  hammasini unga proksi qiladi.
+- **Xavfsizlik sarlavhalari bitta manbadan.** Ilova ham `X-Frame-Options`,
+  `Permissions-Policy`, HSTS va boshqalarini yuboradi; nginx'da
+  `proxy_hide_header` bilan ilovaning qatorlari yashiriladi — aks holda
+  mijoz ikki qatorni ko'rib, qaysi biri qo'llanishini tushunmay qoladi.
+  `Permissions-Policy` da `geolocation=()` saqlangan (ilovadagi qat'iyroq
+  qiymat), `Cross-Origin-Resource-Policy` va CSP esa o'tkazib yuboriladi
+  (ular faqat bitta manbada bor).
+- **80 → 443 redirect `map $host $canonical_host` orqali** — `$host`
+  ishlatilsa, `Host: evil.com` yuborgan so'rov `https://evil.com/...` ga
+  ketardi (ilovaning `ALLOWED_HOSTS` tekshiruvi bu yerda ishlaydi, chunki
+  redirect nginx'da bo'ladi). Noma'lum Host asosiy domenga tushadi.
+
+Tekshiruv:
+
+```bash
+docker compose ps                                    # app va nginx: healthy
+curl -sI https://example.uz | grep -i strict-transport
+curl -s https://example.uz/api/health               # {"ok":true}
+docker compose logs app | grep xavfsizlik            # ogohlantirishlarni o'qing
+```
+
 ### Xavfsizlik: majburiy muhit o'zgaruvchilari
 
 Loyihada **ishlaydigan boshlang'ich parol yo'q** — bunday parollar xavfsizlik
@@ -161,7 +218,7 @@ nuqtasida zaif hisoblanadi va `git`ga tushib qolsa butun hisobni ochib beradi.
 | `SESSION_SECRET` | Netlify Function + Express | **Majburiy** (production), kamida 16 belgi. Sessiya tokenlari shu kalit bilan HMAC imzolanadi. |
 | `ADMIN_USERNAME` | Netlify Function + Express | Ixtiyoriy. Berilmasa admin panel yopiq. |
 | `ADMIN_PASSWORD` | Netlify Function + Express | Berilsa kamida **12 belgi**. Berilmasa admin panel yopiq. |
-| `DATABASE_URL` | Express (`production`) | **Majburiy** — kod ichida DB paroli yo'q. |
+| `DATABASE_URL` | Express (`production`) | **Majburiy** — kod ichida DB paroli yo'q. Yoki to'liq `PGUSER`+`PGPASSWORD`+`PGHOST`+`PGDATABASE` to'plami (ikkalasidan **biri** yetarli; alohida maydonlar afzal — paroldagi maxsus belgilar URL'ni buzmaydi). |
 | `DATABASE_SSL` | Express | `0`/`disable` **production'da ogohlantirish** bilan o'chiradi. Faqat lokal test uchun. |
 | `DATABASE_CA` | Express | O'z CA sertifikati (base64 yoki fayl yo'li) — sertifikat tekshiruvi uchun. |
 | `DATABASE_SSL_NO_VERIFY=1` | Express | Sertifikat tekshiruvi o'chiriladi (MITM ogohlantirishi chiqadi). Faqat o'z-imzozali test baza. |
@@ -211,21 +268,24 @@ qilinmagan xavflar** — [SECURITY.md](SECURITY.md). Bu yerda qisqa hisobot:
 | **Maxfiylar** | `.env` gitignored | Shu bilan birga **`.env.example`** — barcha o'zgaruvchilar, kalsiz |
 | **Kiruvchi webhook** | — | Repoda **inbound webhook yo'q** (faqat chiqish webhook) |
 
-Testlar: `npm run test:all` — 429 tekshiruv (bunda `delivery` 42 ta:
+Testlar: `npm run test:all` — 486 tekshiruv (bunda `delivery` 42 ta:
 https kirish/bandlash, webhook rad etilishi, havola tushirilishi).
 
 ## Testlar
 
 ```bash
-npm run test:netlify   # 129 test: api-core business logikasi (fayl store) + 7 sessiya-muddati tekshiruvi
-npm run test:blobs     # 129 test: blobs-store adapter (fake @netlify/blobs)
-npm run test:pg-store  # 129 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
+npm run test:netlify   # 148 test: api-core business logikasi (fayl store) + 8 sessiya-muddati tekshiruvi
+npm run test:blobs     # 148 test: blobs-store adapter (fake @netlify/blobs)
+npm run test:pg-store  # 148 test: postgres-store — haqiqiy Postgres'da doppi_doc + doppi_media
 npm run test:delivery  # 42 test: parol tiklash kodini yetkazish kanallari
-npm run test:all       # barchasi birga (429 test)
-npm run test:live      # 53 test: haqiqiy Express server + Postgres (audio, xabar, bildirishnoma, qo'ng'iroq, push)
+npm run test:all       # barchasi birga (486 test)
+npm run test:live      # 64 test: haqiqiy Express server + Postgres (audio, xabar, bildirishnoma, qo'ng'iroq, push)
 npm run build          # tsc + vite
 npm run lint           # oxlint
 ```
+
+`test:live` server'ni **o'zi qo'lamaydi** — oldindan `node server/index.js`
+4000-portda ishga tushishi kerak (yuqoridagi "Ishga tushirish" bo'limiga qarang).
 
 Uchala test ham bitta suite'ni (`netlify/lib/test-suite.mjs`) ishlatadi va haqiqiy
 `handleRequest` eksporti orqali oqimni yuritadi: auth → data (muhrlangan post + albom) →
@@ -263,4 +323,10 @@ netlify/        functions/api.mjs, lib/api-core.mjs (business logika), lib/blobs
 server/         index.js, schema.sql (doppi_doc, doppi_media, notifications,
                 push_subscriptions, app_settings, ...)
 public/         favicon.svg, icons.svg, sw.js (Web Push + app shell cache)
+deploy/         nginx.conf.example (nginx → app:4000, TLS 1.2+, HSTS, limit_req)
+Dockerfile      3 bosqich: frontend build → runtime paketlar → non-root runtime
+docker-compose.yml  nginx (80/443) + app (4000, ichki) + postgres (internal) + certbot
+.dockerignore   build kontekstidan `.env`, `node_modules`, `certbot/` ni chiqaradi
+purge-legacy-password.mjs  git tarixidan sizib chiqqan parolni tozalash
+                            (parol faylda emas — `LEGACY_ADMIN_PASSWORD` orqali)
 ```

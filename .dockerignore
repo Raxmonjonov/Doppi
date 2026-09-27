@@ -1,0 +1,42 @@
+# Docker build konteksti — bu fayl build kontekstiga TUSHMAYDI.
+# Diqqat: `.gitignore` build kontekstiga ta'sir qilmaydi, faqat shu fayl.
+
+# --- Git / CI / redaktor ---
+.git
+.gitignore
+.github
+.idea
+.vscode
+
+# --- O'rniga buildda yaratiladi ---
+# `dist/` .gitignore'da, shuning uchun `npm run build` ni image ichida
+# bajarishimiz mumkin (Dockerfile build bosqichi). Kontekstdagi eski
+# `dist/` ni olib ketish — boshqa mashinada yig'ilgan xotirajam bo'lmasin.
+node_modules
+**/node_modules
+dist
+netlify.toml
+# `Dockerfile` va `.dockerignore` ni ataylab chiqarmaymiz: ular kontekstda
+# qolsa `dockerfile: Dockerfile` ishonchi aniq bo'ladi (BuildKit'da
+# ignore qilingan Dockerfile ba'zi versiyalarda topilmaydi). Ularning
+# hech qanday `COPY` qatori yo'q — demak image ichiga kirmaydi.
+
+# --- MAXFIY: build kontekstiga kirmasin ---
+# `.env` ichida SESSION_SECRET, ADMIN_PASSWORD, API kalitlari bor.
+# Bu fayl yo'q bo'lsa `COPY . .` ularni image ichiga ko'chirib yuboradi.
+.env
+.env.*
+*.env
+certbot/
+
+# --- Deploy va hujjatlar (runtime'da hajm kerak emas) ---
+deploy/
+README.md
+SECURITY.md
+purge-legacy-password.mjs
+
+# --- Loglar va vaqtinchalik fayllar ---
+*.log
+logs/
+*.local
+.DS_Store
