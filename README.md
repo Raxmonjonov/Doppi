@@ -167,6 +167,7 @@ nuqtasida zaif hisoblanadi va `git`ga tushib qolsa butun hisobni ochib beradi.
 | `DATABASE_SSL_NO_VERIFY=1` | Express | Sertifikat tekshiruvi o'chiriladi (MITM ogohlantirishi chiqadi). Faqat o'z-imzozali test baza. |
 | `HOST` | Express | Sukut **`127.0.0.1`** — tashqi tarmoqqa ochiq emas. `0.0.0.0` faqat proxy ortida/ichki tarmoqda. |
 | `TRUST_PROXY` | Express | Sukut `loopback` — `X-Forwarded-Proto` faqat lokal proxy'dan qabul qilinadi. |
+| `ALLOWED_HOSTS` | Express | Host sarlavhasi chegarasi (`example.uz,www.example.uz`). Belgilanmagan bo'lsa ishlaydi, production'da **tavsiya** — aks holda `Host` kiritish orqali open redirect mumkin. |
 | `FORCE_HTTPS` | Express | Production'da **yoqilgan**: HTTP → HTTPS **308** redirect. TLS yo'q joyda `FORCE_HTTPS=0`. |
 | `APP_URL` | Express + Function | **Faqat `https://`** — `http://` bo'lsa tiklash havolasi tashlab qolinadi. |
 | `DELIVERY_WEBHOOK_URL` | Express + Function | **Faqat `https://`** — aks holda kod yuborish rad etiladi (loopback `http` ruxsat). |

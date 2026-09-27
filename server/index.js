@@ -178,6 +178,43 @@ const FORCE_HTTPS = (() => {
   if (v === '1' || v === 'true' || v === 'on') return true
   return process.env.NODE_ENV === 'production'
 })()
+
+/* ---------- Host sarlavhasi tekshiruvi (ALLOWED_HOSTS) ----------
+   Django'nin ALLOWED_HOSTS bandining ekvivalenti. Uchta sabab:
+   1) `FORCE_HTTPS` redirecti `req.get('host')` dan foydalanadi — agar
+      Host kiritilsa (attacker `Host: evil.com` yuborsa), ilova
+      foydalanuvchini https://evil.com ga olib ketadi (open redirect);
+   2) vhost murakkablashishi (bir IP'da bir nechta sayt);
+   3) cache/poisoning xavfi.
+   Nil bo'lsa (sozlanmagan) — ruxsat beriladi, production'da ogohlantirish
+   chiqadi. `ALLOWED_HOSTS=example.uz,www.example.uz` bilan cheklanadi. */
+const ALLOWED_HOSTS = String(process.env.ALLOWED_HOSTS ?? '')
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean)
+
+function hostAllowed(value) {
+  if (!ALLOWED_HOSTS.length) return true
+  if (ALLOWED_HOSTS.includes('*')) return true
+  const raw = String(value ?? '').trim().toLowerCase()
+  if (!raw) return false
+  let hostname = raw
+  try {
+    // port va IPv6 kvadratlarini to'g'ri ajratish uchun
+    hostname = new URL(`http://${raw}`).hostname
+  } catch {
+    return false
+  }
+  return ALLOWED_HOSTS.some((a) => a === hostname)
+}
+
+if (process.env.NODE_ENV === 'production' && !ALLOWED_HOSTS.length) {
+  console.error(
+    "[xavfsizlik] ALLOWED_HOSTS belgilanmagan — Host sarlavhasi cheklanmaydi " +
+      "(eski deploy uchun ishlaydi, lekin xavfsiz emas). " +
+      "Masalan: ALLOWED_HOSTS=example.uz,www.example.uz",
+  )
+}
 // Media endi alohida /api/media orqali saqlanadi, shuning uchun data hujjati kichik bo'ladi.
 // 25MB — eski data:URL li ma'lumotlar uchun zaxira. Katta JSON body — xotira
 // (DoS) hujjumi, shuning uchun API uchun 2MB, media upload o'z limitida.
@@ -188,6 +225,11 @@ app.use(express.json({ limit: '2mb' }))
    Netlify function bilan bir xil to'plam (`security.mjs`), shuning uchun
    platformadan qat'i nazar brauzer bir xil qoidalarni oladi. */
 app.use((req, res, next) => {
+  // Avval Host tekshiriladi: noto'g'ri Host bilan redirect (open redirect)
+  // yoki xavfsizlik sarlavhalari javob berilmasligi kerak.
+  if (ALLOWED_HOSTS.length && !hostAllowed(req.get('host'))) {
+    return res.status(400).json({ error: "Noto'g'ri Host sarlavhasi." })
+  }
   for (const [k, v] of Object.entries(securityHeaders({ isStatic: !req.path.startsWith('/api/') }))) {
     res.setHeader(k, v)
   }

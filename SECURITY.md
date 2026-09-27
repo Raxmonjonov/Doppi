@@ -245,14 +245,23 @@ Netlify'da **Force HTTPS** dashboard sozlamasi yoqilgan bo'lishi kerak
 |---|---|---|
 | `FORCE_HTTPS` | `1` (production'da) | HTTP so'rovni **308** bilan HTTPS'ga yo'naltiradi (`SECURE_SSL_REDIRECT` ekvivalenti) |
 | `TRUST_PROXY` | `loopback` | Faqat loopback'dan kelgan `X-Forwarded-Proto`'ga ishonish — soxta header bilan `req.secure` qilish mumkin emas |
+| `ALLOWED_HOSTS` | sozlanmagan | Host sarlavhasi chegarasi (Django `ALLOWED_HOSTS` ekvivalenti) — noto'g'ri Host **400** oladi |
 | HSTS | production + `req.secure` | `max-age=31536000; includeSubDomains` |
 
 Hujumchi to'g'ridan-to'g'ri portga `X-Forwarded-Proto: https` bermoqchi bo'lsa,
 u manba loopback emasligi uchun ishonilmaydi → soxta HTTPS talab qilinmaydi.
 
+**Host sarlavhasi:** redirect manzili `req.get('host')` dan tuziladi, ya'ni
+`Host: evil.com` yuborib ilovani `https://evil.com/...` ga yo'naltirish (open
+redirect) mumkin edi. `ALLOWED_HOSTS` belgilansa noto'g'ri Host **400**
+oladi; belgilanmagan bo'lsa production'da ogohlantirish chiqadi.
+
 ```bash
 # TLS yo'q, lekin server HTTP'da turgan bo'lsa kirish to'xtaydi:
 FORCE_HTTPS=0     # faqat shunday zaruratda
+
+# Host chegarasi (production uchun tavsiya):
+ALLOWED_HOSTS=example.uz,www.example.uz
 ```
 
 ### 4.3 PostgreSQL (sslmode=require)
@@ -370,7 +379,7 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
 |---|---|---|
 | 1 | Portlarni yopish | Bajarildi: `HOST=127.0.0.1` default + `0.0.0.0` ogohlantirish; UFW qoidalari §2-3; lokal Postgres 5432 **yopildi** (§1) |
 | 2 | Nginx/TLS | Bajarildi: HSTS/CSP/redirect `netlify.toml` + `FORCE_HTTPS`; `deploy/nginx.conf.example` (TLS 1.2+, HSTS, 308 redirect, `limit_req`) + certbot yo'riqnomasi §4.0 |
-| 3 | Django `settings.py` | Bajarildi: Ekvivalentlar: `FORCE_HTTPS` (= `SECURE_SSL_REDIRECT`), HSTS (= `SECURE_HSTS_*`), `TRUST_PROXY`. Cookie `SECURE` — **tegishli emas**, cookie ishlatilmaydi (Bearer token) |
+| 3 | Django `settings.py` | Bajarildi: `DEBUG=False` → `NODE_ENV=production` (RESET_CODE_ECHO o'chiq); `ALLOWED_HOSTS` → `ALLOWED_HOSTS`; `SECURE_SSL_REDIRECT` → `FORCE_HTTPS` (308); `SECURE_HSTS_*` → HSTS sarlavhasi; `TRUST_PROXY`. Cookie `*_SECURE` — tegishli emas: cookie ishlatilmaydi (Bearer token) |
 | 4 | Shifrlash transit/at-rest | Bajarildi: TLS DB (verify), reset-code HTTPS, media `?s=` imzo, scrypt. Cheklov: Redis/S3/Channels **yo'q** |
 | 5 | Tashqi provayderlar | Bajarildi: webhook HTTPS majburiy; kiruvchi webhook **yo'q**; rate limit §5 (ammo in-memory). Cheklov: JWT/OAuth yo'q |
 | 6 | Maxfiylar + Docker | Bajarildi: `.env` yopiq, `.env.example`, majburiy kalitlar, loglar toza. Cheklov: Docker fayllar yo'q |
