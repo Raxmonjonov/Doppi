@@ -5,7 +5,7 @@ import { useAuth } from '../data/auth'
 import { useI18n } from '../i18n'
 import { prepareAvatar } from '../lib/upload'
 
-const STEPS = ['email', 'username', 'photo', 'work', 'password'] as const
+const STEPS = ['email', 'username', 'photo', 'password'] as const
 type Step = (typeof STEPS)[number]
 
 export function RegisterPage() {
@@ -20,7 +20,6 @@ export function RegisterPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [avatar, setAvatar] = useState('')
-  const [work, setWork] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   const stepIndex = STEPS.indexOf(step)
@@ -53,11 +52,8 @@ export function RegisterPage() {
       return
     }
     if (step === 'photo') {
-      setStep('work')
-      return
-    }
-    if (step === 'work') {
       setStep('password')
+      return
     }
   }
 
@@ -84,7 +80,6 @@ export function RegisterPage() {
       email: email.trim().toLowerCase(),
       password,
       avatar,
-      about: work.trim(),
     })
     setBusy(false)
     if (err) setError(err)
@@ -142,13 +137,6 @@ export function RegisterPage() {
                 {avatar ? t('auth.changePhoto') : t('auth.addPhoto')}
               </button>
             </div>
-          )}
-
-          {step === 'work' && (
-            <label className="auth-field">
-              <span>{t('auth.labelWork')}</span>
-              <input value={work} onChange={(e) => setWork(e.target.value)} placeholder={t('auth.workPlaceholder')} autoComplete="organization-title" autoFocus />
-            </label>
           )}
 
           {step === 'password' && (

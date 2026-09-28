@@ -138,8 +138,6 @@ export const en: Dict = {
   'auth.next': 'Next',
   'auth.addPhoto': 'Add photo',
   'auth.changePhoto': 'Change photo',
-  'auth.labelWork': 'What do you do?',
-  'auth.workPlaceholder': 'Your profession',
   'auth.noAccount': 'No account yet?',
   'auth.haveAccount': 'Already have an account?',
   'auth.passwordPlaceholder': '••••••',

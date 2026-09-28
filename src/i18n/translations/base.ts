@@ -131,8 +131,6 @@ export const uz: Dict = {
   'auth.next': 'Keyingisi',
   'auth.addPhoto': 'Rasm qo\'shish',
   'auth.changePhoto': 'Rasmni o\'zgartirish',
-  'auth.labelWork': 'Nima bilan shug\'ullanasiz?',
-  'auth.workPlaceholder': 'Kasbingiz',
   'auth.noAccount': "Hisobingiz yo'qmi?",
   'auth.haveAccount': 'Hisobingiz bormi?',
   'auth.passwordPlaceholder': '••••••',
