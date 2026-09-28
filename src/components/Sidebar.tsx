@@ -9,6 +9,8 @@ import {
   UserPlus,
   Shield,
   Hourglass,
+  Radio,
+  Clapperboard,
   type LucideIcon,
 } from 'lucide-react'
 import { Avatar } from './Avatar'
@@ -24,6 +26,8 @@ interface Item {
 const items: Item[] = [
   { to: '/', icon: Home, label: 'sidebar.labelHome' },
   { to: '/reels', icon: Play, label: 'sidebar.labelReels' },
+  { to: '/live', icon: Radio, label: 'sidebar.labelLive' },
+  { to: '/videos', icon: Clapperboard, label: 'sidebar.labelVideos' },
   { to: '/seals', icon: Hourglass, label: 'sidebar.labelSeals' },
   { to: '/groups', icon: Users, label: 'sidebar.labelGroups' },
   { to: '/photos', icon: Map, label: 'sidebar.labelAlbums' },

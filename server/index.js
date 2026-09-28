@@ -308,6 +308,8 @@ const WRITE_LIMITED_PREFIXES = [
   '/api/threads',
   '/api/groups',
   '/api/users',
+  '/api/lives',
+  '/api/videos',
 ]
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
@@ -1248,7 +1250,7 @@ app.post('/api/users/:id/follow', authMiddleware, async (req, res) => {
 app.get('/api/data', authMiddleware, async (req, res) => {
   const userId = req.user.id
   const storyCutoff = Date.now() - 24 * 60 * 60 * 1000
-  const [postsR, commentsR, storiesR, reelsR, reelCommentsR, albumsR, groupsR, followsR] = await Promise.all([
+  const [postsR, commentsR, storiesR, reelsR, reelCommentsR, albumsR, groupsR, followsR, livesR, videosR] = await Promise.all([
     pool.query(
       `SELECT p.id, p.time, p.text, p.images, p.video, p.live, p.seal_until,
         u.id AS au_id, u.name AS au_name, u.username AS au_username, u.avatar AS au_avatar, u.about AS au_about,
@@ -1290,6 +1292,17 @@ app.get('/api/data', authMiddleware, async (req, res) => {
     ),
     pool.query(`SELECT g.id, g.name, g.cover, g.joined FROM groups g ORDER BY g.id DESC`),
     pool.query(`SELECT followee_id FROM follows WHERE follower_id = $1`, [userId]),
+    pool.query(
+      `SELECT l.id, l.owner_id, l.title, l.started_at, l.status, l.video, l.duration, l.ended_at,
+        jsonb_array_length(CASE WHEN jsonb_typeof(l.viewers) = 'array' THEN l.viewers ELSE '[]'::jsonb END) AS viewer_count,
+        u.id AS au_id, u.name AS au_name, u.username AS au_username, u.avatar AS au_avatar
+       FROM lives l JOIN users u ON u.id = l.owner_id ORDER BY l.id DESC`,
+    ),
+    pool.query(
+      `SELECT v.id, v.owner_id, v.title, v.src, v.type, v.live_id, v.duration, v.created_at,
+        u.id AS au_id, u.name AS au_name, u.username AS au_username, u.avatar AS au_avatar
+       FROM videos v JOIN users u ON u.id = v.owner_id ORDER BY v.id DESC`,
+    ),
   ])
 
   const commentsByPost = new Map()
@@ -1380,9 +1393,38 @@ app.get('/api/data', authMiddleware, async (req, res) => {
 
   const following = followsR.rows.map((r) => r.followee_id)
 
+  const lives = livesR.rows.map((l) => {
+    const out = {
+      id: l.id,
+      owner: userForContent({ id: l.au_id, name: l.au_name, username: l.au_username, avatar: l.au_avatar }),
+      title: l.title ?? '',
+      startedAt: Number(l.started_at) || 0,
+      status: l.status === 'ended' ? 'ended' : 'live',
+      viewers: Number(l.viewer_count) || 0,
+    }
+    if (l.ended_at) out.endedAt = Number(l.ended_at)
+    if (l.video) out.video = l.video
+    if (l.duration) out.duration = Number(l.duration) || 0
+    return out
+  })
+
+  const videos = videosR.rows.map((v) => {
+    const out = {
+      id: v.id,
+      owner: userForContent({ id: v.au_id, name: v.au_name, username: v.au_username, avatar: v.au_avatar }),
+      title: v.title ?? '',
+      src: v.src ?? '',
+      type: v.type ?? 'upload',
+      duration: Number(v.duration) || 0,
+      createdAt: Number(v.created_at) || 0,
+    }
+    if (v.live_id) out.liveId = v.live_id
+    return out
+  })
+
   await pool.query(`DELETE FROM stories WHERE id < $1`, [storyCutoff])
 
-  res.json({ posts, stories, reels, albums, groups, following })
+  res.json({ posts, stories, reels, albums, groups, following, lives, videos })
 })
 
 app.put('/api/data', authMiddleware, async (req, res) => {
@@ -2358,6 +2400,10 @@ app.get('/api/media/:id', async (req, res) => {
       'Cache-Control',
       scope === 'public' ? 'private, max-age=31536000, immutable' : 'private, no-store',
     )
+    // Yuklab olish cheklovi: inline ko'rinish + brauzerda `nodownload`
+    res.setHeader('Content-Disposition', "inline; filename=\"media\"")
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('X-Download-Options', 'noopen')
     res.end(bytes)
   } catch (e) {
     console.error('[media:get]', e)
@@ -2525,6 +2571,199 @@ app.post('/api/media/migrate', async (req, res) => {
     res.json({ migrated, skipped, remaining: 0, bytes })
   } catch (e) {
     console.error('media migrate xatosi:', e.message)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+/* =========================================================
+   Jonli efir (Live) + Uzun videolar — Netlify (api-core.mjs)
+   bilan bir xil xatti-harakat, faqat Postgres ustida.
+   ========================================================= */
+
+function viewOwner(user) {
+  return userForContent({
+    id: user.id,
+    name: user.name ?? '',
+    username: user.username ?? '',
+    avatar: user.avatar ?? '',
+  })
+}
+
+// Jonli efir yaratish (ijrochi ochib beradi)
+app.post('/api/lives', authMiddleware, async (req, res) => {
+  const me = req.user
+  const title = String(req.body?.title ?? '').slice(0, 120)
+  const now = Date.now()
+  try {
+    await pool.query(
+      `INSERT INTO lives (id, owner_id, title, started_at, status, viewers, signals)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [now, me.id, title, now, 'live', '[]', '[]'],
+    )
+  } catch (e) {
+    console.error('live create xatosi:', e.message)
+    return res.status(500).json({ error: 'Server xatosi.' })
+  }
+  res.status(201).json({ live: { id: now, owner: viewOwner(me), title, startedAt: now, status: 'live', viewers: 0 } })
+})
+
+// WebRTC signal relay (ijrochi <-> tomoshabin)
+app.post('/api/lives/:id/signal', authMiddleware, async (req, res) => {
+  const me = req.user
+  const id = Number(req.params.id)
+  const kind = String(req.body?.kind ?? '')
+  const toInt = Number(req.body?.to ?? 0) || 0
+  try {
+    const liveR = await pool.query(`SELECT status, viewers, signals FROM lives WHERE id = $1 AND status <> 'ended'`, [id])
+    if (liveR.rows.length === 0) return res.status(404).json({ error: 'Jonli efir topilmadi.' })
+    const live = liveR.rows[0]
+    const signals = Array.isArray(live.signals) ? live.signals : []
+    signals.push({ id: Date.now(), from: me.id, to: toInt, kind, data: req.body?.data ?? null })
+    const kept = signals.slice(-500)
+    let viewers = Array.isArray(live.viewers) ? live.viewers : []
+    if (kind === 'viewer-join' && !viewers.includes(me.id)) viewers.push(me.id)
+    if (kind === 'viewer-leave') viewers = viewers.filter((x) => x !== me.id)
+    await pool.query(`UPDATE lives SET signals = $1::jsonb, viewers = $2::jsonb WHERE id = $3`, [JSON.stringify(kept), JSON.stringify(viewers), id])
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('live signal xatosi:', e.message)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+// Signallarni o'qish (poll)
+app.get('/api/lives/:id/signals', authMiddleware, async (req, res) => {
+  const me = req.user
+  const id = Number(req.params.id)
+  const since = Number(req.query.since ?? 0) || 0
+  try {
+    const liveR = await pool.query(`SELECT status, viewers, signals FROM lives WHERE id = $1`, [id])
+    if (liveR.rows.length === 0) return res.status(404).json({ error: 'Jonli efir topilmadi.' })
+    const live = liveR.rows[0]
+    const signals = (Array.isArray(live.signals) ? live.signals : [])
+      .filter((s) => Number(s.id) > since && Number(s.from) !== me.id && (Number(s.to) === 0 || Number(s.to) === me.id))
+      .sort((a, b) => Number(a.id) - Number(b.id))
+    res.json({ signals, status: live.status === 'ended' ? 'ended' : 'live', viewers: (Array.isArray(live.viewers) ? live.viewers : []).length })
+  } catch (e) {
+    console.error('live signals xatosi:', e.message)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+// Efirni tugatish (faqat egasi); qayd bo'lsa uzun videoga aylanadi
+app.post('/api/lives/:id/end', authMiddleware, async (req, res) => {
+  const me = req.user
+  const id = Number(req.params.id)
+  const src = safeMediaRef(req.body?.video) || ''
+  const duration = Number(req.body?.duration) || 0
+  const title = String(req.body?.title ?? '').slice(0, 120)
+  try {
+    const liveR = await pool.query(`SELECT * FROM lives WHERE id = $1`, [id])
+    if (liveR.rows.length === 0) return res.status(404).json({ error: 'Jonli efir topilmadi.' })
+    const live = liveR.rows[0]
+    if (Number(live.owner_id) !== me.id) return res.status(403).json({ error: 'Faqat egasi tugatishi mumkin.' })
+    if (src) {
+      const mid = mediaPathOf(src)
+      const meta = mid ? await pool.query(`SELECT owner_id FROM doppi_media WHERE id = $1`, [mid]).catch(() => ({ rows: [] })) : { rows: [] }
+      if (meta.rows.length > 0 && Number(meta.rows[0].owner_id) !== me.id) {
+        return res.status(403).json({ error: 'Qayd faqat o‘zingizga tegishli media bilan bog‘lanadi.' })
+      }
+    }
+    const now = Date.now()
+    let videoRes
+    if (src) {
+      const vidId = now + 1
+      await pool.query(
+        `INSERT INTO videos (id, owner_id, title, src, type, live_id, duration, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [vidId, me.id, title || live.title || '', src, 'live', id, duration, now],
+      )
+      videoRes = {
+        id: vidId,
+        owner: viewOwner(me),
+        title: title || live.title || '',
+        src,
+        type: 'live',
+        liveId: id,
+        duration,
+        createdAt: now,
+      }
+    }
+    await pool.query(
+      `UPDATE lives SET status = 'ended', video = $1, duration = $2, ended_at = $3, signals = '[]'::jsonb WHERE id = $4`,
+      [src, duration, now, id],
+    )
+    res.json({
+      ok: true,
+      live: {
+        id,
+        owner: viewOwner(me),
+        title: live.title ?? '',
+        startedAt: Number(live.started_at) || 0,
+        status: 'ended',
+        viewers: 0,
+        endedAt: now,
+        ...(src ? { video: src, duration } : {}),
+      },
+      video: videoRes,
+    })
+  } catch (e) {
+    console.error('live end xatosi:', e.message)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+// Uzun video ro'yxatga olish: avval /api/media ga yuklanadi, so'ng src+title
+app.post('/api/videos', authMiddleware, async (req, res) => {
+  const me = req.user
+  const src = safeMediaRef(req.body?.src)
+  if (!src) return res.status(400).json({ error: 'Video manbasi kerak.' })
+  const title = String(req.body?.title ?? '').slice(0, 120)
+  const duration = Number(req.body?.duration) || 0
+  try {
+    const mid = mediaPathOf(src)
+    const meta = mid ? await pool.query(`SELECT owner_id FROM doppi_media WHERE id = $1`, [mid]).catch(() => ({ rows: [] })) : { rows: [] }
+    if (meta.rows.length > 0 && Number(meta.rows[0].owner_id) !== me.id) {
+      return res.status(403).json({ error: 'Video faqat o‘zingizga tegishli media bilan yaratiladi.' })
+    }
+    const now = Date.now()
+    await pool.query(
+      `INSERT INTO videos (id, owner_id, title, src, type, duration, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [now, me.id, title, src, 'upload', duration, now],
+    )
+    res.status(201).json({ video: { id: now, owner: viewOwner(me), title, src, type: 'upload', duration, createdAt: now } })
+  } catch (e) {
+    console.error('video create xatosi:', e.message)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+// Uzun videoni o'chirish (faqat egasi) — fayl boshqa joyda ishlatilmasa o'chiriladi
+app.delete('/api/videos/:id', authMiddleware, async (req, res) => {
+  const me = req.user
+  const id = Number(req.params.id)
+  try {
+    const rows = await pool.query(`SELECT * FROM videos WHERE id = $1`, [id])
+    if (rows.rows.length === 0) return res.status(404).json({ error: 'Video topilmadi.' })
+    const v = rows.rows[0]
+    if (Number(v.owner_id) !== me.id) return res.status(403).json({ error: 'Faqat egasi o‘chira oladi.' })
+    const mid = mediaPathOf(v.src)
+    if (mid) {
+      const ref = await pool.query(
+        `SELECT
+          (SELECT COUNT(*)::int FROM videos WHERE id <> $1 AND src LIKE '%' || $2 || '%') +
+          (SELECT COUNT(*)::int FROM lives WHERE video LIKE '%' || $2 || '%') AS refs`,
+        [id, mid],
+      )
+      if (Number(ref.rows[0]?.refs ?? 0) === 0) {
+        await pool.query(`DELETE FROM doppi_media WHERE id = $1`, [mid]).catch(() => {})
+      }
+    }
+    await pool.query(`DELETE FROM videos WHERE id = $1`, [id])
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('video delete xatosi:', e.message)
     res.status(500).json({ error: 'Server xatosi.' })
   }
 })

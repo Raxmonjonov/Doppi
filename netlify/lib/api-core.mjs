@@ -57,6 +57,8 @@ export function emptyDoc() {
     follows: [],
     notifications: [],
     pushSubscriptions: [],
+    lives: [],
+    videos: [],
   }
 }
 
@@ -78,6 +80,45 @@ export function normalizeDoc(doc) {
     if (!Array.isArray(d[key])) d[key] = []
   }
   return d
+}
+
+/* Jonli efir va uzun video yozuvlarining mijozga xavfsiz ko'rinishi:
+   ichki maydonlar (ownerId, signals, viewers list) oshkor qilinmaydi. */
+function liveView(l, doc) {
+  return {
+    id: l.id,
+    owner: userForContent(userById(doc, l.ownerId)),
+    title: l.title ?? '',
+    startedAt: l.startedAt ?? 0,
+    status: l.status === 'ended' ? 'ended' : 'live',
+    viewers: Array.isArray(l.viewers) ? l.viewers.length : 0,
+    ...(l.endedAt ? { endedAt: l.endedAt } : {}),
+    ...(l.video ? { video: l.video } : {}),
+    ...(l.duration ? { duration: Number(l.duration) || 0 } : {}),
+  }
+}
+
+function videoView(v, doc) {
+  return {
+    id: v.id,
+    owner: userForContent(userById(doc, v.ownerId)),
+    title: v.title ?? '',
+    src: v.src ?? '',
+    type: v.type ?? 'upload',
+    ...(v.liveId ? { liveId: v.liveId } : {}),
+    duration: Number(v.duration) || 0,
+    createdAt: v.createdAt ?? 0,
+  }
+}
+
+/* Uzun video / jonli efir qaydini faqat o'z media fayli bilan bog'lash
+   mumkin. Media meta bo'lmasa (eski yozuv) — ruxsat mavjud bo'lgandek. */
+async function mediaOwnedBy(store, src, me) {
+  const mid = mediaPathOf(String(src ?? ''))
+  if (!mid || !isSafeMediaId(mid)) return false
+  if (typeof store.getMediaMeta !== 'function') return true
+  const meta = await store.getMediaMeta(mid)
+  return !meta || String(meta.ownerId ?? '') === String(me.id)
 }
 
 /* Parol va token yordamchilari endi ./security.mjs da (ikki backend o'rtasida
@@ -297,6 +338,8 @@ export function collectMediaRefs(doc) {
     take(m.image)
     take(m.audio)
   }
+  for (const l of doc.lives ?? []) take(l.video)
+  for (const v of doc.videos ?? []) take(v.src)
   return refs
 }
 
@@ -427,7 +470,7 @@ export function clientIp(req) {
 /* Yozish limiti qo'llanadigan yo'nalishlar (Express bilan bir xil ro'yxat).
    Yuqori chastotali halol amallar — stories/view, notifications/read, ping,
    logout, push — ataylab tashqarida. */
-const WRITE_LIMITED_ROOTS = new Set(['posts', 'reels', 'albums', 'threads', 'groups', 'users'])
+const WRITE_LIMITED_ROOTS = new Set(['posts', 'reels', 'albums', 'threads', 'groups', 'users', 'lives', 'videos'])
 
 /* Bir foydalanuvchi yarata oladigan guruhlar soni (POST /api/groups bilan bir xil).
    `PUT /api/data` sync yo'li ham shu chegaraga bo'ysunadi — aks holda
@@ -1307,6 +1350,16 @@ export async function handleRequest(method, pathname, query, req, store) {
       .sort((a, b) => b.id - a.id)
     const following = doc.follows.filter((f) => f.followerId === me.id).map((f) => f.followeeId)
 
+    const lives = doc.lives
+      .filter((l) => userById(doc, l.ownerId))
+      .map((l) => liveView(l, doc))
+      .sort((a, b) => b.id - a.id)
+
+    const videos = doc.videos
+      .filter((v) => userById(doc, v.ownerId))
+      .map((v) => videoView(v, doc))
+      .sort((a, b) => b.id - a.id)
+
     const staleIds = doc.stories.filter((s) => s.id <= storyCutoff).map((s) => s.id)
     if (staleIds.length > 0) {
       const before = doc.stories.length
@@ -1315,7 +1368,7 @@ export async function handleRequest(method, pathname, query, req, store) {
       if (doc.stories.length !== before) await store.saveDoc(doc)
     }
 
-    return send(200, { posts, stories: storiesData, reels, albums, groups, following })
+    return send(200, { posts, stories: storiesData, reels, albums, groups, following, lives, videos })
   }
 
   if (method === 'PUT' && first === 'data' && second === undefined) {
@@ -2056,6 +2109,153 @@ export async function handleRequest(method, pathname, query, req, store) {
       kind,
       size: parsed.bytes.length,
     })
+  }
+
+  /* ---------- Jonli efir (Live) ----------
+     Transport: WebRTC (video + mikrofon) erkin foydalanuvchilar o'rtasida,
+     signal almashinuvi shu hujjatda poll orqali. Server translyatsiyani
+     saqlamaydi — faqat metadata, signal va tomoshabinlar ro'yxati. */
+
+  // Jonli efir yaratish (ijrochi ochib beradi)
+  if (method === 'POST' && first === 'lives' && second === undefined) {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const body = await readBody(req)
+    const live = {
+      id: Date.now(),
+      ownerId: me.id,
+      title: String(body.title ?? '').slice(0, 120),
+      startedAt: Date.now(),
+      status: 'live',
+      viewers: [],
+      signals: [],
+    }
+    doc.lives.push(live)
+    await store.saveDoc(doc)
+    return send(201, { live: liveView(live, doc) })
+  }
+
+  // WebRTC signal relay (ijrochi <-> tomoshabin)
+  if (method === 'POST' && first === 'lives' && third === 'signal') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const id = Number(second)
+    const live = doc.lives.find((x) => x.id === id && x.status !== 'ended')
+    if (!live) return send(404, { error: 'Jonli efir topilmadi.' })
+    const body = await readBody(req)
+    const kind = String(body.kind ?? '')
+    const toInt = Number(body.to ?? 0) || 0
+    const signal = { id: Date.now(), from: me.id, to: toInt, kind, data: body.data ?? null }
+    live.signals = live.signals ?? []
+    live.signals.push(signal)
+    if (live.signals.length > 500) live.signals = live.signals.slice(-500)
+    if (kind === 'viewer-join') {
+      live.viewers = live.viewers ?? []
+      if (!live.viewers.includes(me.id)) live.viewers.push(me.id)
+    }
+    if (kind === 'viewer-leave') {
+      live.viewers = (live.viewers ?? []).filter((x) => x !== me.id)
+    }
+    await store.saveDoc(doc)
+    return send(200, { signal: { id: signal.id, from: signal.from, kind: signal.kind } })
+  }
+
+  // Signallarni o'qish (poll) — faqat o'zimga yoki hammaga yo'naltirilganlar
+  if (method === 'GET' && first === 'lives' && third === 'signals') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const id = Number(second)
+    const live = doc.lives.find((x) => x.id === id)
+    if (!live) return send(404, { error: 'Jonli efir topilmadi.' })
+    const since = Number(query.since ?? 0)
+    const signals = (live.signals ?? [])
+      .filter((s) => s.id > since && s.from !== me.id && (s.to === 0 || s.to === me.id))
+      .sort((a, b) => a.id - b.id)
+    return send(200, { signals, status: live.status, viewers: (live.viewers ?? []).length })
+  }
+
+  // Jonli efirni tugatish (faqat egasi). Qayd (replay) avtomatik ravishda
+  // uzun videolar ro'yxatiga tushadi — `body.video` = oldin yuklangan fayl.
+  if (method === 'POST' && first === 'lives' && third === 'end') {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const id = Number(second)
+    const live = doc.lives.find((x) => x.id === id)
+    if (!live) return send(404, { error: 'Jonli efir topilmadi.' })
+    if (live.ownerId !== me.id) return send(403, { error: 'Faqat egasi tugatishi mumkin.' })
+    const body = await readBody(req)
+    const src = safeMediaRef(body.video) || ''
+    if (src && !(await mediaOwnedBy(store, src, me))) {
+      return send(403, { error: 'Qayd faqat o‘zingizga tegishli media bilan bog‘lanadi.' })
+    }
+    live.status = 'ended'
+    live.endedAt = Date.now()
+    live.video = src || ''
+    live.duration = Number(body.duration) || 0
+    let videoRes
+    if (src) {
+      const vid = {
+        id: Date.now() + 1,
+        ownerId: me.id,
+        title: String(body.title ?? live.title ?? '').slice(0, 120),
+        src,
+        type: 'live',
+        liveId: live.id,
+        duration: live.duration,
+        createdAt: Date.now(),
+      }
+      doc.videos.push(vid)
+      videoRes = videoView(vid, doc)
+    }
+    await store.saveDoc(doc)
+    return send(200, { ok: true, live: liveView(live, doc), video: videoRes })
+  }
+
+  /* ---------- Uzun videolar ---------- */
+
+  // Uzun video ro'yxatga olish: avval /api/media ga yuklang, so'ng bu
+  // yerga `src` (imzolangan manzil) va `title` yuboriladi.
+  if (method === 'POST' && first === 'videos' && second === undefined) {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const body = await readBody(req)
+    const src = safeMediaRef(body.src)
+    if (!src) return send(400, { error: 'Video manbasi kerak.' })
+    if (!(await mediaOwnedBy(store, src, me))) {
+      return send(403, { error: 'Video faqat o‘zingizga tegishli media bilan yaratiladi.' })
+    }
+    const vid = {
+      id: Date.now(),
+      ownerId: me.id,
+      title: String(body.title ?? '').slice(0, 120),
+      src,
+      type: 'upload',
+      duration: Number(body.duration) || 0,
+      createdAt: Date.now(),
+    }
+    doc.videos.push(vid)
+    await store.saveDoc(doc)
+    return send(201, { video: videoView(vid, doc) })
+  }
+
+  // Uzun videoni o'chirish (faqat egasi) — media fayli ham o'chiriladi
+  if (method === 'DELETE' && first === 'videos' && second && third === undefined) {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const id = Number(second)
+    const idx = doc.videos.findIndex((x) => x.id === id)
+    if (idx < 0) return send(404, { error: 'Video topilmadi.' })
+    if (doc.videos[idx].ownerId !== me.id) return send(403, { error: 'Faqat egasi o‘chira oladi.' })
+    const removed = doc.videos.splice(idx, 1)[0]
+    const mid = mediaPathOf(removed.src)
+    if (mid && typeof store.deleteMedia === 'function') {
+      const refs = collectMediaRefs(doc)
+      if (!refs.has(mid)) {
+        await store.deleteMedia([mid]).catch(() => {})
+      }
+    }
+    await store.saveDoc(doc)
+    return send(200, { ok: true })
   }
 
   return send(404, { error: "Tepada hech narsa topilmadi." })

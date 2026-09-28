@@ -57,6 +57,11 @@ export default async (req) => {
         // Shaxsiy media (DM/guruh) keshlanmasin: boshqa qurilmada ochilsa
         // ham ko'rinmasin, faqat a'zo sessiyasi bilan ochilsin.
         'Cache-Control': 'private, no-store',
+        // Yuklab olish cheklovi: faqat inline qo'llab bo'lmaydi — brauzerdagi
+        // `<video controlsList="nodownload">` bilan birgalikda ishlaydi.
+        'Content-Disposition': "inline; filename=\"media\"",
+        'X-Content-Type-Options': 'nosniff',
+        'X-Download-Options': 'noopen',
       },
     })
   }

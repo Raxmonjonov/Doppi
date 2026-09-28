@@ -290,3 +290,30 @@ CREATE TABLE IF NOT EXISTS password_resets (
 
 -- yetkazish sanasi (pochta bombasiga qarshi throttle)
 ALTER TABLE password_resets ADD COLUMN IF NOT EXISTS sent_at BIGINT NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS lives (
+  id BIGINT PRIMARY KEY,
+  owner_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL DEFAULT '',
+  started_at BIGINT NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'live',
+  viewers JSONB NOT NULL DEFAULT '[]',
+  signals JSONB NOT NULL DEFAULT '[]',
+  video TEXT NOT NULL DEFAULT '',
+  duration DOUBLE PRECISION NOT NULL DEFAULT 0,
+  ended_at BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS videos (
+  id BIGINT PRIMARY KEY,
+  owner_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL DEFAULT '',
+  src TEXT NOT NULL DEFAULT '',
+  type TEXT NOT NULL DEFAULT 'upload',
+  live_id BIGINT,
+  duration DOUBLE PRECISION NOT NULL DEFAULT 0,
+  created_at BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_lives_status ON lives(status);
+CREATE INDEX IF NOT EXISTS idx_videos_owner ON videos(owner_id);

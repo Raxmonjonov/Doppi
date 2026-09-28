@@ -757,6 +757,69 @@ export async function runSuite(store, label) {
   if (prevNodeEnv === undefined) delete process.env.NODE_ENV
   else process.env.NODE_ENV = prevNodeEnv
 
+  // 9c) Jonli efir va uzun videolar
+  // (tok2 parol-tiklash testida bekor qilingan — tok1b + tokB ishlatamiz)
+  r = await call('POST', '/api/lives', { title: 'Sinov jonli efir' }, tok1b)
+  const liveId = r.json?.live?.id
+  ok('create live -> 201', r.status === 201 && !!liveId, `status=${r.status}`)
+  const liveUrl = liveId ? `/api/lives/${liveId}` : ''
+
+  // Tomoshabin qo'shiladi, ijrochi signallarni ko'radi
+  r = await call('POST', `${liveUrl}/signal`, { kind: 'viewer-join', to: uid1 }, tokB)
+  ok('viewer joins -> 200', r.status === 200, `status=${r.status}`)
+  const sigPollB = (await call('GET', `${liveUrl}/signals?since=0`, undefined, tok1b)).json
+  ok(
+    'broadcaster sees viewer-join',
+    sigPollB.signals.some((s) => s.kind === 'viewer-join' && s.from === uid2),
+    `signals=${sigPollB.signals.length}`,
+  )
+
+  // Ijrochi offer yuboradi — faqat tomoshabin ko'radi
+  r = await call('POST', `${liveUrl}/signal`, { kind: 'offer', to: uid2, data: { sdp: 'x' } }, tok1b)
+  ok('broadcaster sends offer -> 200', r.status === 200, `status=${r.status}`)
+  const sigPollV = (await call('GET', `${liveUrl}/signals?since=0`, undefined, tokB)).json
+  ok('viewer sees offer', sigPollV.signals.some((s) => s.kind === 'offer' && s.from === uid1), `n=${sigPollV.signals.length}`)
+  ok('viewer does not see own signals', !sigPollV.signals.some((s) => s.from === uid2))
+  ok('viewer does not see signals aimed at others', !sigPollV.signals.some((s) => s.kind === 'offer' && s.to === uid1))
+
+  // GET /api/data tarkibida jonli efir bor
+  const liveData = (await call('GET', '/api/data', undefined, tok1b)).json.lives ?? []
+  ok('GET /api/data lists live', liveData.some((l) => Number(l.id) === liveId && l.status === 'live'))
+
+  // Jonli efirni boshqa odam tugatolmaydi
+  r = await call('POST', `${liveUrl}/end`, { video: mediaUrl, duration: 5 }, tokB)
+  ok('end live by non-owner -> 403', r.status === 403, `status=${r.status}`)
+
+  // Boshqa foydalanuvchining fayli uzun video bo'la olmaydi
+  r = await call('POST', '/api/videos', { title: "O'g'irlangan", src: mediaUrl }, tokB)
+  ok('video with foreign media -> 403', r.status === 403, `status=${r.status}`)
+
+  // O'z fayli bilan uzun video yaratiladi
+  r = await call('POST', '/api/media', { dataUrl: `data:image/png;base64,${pngBase64}` }, tokB)
+  const ownUrl = r.json?.url
+  r = await call('POST', '/api/videos', { title: 'Uzun video', src: ownUrl, duration: 12 }, tokB)
+  const vidId = r.json?.video?.id
+  ok('create video with own media -> 201', r.status === 201 && !!vidId, `status=${r.status}`)
+
+  // Boshqaning videosini o'chirib bo'lmaydi, egasi o'chira oladi
+  r = await call('DELETE', `/api/videos/${vidId}`, undefined, tok1b)
+  ok('delete video by non-owner -> 403', r.status === 403, `status=${r.status}`)
+  r = await call('DELETE', `/api/videos/${vidId}`, undefined, tokB)
+  ok('delete video by owner -> 200', r.status === 200, `status=${r.status}`)
+  const vidGone = (await call('GET', '/api/data', undefined, tokB)).json.videos ?? []
+  ok('deleted video no longer listed', !vidGone.some((v) => Number(v.id) === vidId))
+
+  // Egasi jonli efirni tugatadi -> replay avtomatik uzun videoga aylanadi
+  r = await call('POST', `${liveUrl}/end`, { video: mediaUrl, duration: 5, title: 'Jonli efir qayd' }, tok1b)
+  ok('end live by owner -> 200 + replay created', r.status === 200 && r.json?.video?.type === 'live', `status=${r.status}`)
+  const replay = (await call('GET', '/api/data', undefined, tok1b)).json.videos ?? []
+  ok(
+    'ended live stays as replay video',
+    replay.some((v) => v.type === 'live' && Number(v.liveId) === liveId && v.src),
+  )
+  const liveAfter = (await call('GET', '/api/data', undefined, tok1b)).json.lives ?? []
+  ok('ended live has status ended', liveAfter.some((l) => Number(l.id) === liveId && l.status === 'ended'))
+
   // 10) BUZILGAN/ESKI HUJJAT: massivli maydonlar yo'q bo'lsa ham ishlaydi
   // Ishlab chiqarishdagi 500 ning asosiy sababi shu edi — Netlify Blobs'dagi
   // eski `db` da `sessions` massivi yo'q edi, shuning uchun

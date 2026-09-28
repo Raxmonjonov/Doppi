@@ -2,6 +2,36 @@ import { useSyncExternalStore } from 'react'
 import type { Post, Story, Reel, Album, Group } from './mock'
 import { api, getToken, apiUrl } from '../api/client'
 
+export interface LiveOwner {
+  id: number
+  name: string
+  username: string
+  avatar: string
+}
+
+export interface Live {
+  id: number
+  owner: LiveOwner
+  title: string
+  startedAt: number
+  status: 'live' | 'ended'
+  viewers: number
+  video?: string
+  endedAt?: number
+  duration?: number
+}
+
+export interface LongVideo {
+  id: number
+  owner: LiveOwner
+  title: string
+  src: string
+  type: 'live' | 'upload'
+  liveId?: number | null
+  duration: number
+  createdAt: number
+}
+
 export interface UserData {
   posts: Post[]
   stories: Story[]
@@ -9,6 +39,8 @@ export interface UserData {
   albums: Album[]
   groups: Group[]
   following: number[]
+  lives: Live[]
+  videos: LongVideo[]
 }
 
 /* Serverdagi media fayllari nisbiy yo'l bilan saqlanadi (/api/media/x.webp).
@@ -20,7 +52,7 @@ function mediaUrl(value: unknown): unknown {
 }
 
 function empty(): UserData {
-  return { posts: [], stories: [], reels: [], albums: [], groups: [], following: [] }
+  return { posts: [], stories: [], reels: [], albums: [], groups: [], following: [], lives: [], videos: [] }
 }
 
 function normalize(d: Partial<UserData>): UserData {
@@ -50,6 +82,14 @@ function normalize(d: Partial<UserData>): UserData {
       joined: !!g.joined,
     })),
     following: Array.isArray(d.following) ? d.following : [],
+    lives: (d.lives ?? []).map((l) => ({
+      ...l,
+      video: typeof l.video === 'string' && l.video ? (mediaUrl(l.video) as string) : '',
+    })),
+    videos: (d.videos ?? []).map((v) => ({
+      ...v,
+      src: typeof v.src === 'string' && v.src ? (mediaUrl(v.src) as string) : '',
+    })),
   }
 }
 

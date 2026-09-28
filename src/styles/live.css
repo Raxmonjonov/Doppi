@@ -1,0 +1,649 @@
+/* =========================================================
+   Jonli efir + Uzun videolar bo'limlari
+   (Live.tsx, LiveRoom.tsx, Videos.tsx, FullscreenVideo.tsx)
+   ========================================================= */
+
+.btn-danger {
+  background: var(--fn-danger);
+  color: #fff;
+}
+.btn-danger:hover {
+  filter: brightness(1.06);
+}
+.btn-danger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.btn-text {
+  background: transparent;
+  color: var(--fn-text-secondary);
+  border: 1px solid var(--fn-border);
+}
+.btn-text:hover {
+  background: var(--fn-surface-alt);
+  color: var(--fn-text-primary);
+}
+
+.fn-empty {
+  text-align: center;
+  color: var(--fn-text-muted);
+  padding: 26px 12px;
+  font-size: 14px;
+}
+
+.fn-error {
+  color: var(--fn-danger);
+  font-size: 13px;
+  margin: 8px 0;
+}
+
+.fn-muted {
+  color: var(--fn-text-muted);
+  font-size: 13px;
+  margin: 8px 0;
+}
+
+/* ---------- Bo'lim umumiy ---------- */
+.live-page,
+.videos-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 0 26px;
+}
+
+.live-head,
+.videos-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 2px 2px;
+}
+
+.live-head h2,
+.videos-head h2 {
+  font-family: var(--fn-font-head);
+  font-size: 22px;
+  margin: 0;
+}
+
+.live-head p,
+.videos-head p {
+  margin: 2px 0 0;
+  color: var(--fn-text-secondary);
+  font-size: 13px;
+}
+
+/* ---------- Live boshlash panel ---------- */
+.live-start-panel {
+  background: var(--fn-surface);
+  border: 1px solid var(--fn-border);
+  border-radius: var(--fn-radius-card);
+  box-shadow: var(--fn-shadow);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.live-start-panel .form-input {
+  width: 100%;
+}
+
+.live-me-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fn-text-secondary);
+  font-size: 13px;
+}
+
+.live-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--fn-font-head);
+  font-size: 17px;
+  margin: 6px 2px 0;
+  color: var(--fn-text-primary);
+}
+
+/* ---------- Efir kartalari ---------- */
+.live-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.live-card {
+  background: var(--fn-surface);
+  border: 1px solid var(--fn-border);
+  border-radius: var(--fn-radius-card);
+  box-shadow: var(--fn-shadow);
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.live-card-main {
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.live-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background:
+    linear-gradient(160deg, var(--fn-primary-tint), var(--fn-surface-alt));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fn-text-secondary);
+  overflow: hidden;
+}
+
+.live-thumb-live {
+  background:
+    radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--fn-danger) 22%, transparent), transparent 55%),
+    linear-gradient(160deg, #1c1710, #2a2018);
+}
+
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #fff;
+  background: var(--fn-danger);
+  padding: 4px 9px;
+  border-radius: var(--fn-radius-pill);
+  text-transform: uppercase;
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fff;
+  animation: live-pulse 1.4s ease infinite;
+}
+
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.75);
+  }
+}
+
+.live-thumb-live .live-badge {
+  position: absolute;
+  top: 9px;
+  left: 9px;
+}
+
+.live-viewers {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--fn-text-primary);
+  background: color-mix(in srgb, var(--fn-surface) 84%, transparent);
+  backdrop-filter: blur(4px);
+  padding: 3px 8px;
+  border-radius: var(--fn-radius-pill);
+}
+
+.live-thumb-live .live-viewers {
+  color: #fff;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.live-mini {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 18px 9px 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fn-text-primary);
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.55));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-thumb-live .live-mini {
+  color: #fff;
+}
+
+.live-play {
+  color: var(--fn-accent);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
+}
+
+.live-ended-tag {
+  font-size: 12px;
+  color: var(--fn-text-muted);
+  background: var(--fn-surface);
+  border: 1px solid var(--fn-border);
+  padding: 4px 10px;
+  border-radius: var(--fn-radius-pill);
+}
+
+.live-card-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.live-card-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.live-card-text strong {
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-card-text span {
+  font-size: 12px;
+  color: var(--fn-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-card-end {
+  flex: 0 0 auto;
+  font-size: 12.5px;
+  padding: 6px 11px;
+}
+
+/* ---------- Live room (ijrochi/tomoshabin) ---------- */
+.live-room {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 0 26px;
+}
+
+.live-room-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40vh;
+  color: var(--fn-text-muted);
+}
+
+.live-room-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.live-room-title {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.live-room-title strong {
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-room-title .live-badge {
+  width: fit-content;
+  margin-top: 3px;
+  background: transparent;
+  color: var(--fn-danger);
+  padding: 0;
+  font-size: 12px;
+}
+
+.live-room-head .live-viewers {
+  position: static;
+}
+
+.live-room-stage {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  background: #000;
+  border-radius: 14px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.live-room-stage video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.live-room-camera-status {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 5px 10px;
+  border-radius: var(--fn-radius-pill);
+}
+
+.live-room-wait {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  font-size: 13.5px;
+}
+
+.live-room-ended {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  text-align: center;
+  padding: 16px;
+}
+
+.live-room-ended p {
+  margin: 0;
+}
+
+.live-room-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.live-room-finished {
+  align-items: center;
+  padding-top: 40px;
+  text-align: center;
+}
+
+.live-room-finished .fn-empty {
+  font-size: 16px;
+}
+
+/* ---------- Uzun videolar ---------- */
+.videos-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.video-card {
+  background: var(--fn-surface);
+  border: 1px solid var(--fn-border);
+  border-radius: var(--fn-radius-card);
+  box-shadow: var(--fn-shadow);
+  overflow: hidden;
+}
+
+.video-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background:
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--fn-primary) 18%, transparent), transparent 60%),
+    #140f0a;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-thumb:disabled {
+  cursor: default;
+  color: var(--fn-text-muted);
+}
+
+.video-play {
+  color: #fff;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.55));
+  opacity: 0.92;
+  transition: transform 160ms ease, opacity 160ms ease;
+}
+
+.video-thumb:hover .video-play {
+  transform: scale(1.14);
+  opacity: 1;
+}
+
+.video-dur {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 2px 7px;
+  border-radius: var(--fn-radius-pill);
+}
+
+.stale-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: color-mix(in srgb, var(--fn-text-secondary) 78%, transparent);
+}
+
+.video-card-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.video-card-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.video-card-text strong {
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-card-text span {
+  font-size: 12px;
+  color: var(--fn-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-del {
+  flex: 0 0 auto;
+  color: var(--fn-text-muted);
+}
+.video-del:hover {
+  color: var(--fn-danger);
+}
+
+/* ---------- Video modal (to'liq ekran player) ---------- */
+.video-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(10, 8, 4, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+
+.video-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 5;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  border: 0;
+  border-radius: 12px;
+  padding: 9px;
+  cursor: pointer;
+}
+.video-modal-close:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* ---------- Himoyalangan to'liq-ekran player ---------- */
+.fnfs-box {
+  position: relative;
+  width: min(860px, 92vw);
+  background: #000;
+  border-radius: 14px;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: var(--fn-shadow-lg);
+}
+
+.fnfs-fs {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+}
+
+.fnfs-box video {
+  width: 100%;
+  max-height: 82vh;
+  display: block;
+  object-fit: contain;
+  background: #000;
+}
+
+.fnfs-fs video {
+  max-height: 100vh;
+  height: 100vh;
+}
+
+.fnfs-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border: 0;
+  border-radius: 12px;
+  padding: 8px;
+  cursor: pointer;
+}
+.fnfs-close:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.fnfs-title {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  right: 12px;
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fnfs-hint {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 5px 10px;
+  border-radius: var(--fn-radius-pill);
+  pointer-events: none;
+}
+
+.fnfs-sound {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 4;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border: 0;
+  border-radius: 12px;
+  padding: 8px;
+  cursor: pointer;
+}
+.fnfs-sound:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+@media (max-width: 560px) {
+  .live-grid,
+  .videos-grid {
+    grid-template-columns: 1fr;
+  }
+}
