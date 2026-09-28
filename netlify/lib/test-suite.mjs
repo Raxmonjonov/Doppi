@@ -757,7 +757,43 @@ export async function runSuite(store, label) {
   if (prevNodeEnv === undefined) delete process.env.NODE_ENV
   else process.env.NODE_ENV = prevNodeEnv
 
-  // 10) reload from a fresh store read (persistence)
+  // 10) BUZILGAN/ESKI HUJJAT: massivli maydonlar yo'q bo'lsa ham ishlaydi
+  // Ishlab chiqarishdagi 500 ning asosiy sababi shu edi — Netlify Blobs'dagi
+  // eski `db` da `sessions` massivi yo'q edi, shuning uchun
+  // `doc.sessions.filter` `TypeError` berib ro'yxatdan o'tishni buzdi.
+  const brokenStore = Object.create(store, {
+    getDoc: { value: async () => ({ users: [] }) },
+    // Muhim: yozuv HAQIQIY store'ga tushmasligi kerak, aks holda qolgan
+    // testlar o'z ma'lumotini yo'qotadi (boshqa testlarga tegilmaslik).
+    saveDoc: { value: async () => {} },
+  })
+  const brokenRegister = await handleRequest(
+    'POST',
+    '/api/auth/register',
+    {},
+    {
+      json: async () => ({
+        name: 'Eski Hujjat',
+        username: `legacy${Math.random().toString(36).slice(2, 8)}`,
+        email: `legacy${Math.random().toString(36).slice(2, 8)}@example.com`,
+        password: 'EskiHujjat!Parol#2026',
+      }),
+      headers: {},
+    },
+    brokenStore,
+  )
+  ok('doc without list fields still registers (no 500)', brokenRegister.status === 200, `status=${brokenRegister.status}`)
+  // Saxta bearer bilan /api/auth/me ham 500 QILMASLIGI kerak (401 beradi)
+  const brokenMe = await handleRequest(
+    'GET',
+    '/api/auth/me',
+    {},
+    { json: async () => ({}), headers: { authorization: `Bearer ${'b'.repeat(64)}` } },
+    brokenStore,
+  )
+  ok('doc without list fields: /auth/me is 401 not 500', brokenMe.status === 401, `status=${brokenMe.status}`)
+
+  // 11) reload from a fresh store read (persistence)
   const freshStore = await relaunch(store)
   const r2 = await (async () => {
     const headers = { authorization: `Bearer ${tok1b}` }

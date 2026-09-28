@@ -36,7 +36,7 @@ export function createBlobsStore(blob, seedProvider) {
   })
   const readMetaBlob = async (id) => {
     try {
-      return await blob.get(META_PREFIX + id, { type: 'json' })
+      return await blob.get(META_PREFIX + id, { type: 'json', consistency: 'strong' })
     } catch {
       return null
     }
@@ -51,7 +51,7 @@ export function createBlobsStore(blob, seedProvider) {
     const own = await readMetaBlob(id)
     if (own) return normMeta(own)
     try {
-      const res = await blob.getMetadata(MEDIA_PREFIX + id)
+      const res = await blob.getMetadata(MEDIA_PREFIX + id, { consistency: 'strong' })
       if (!res) return null
       return normMeta(res.metadata ?? {})
     } catch {
@@ -61,7 +61,13 @@ export function createBlobsStore(blob, seedProvider) {
 
   return {
     async getDoc() {
-      const doc = await blob.get(KEY, { type: 'json' })
+      // `consistency: 'strong'` — RO'YXATDAN O'TISH/LOGIN'dan keyingi darhol
+      // o'qish session hali ko'rinmayotgani uchun muvaffaqiyatsiz bo'lmasin.
+      // Blobs 'eventual' rejimida yozilgan sessiya bir necha soniya boshqa
+      // lambda'ga ko'rinmasdan qoladi: foydalanuvchi ro'yxatdan o'tib, keyingi
+      // sahifada "yana ro'yxatdan o't" ko'radi — tasodifiy SESSION_SECRET'ga
+      // o'xshab ko'ringan hodisa, asl manbasi kutilgan emas.
+      const doc = await blob.get(KEY, { type: 'json', consistency: 'strong' })
       if (doc) return doc
       const seed = await seedProvider()
       await blob.setJSON(KEY, seed)
@@ -110,7 +116,7 @@ export function createBlobsStore(blob, seedProvider) {
     },
     async getMedia(id) {
       if (!validId(id)) return null
-      const res = await blob.getWithMetadata(MEDIA_PREFIX + id, { type: 'arrayBuffer' })
+      const res = await blob.getWithMetadata(MEDIA_PREFIX + id, { type: 'arrayBuffer', consistency: 'strong' })
       if (!res || !res.data) return null
       // FAIL-CLOSED: fayl bor, lekin chegara o'qib bo'lmadi (vaqtincha
       // xato yoki bo'sh metadata). Chegara noma'lum bo'lsa `public` deb

@@ -60,6 +60,26 @@ export function emptyDoc() {
   }
 }
 
+/* Yuklangan hujjatga ishonch yo'q. `db` — bitta JSON blob, uni qo'lda ham
+   tahrirlash mumkin: eski `db.json`/`seed.json` nusxasi, boshqa versiyadagi
+   kod yoki bo'sh/uzilgan yozuvda massivli maydonlar YO'Q bo'lishi mumkin.
+
+   Bunday holat `TypeError` beradi (`doc.sessions.filter is not a function`)
+   va butun yo'lga `500` qaytadi: foydalanuvchi ro'yxatdan o'ta olmaydi,
+   admin panelga kira olmaydi, ya'ni sayt butunlay buzilgan ko'rinadi.
+   Ishlab chiqarishda aynan shunday hodisa yuz berdi (Netlify Blobs'dagi
+   eski hujjatda `sessions` yo'q edi).
+
+   Tuzatish: hujjat yuklangandan keyin har bir massivli maydon tekshiriladi.
+   Ma'lumot o'chirilmaydi — faqat noto'g'ri shakl tuzatiladi. */
+export function normalizeDoc(doc) {
+  const d = doc && typeof doc === 'object' ? doc : {}
+  for (const key of Object.keys(emptyDoc())) {
+    if (!Array.isArray(d[key])) d[key] = []
+  }
+  return d
+}
+
 /* Parol va token yordamchilari endi ./security.mjs da (ikki backend o'rtasida
    bir xil xatti-harakat). Bu yerda qoldiq eski ta'riflar olib tashlandi. */
 
@@ -780,7 +800,7 @@ export async function handleRequest(method, pathname, query, req, store) {
     return { status: 200, binary: { body: item.bytes, type: item.mime } }
   }
 
-  const doc = await store.getDoc()
+  const doc = normalizeDoc(await store.getDoc())
   const send = async (status, json) => ({ status, json })
 
   const bearer = String(req.headers?.authorization ?? req.headers?.get?.('authorization') ?? '').replace(/^Bearer\s+/i, '').trim()
