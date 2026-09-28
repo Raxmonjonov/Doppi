@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Clapperboard, Loader2, Radio, Volume2, VolumeX, Eye } from 'lucide-react'
 import { api } from '../api/client'
 import { useMe } from '../data/useMe'
@@ -334,6 +334,7 @@ function ViewerRoom({ live }: { live: Live }) {
       if (stop) return
       if (poll.status === 'ended') {
         setEnded(true)
+        clearInterval(iv)
         return
       }
       for (const s of poll.signals) {
@@ -449,7 +450,6 @@ function ViewerRoom({ live }: { live: Live }) {
 
 export default function LiveRoom() {
   const { id } = useParams()
-  const [params] = useSearchParams()
   const me = useMe()
   const { t } = useI18n()
   const navigate = useNavigate()
@@ -483,7 +483,7 @@ export default function LiveRoom() {
   }
 
   const isOwner = !!me && me.id === live.owner.id
-  if (params.get('broadcast') === '1' && isOwner) {
+  if (isOwner) {
     return <BroadcastRoom live={live} key={`bcast-${live.id}`} />
   }
   return <ViewerRoom live={live} key={`view-${live.id}`} />
