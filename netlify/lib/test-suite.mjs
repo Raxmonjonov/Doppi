@@ -764,6 +764,27 @@ export async function runSuite(store, label) {
   ok('create live -> 201', r.status === 201 && !!liveId, `status=${r.status}`)
   const liveUrl = liveId ? `/api/lives/${liveId}` : ''
 
+  // Sync (PUT /api/data) server-ega lives/videos ga tegmasligi kerak:
+  // klient soxta video/efir kiritib yoki mavjudni o'chira olmaydi.
+  r = await call(
+    'PUT',
+    '/api/data',
+    {
+      posts: [],
+      stories: [],
+      reels: [],
+      albums: [],
+      groups: [],
+      lives: [{ id: 1, title: 'FAKE', status: 'ended', viewers: [], signals: [] }],
+      videos: [{ id: 2, title: 'FAKE' }],
+    },
+    tokB,
+  )
+  ok('PUT /api/data accepts body with lives/videos (no explicit rejection)', r.status === 200, `status=${r.status}`)
+  const afterForge = (await call('GET', '/api/data', undefined, tok1b)).json
+  ok('sync cannot forge video list', !(afterForge.videos ?? []).some((v) => Number(v.id) === 2))
+  ok('sync cannot touch live state', !!liveId && (afterForge.lives ?? []).some((l) => Number(l.id) === liveId && l.status === 'live'))
+
   // Tomoshabin qo'shiladi, ijrochi signallarni ko'radi
   r = await call('POST', `${liveUrl}/signal`, { kind: 'viewer-join', to: uid1 }, tokB)
   ok('viewer joins -> 200', r.status === 200, `status=${r.status}`)
@@ -812,6 +833,19 @@ export async function runSuite(store, label) {
   // Egasi jonli efirni tugatadi -> replay avtomatik uzun videoga aylanadi
   r = await call('POST', `${liveUrl}/end`, { video: mediaUrl, duration: 5, title: 'Jonli efir qayd' }, tok1b)
   ok('end live by owner -> 200 + replay created', r.status === 200 && r.json?.video?.type === 'live', `status=${r.status}`)
+
+  // Replay'siz tugatilgan efir video yozuvi YARATMAYDI (bo'sh karta qolmaydi)
+  const noReplayLive = (await call('POST', '/api/lives', { title: 'No replay' }, tok1b)).json?.live?.id
+  ok('live created for no-replay case', !!noReplayLive, `status=${r.status}`)
+  if (noReplayLive) {
+    r = await call('POST', `/api/lives/${noReplayLive}/end`, { video: '', duration: 3 }, tok1b)
+    ok('live end without replay -> 200', r.status === 200, `status=${r.status}`)
+    const vidsAfterNoReplay = (await call('GET', '/api/data', undefined, tok1b)).json.videos ?? []
+    ok('live ended without replay creates no video record', !vidsAfterNoReplay.some((v) => Number(v.liveId) === noReplayLive))
+    const livesAfterNoReplay = (await call('GET', '/api/data', undefined, tok1b)).json.lives ?? []
+    ok('live without replay has status ended', livesAfterNoReplay.some((l) => Number(l.id) === noReplayLive && l.status === 'ended'))
+  }
+
   const replay = (await call('GET', '/api/data', undefined, tok1b)).json.videos ?? []
   ok(
     'ended live stays as replay video',
