@@ -699,6 +699,15 @@ Agar kiruvchi webhook keyin qo'shilsa: **imzo majburiy** — HMAC-SHA256
      Skript xom, qochirilgan (`\'`) va URL-kodlangan (`%27`) shakllarni
      ham almashtiradi, `refs/*` ning barchasini qayta yozadi va har bir
      shaklni alohida tekshiradi.
+   - **Qarshilik (2026-09-28):** `c5fbdb0` commit **xabarida** eski
+     parolning sha256 fragmenti (`33ddfc5f1414b1c5`, 64-bit) qolgan —
+     `git filter-repo` faqat blob'larni (source/docs) almashtirgan, commit
+     xabarlarini emas. Amaliy risk minimal: (1) parolning to'liq shakli
+     allaqachon eski tarixda ochiq, (2) fragment mos keladigan parol barcha
+     jonli tizimlardan almashtirilgan (Netlify env + lokal `.env`; sha256
+     mosligi haqiqiy qiymatlar bilan tekshirilgan), (3) 64-bit truncation
+     preimage tiklash uchun yetarli emas. Shu sababli qo'shimcha tarix
+     rewriti amalga oshirilmadi.
 7. **Xavfsizlik testlari** — `npm run test:all` (delivery 42 tekshiruv,
    api-core 174, blobs 174, pg-store 174, delivery 42 = **564**) vositasi sifatida
    ishlaydi; bind/HSTS/redirect, yozish limiti va IDOR probe'lari qo'lda
