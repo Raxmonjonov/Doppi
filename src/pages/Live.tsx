@@ -106,7 +106,7 @@ export default function Live() {
     setBusy(true)
     try {
       const out = await api<{ live: Live }>('/api/lives', { method: 'POST', body: { title: title.trim() } })
-      navigate(`/live/${out.live.id}?broadcast=1`)
+      navigate(`/live/${out.live.id}`)
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
       setBusy(false)
