@@ -15,6 +15,7 @@ import {
   tokenRef,
   sessionMatches,
   mediaSignatureValid,
+  mediaSignature,
   signedMediaPath,
   mediaPathOf,
   mediaRefProblem,
@@ -1247,6 +1248,35 @@ app.post('/api/users/:id/follow', authMiddleware, async (req, res) => {
 
 /* ---------- Data (posts/stories/reels/albums) ---------- */
 
+/* Eski imzosiz public media havolalarini oqimda imzolaydi (api-core'dagi
+   signMediaRefs bilan bir xil): `<img src>` auth header yubormaydi —
+   imzosiz havola 401 bo'lib buzilardi. Imzo faqat serverda hisoblanadi. */
+function signedIfMedia(v) {
+  const id = mediaPathOf(v)
+  if (!id || /[?&]s=/.test(v)) return v
+  return v + (v.includes('?') ? '&' : '?') + 's=' + mediaSignature(id)
+}
+function signMediaRefs(node, depth = 0) {
+  if (depth > 8 || node == null || typeof node !== 'object') return
+  if (Array.isArray(node)) {
+    for (let i = 0; i < node.length; i++) {
+      const v = node[i]
+      if (typeof v === 'string') {
+        const s = signedIfMedia(v)
+        if (s !== v) node[i] = s
+      } else if (v && typeof v === 'object') signMediaRefs(v, depth + 1)
+    }
+    return
+  }
+  for (const k of Object.keys(node)) {
+    const v = node[k]
+    if (typeof v === 'string') {
+      const s = signedIfMedia(v)
+      if (s !== v) node[k] = s
+    } else if (v && typeof v === 'object') signMediaRefs(v, depth + 1)
+  }
+}
+
 app.get('/api/data', authMiddleware, async (req, res) => {
   const userId = req.user.id
   const storyCutoff = Date.now() - 24 * 60 * 60 * 1000
@@ -1424,6 +1454,7 @@ app.get('/api/data', authMiddleware, async (req, res) => {
 
   await pool.query(`DELETE FROM stories WHERE id < $1`, [storyCutoff])
 
+  signMediaRefs({ posts, stories, reels, albums, groups, following, lives, videos })
   res.json({ posts, stories, reels, albums, groups, following, lives, videos })
 })
 
@@ -2468,12 +2499,18 @@ app.post('/api/media/gc', async (req, res) => {
          UNION ALL SELECT video::text FROM posts
          UNION ALL SELECT image::text FROM stories
          UNION ALL SELECT image::text FROM reels
+         UNION ALL SELECT sound::text FROM reels
          UNION ALL SELECT photos::text FROM albums
          UNION ALL SELECT cover::text FROM "groups"
          UNION ALL SELECT avatar::text FROM users
+         UNION ALL SELECT actor_avatar::text FROM notifications
          UNION ALL SELECT image::text FROM messages
+         UNION ALL SELECT audio::text FROM messages
          UNION ALL SELECT image::text FROM group_messages
-       ) s
+         UNION ALL SELECT audio::text FROM group_messages
+         UNION ALL SELECT video::text FROM lives
+         UNION ALL SELECT src::text FROM videos
+        ) s
        WHERE txt LIKE '%/api/media/%'`,
     )
     const used = new Set(refRows.map((r) => r.id).filter(Boolean))
@@ -2507,6 +2544,7 @@ app.post('/api/media/migrate', async (req, res) => {
     { table: 'posts', column: 'video', json: false },
     { table: 'stories', column: 'image', json: false },
     { table: 'reels', column: 'image', json: false },
+    { table: 'reels', column: 'sound', json: false },
     { table: 'albums', column: 'photos', json: true },
     { table: 'groups', column: 'cover', json: false },
     { table: 'users', column: 'avatar', json: false },
@@ -2514,6 +2552,8 @@ app.post('/api/media/migrate', async (req, res) => {
     { table: 'messages', column: 'audio', json: false },
     { table: 'group_messages', column: 'image', json: false },
     { table: 'group_messages', column: 'audio', json: false },
+    { table: 'lives', column: 'video', json: false },
+    { table: 'videos', column: 'src', json: false },
   ]
   const DATA_URL_RE = /data:([a-z0-9.+/-]+);base64,([A-Za-z0-9+/=]+)/gi
   const stored = new Map() // dataUrl -> /api/media/<id>
@@ -2767,7 +2807,7 @@ app.delete('/api/videos/:id', authMiddleware, async (req, res) => {
           (SELECT COUNT(*)::int FROM users WHERE avatar LIKE '%' || $2 || '%') +
           (SELECT COUNT(*)::int FROM posts WHERE video LIKE '%' || $2 || '%' OR images::text LIKE '%' || $2 || '%') +
           (SELECT COUNT(*)::int FROM stories WHERE image LIKE '%' || $2 || '%') +
-          (SELECT COUNT(*)::int FROM reels WHERE image LIKE '%' || $2 || '%') +
+          (SELECT COUNT(*)::int FROM reels WHERE image LIKE '%' || $2 || '%' OR sound LIKE '%' || $2 || '%') +
           (SELECT COUNT(*)::int FROM albums WHERE photos::text LIKE '%' || $2 || '%') +
           (SELECT COUNT(*)::int FROM groups WHERE cover LIKE '%' || $2 || '%') +
           (SELECT COUNT(*)::int FROM messages WHERE image LIKE '%' || $2 || '%' OR audio LIKE '%' || $2 || '%') +

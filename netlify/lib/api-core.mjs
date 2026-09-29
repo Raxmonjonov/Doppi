@@ -309,38 +309,29 @@ export function isSafeMediaId(id) {
 }
 
 /* Hujjatda qolib ketgan barcha media havolalari: kim vaqtincha o'chirilsa ham
-   "ishlatilgan" hisoblanadi. Imzoli havolalarda `?s=...` qismi bo'ladi. */
+   "ishlatilgan" hisoblanadi. Imzoli havolalarda `?s=...` qismi bo'ladi.
+   Maydonlar ro'yxati EMAS — butun hujjat bo'ylab yuramiz: GC keyinroq
+   qo'shiladigan yangi maydonni (masalan reels.sound) adashib o'chirib
+   yubormasin. Aks tomonda xavfsiz: matndagi tasodifiy `/api/media/...`
+   satri faylni faqat "saqlab qoladi" — yo'qotmaydi. */
 export function collectMediaRefs(doc) {
   const refs = new Set()
-  const take = (v) => {
-    const id = mediaPathOf(v)
-    if (id && isSafeMediaId(id)) refs.add(id)
+  const walk = (node, depth = 0) => {
+    if (depth > 8 || node == null) return
+    if (typeof node === 'string') {
+      const id = mediaPathOf(node)
+      if (id && isSafeMediaId(id)) refs.add(id)
+      return
+    }
+    if (Array.isArray(node)) {
+      for (const v of node) walk(v, depth + 1)
+      return
+    }
+    if (typeof node === 'object') {
+      for (const v of Object.values(node)) walk(v, depth + 1)
+    }
   }
-  for (const u of doc.users ?? []) take(u.avatar)
-  for (const p of doc.posts ?? []) {
-    for (const i of p.images ?? []) take(i)
-    take(p.video)
-  }
-  for (const s of doc.stories ?? []) take(s.image)
-  for (const r of doc.reels ?? []) {
-    take(r.image)
-    take(r.video)
-  }
-  for (const a of doc.albums ?? []) {
-    take(a.cover)
-    for (const ph of a.photos ?? []) take(ph?.url)
-  }
-  for (const g of doc.groups ?? []) take(g.cover)
-  for (const m of doc.messages ?? []) {
-    take(m.image)
-    take(m.audio)
-  }
-  for (const m of doc.groupMessages ?? []) {
-    take(m.image)
-    take(m.audio)
-  }
-  for (const l of doc.lives ?? []) take(l.video)
-  for (const v of doc.videos ?? []) take(v.src)
+  walk(doc)
   return refs
 }
 

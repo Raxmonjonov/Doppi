@@ -513,6 +513,63 @@ export async function runSuite(store, label) {
     ok('migrated media is downloadable', mr2.status === 200 && !!mr2.binary, `status=${mr2.status}`)
   }
 
+  // 8d) O'qishda imzolash: eski imzosiz public media havola <img> uchun
+  //      ochiq bo'lishi kerak (brauzer auth header yubormaydi -> 401 emas)
+  const unsUp = await call('POST', '/api/media', { dataUrl: `data:image/png;base64,${pngBase64}` }, tok2)
+  ok('upload for unsigned-ref test', unsUp.status === 201, `status=${unsUp.status}`)
+  const unsPath = `/api/media/${unsUp.json.id}`
+  const curA = (await call('GET', '/api/data', undefined, tok2)).json
+  r = await call('PUT', '/api/data', {
+    posts: [...curA.posts, { id: pid + 8, time: 'old', text: 'unsigned media ref', images: [unsPath], likes: 0, comments: [] }],
+    stories: [],
+    reels: [],
+    albums: curA.albums,
+    groups: [],
+  }, tok2)
+  ok('PUT post with unsigned media ref', r.status === 200, `status=${r.status}`)
+  r = await call('GET', '/api/data', undefined, tok2)
+  const signedAtRead = r.json.posts.find((p) => p.id === pid + 8)?.images?.[0] ?? ''
+  ok('unsigned public media ref signed at read', signedAtRead.startsWith('/api/media/') && signedAtRead.includes('?s='), `url=${signedAtRead.slice(0, 60)}`)
+  if (signedAtRead) {
+    const sr = await call('GET', signedAtRead, undefined, undefined)
+    ok('signed-at-read media downloadable without auth', sr.status === 200 && !!sr.binary, `status=${sr.status}`)
+  }
+
+  // 8e) ETag / If-None-Match: aniq qiymat, Netlify edge "-df" ko'rinishi,
+  //      W/ prefiksi va mos kelmasa to'liq 200
+  const callInm = async (inm) => {
+    const headers = { authorization: `Bearer ${tok2}` }
+    if (inm !== undefined) headers['if-none-match'] = inm
+    return handleRequest('GET', '/api/data', {}, { json: async () => ({}), headers }, store)
+  }
+  r = await call('GET', '/api/data', undefined, tok2)
+  const etag = String(r.headers?.ETag ?? '')
+  ok('GET /api/data returns ETag', /^"[0-9a-f]{32}"$/.test(etag), `etag=${etag}`)
+  r = await callInm(etag)
+  ok('exact ETag -> 304', r.status === 304, `status=${r.status}`)
+  r = await callInm(etag.replace(/"$/, '-df"'))
+  ok('edge-decorated ETag (-df) -> 304', r.status === 304, `status=${r.status}`)
+  r = await callInm('W/' + etag)
+  ok('weak ETag (W/) -> 304', r.status === 304, `status=${r.status}`)
+  r = await callInm('"00000000000000000000000000000000"')
+  ok('mismatched ETag -> 200', r.status === 200, `status=${r.status}`)
+
+  // 8f) GC maydonlar ro'yxatiga bog'lanmaydi: reels.sound (eskirgan
+  //      enumeratsiyada yo'q maydon) dagi havola ishlatilgan hisoblanadi
+  const keepUp = await call('POST', '/api/media', { dataUrl: `data:image/png;base64,${pngBase64}` }, tok2)
+  ok('upload for gc-field test', keepUp.status === 201, `status=${keepUp.status}`)
+  const dgc = await store.getDoc()
+  dgc.reels = Array.isArray(dgc.reels) ? dgc.reels : []
+  if (!dgc.reels.length) {
+    dgc.reels.push({ id: pid + 9, ownerId: String(uid1), title: 'gc-reel', image: '', sound: '', caption: '' })
+  }
+  dgc.reels[0].sound = keepUp.json.url
+  await store.saveDoc(dgc)
+  r = await call('POST', '/api/media/gc', undefined, adminTok)
+  ok('media gc runs', r.status === 200, `status=${r.status} ${JSON.stringify(r.json ?? {})}`)
+  const keepCheck = await call('GET', keepUp.json.url, undefined, undefined)
+  ok('media referenced only via reel.sound survives gc', keepCheck.status === 200 && !!keepCheck.binary, `status=${keepCheck.status}`)
+
   // 9) rate limit: parol taxmin qilish bloklanadi
   let lockStatus = 0
   for (let i = 0; i < RATE_LIMITS.loginAccount.max + 2; i++) {
