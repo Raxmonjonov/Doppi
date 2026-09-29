@@ -11,6 +11,7 @@ import {
   tokenRef,
   sessionMatches,
   mediaSignatureValid,
+  mediaSignature,
   signedMediaPath,
   mediaPathOf,
   mediaRefProblem,
@@ -441,6 +442,37 @@ function rewriteDataUrls(node, byValue, depth = 0) {
       if (typeof v === 'string' && byValue.has(v)) node[k] = byValue.get(v)
       else rewriteDataUrls(v, byValue, depth + 1)
     }
+  }
+}
+
+/* Eski imzosiz public media havolalarini (migratsiyadan ham oldin
+   paydo bo'lgan) oqimda imzolaydi. `<img src>` auth header yubormaydi —
+   imzosiz havola 401 bo'lib buzilardi. Imzo faqat serverda hisoblanadi
+   (SESSION_SECRET), ETagdan oldin chaqiriladi. */
+function signedIfMedia(v) {
+  const id = mediaPathOf(v)
+  if (!id || /[?&]s=/.test(v)) return v
+  return v + (v.includes('?') ? '&' : '?') + 's=' + mediaSignature(id)
+}
+
+function signMediaRefs(node, depth = 0) {
+  if (depth > 8 || node == null || typeof node !== 'object') return
+  if (Array.isArray(node)) {
+    for (let i = 0; i < node.length; i++) {
+      const v = node[i]
+      if (typeof v === 'string') {
+        const s = signedIfMedia(v)
+        if (s !== v) node[i] = s
+      } else if (v && typeof v === 'object') signMediaRefs(v, depth + 1)
+    }
+    return
+  }
+  for (const k of Object.keys(node)) {
+    const v = node[k]
+    if (typeof v === 'string') {
+      const s = signedIfMedia(v)
+      if (s !== v) node[k] = s
+    } else if (v && typeof v === 'object') signMediaRefs(v, depth + 1)
   }
 }
 
@@ -1369,6 +1401,7 @@ export async function handleRequest(method, pathname, query, req, store) {
     }
 
     const payload = { posts, stories: storiesData, reels, albums, groups, following, lives, videos }
+    signMediaRefs(payload)
 
     /* ETag/304: /api/data MB'larcha og'ir va mijoz uni ~5s da poll qiladi.
        Har poll'da to'liq body o'rniga brauzer no-cache qoidasi bilan
