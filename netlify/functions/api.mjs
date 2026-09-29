@@ -74,12 +74,18 @@ export default async (req) => {
     ...base,
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
+    // GET /api/data handleri o'z ETag/Cache-Control'ini qaytaradi
+    // (private, no-cache + ETag → brauzer poll'lari 304 bo'lib o'tadi)
+    ...(res.headers ?? {}),
   }
   if (res.status === 429 && res.json?.retryAfter) {
     // Mijoz va orasidagi proksi kutish vaqtini HTTP sarlavhasidan o'qiydi
     headers['Retry-After'] = String(res.json.retryAfter)
   }
   if (res.status === 401) headers['WWW-Authenticate'] = 'Bearer realm="doppi"'
+
+  // If-None-Match mos keldi:304 bo'sh body bilan qaytadi (faqat sarlavhalar)
+  if (res.status === 304) return new Response(null, { status: 304, headers })
 
   return new Response(JSON.stringify(res.json), { status: res.status, headers })
 }

@@ -49,6 +49,12 @@ export async function api<T>(
   })
 
   const text = await res.text()
+  // 304 brauzer keshida yutilib 200 bo'lib ko'rinadi; JS ga yetib kelgan
+  // 304/bo'sh-200 — kesh yo'q deganidir. Buni normalize({}) orqali store'ni
+  // O'ZARTIRMASlik uchun xato sifatida uzatamiz (pullData lokalni saqlaydi).
+  if (res.status === 304 || (res.ok && !text)) {
+    throw new Error(`Kutilmagan javob: ${res.status}`)
+  }
   let data: T & { error?: string } = {} as T & { error?: string }
   if (text) {
     // Netlify kabi statik hostda API mavjud bo'lmasa /api -> index.html qaytishi mumkin:

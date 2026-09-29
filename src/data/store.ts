@@ -137,8 +137,15 @@ function loadLegacy(): UserData | null {
   return null
 }
 
+let pullInFlight = false
+
 export async function pullData(): Promise<void> {
   if (!getToken()) return
+  // Sekin tarmoqda /api/data javobi 5s dan ancha uzoq ketadi — interval
+  // tug'ilgan parallel pull'lar bandwidth'ni bo'lib, o'z-o'zini DDoS qiladi
+  // (har biri yanada sekinlashadi → hech qachon tugamaydi). Faqat bittasi.
+  if (pullInFlight) return
+  pullInFlight = true
   try {
     const d = await api<Partial<UserData>>('/api/data')
     const remote = normalize(d)
@@ -156,7 +163,17 @@ export async function pullData(): Promise<void> {
     emit()
   } catch {
     /* offline — keep local */
+  } finally {
+    pullInFlight = false
   }
+}
+
+/* Server egalikdagi bo'limlar (lives/videos) uchun: lokal o'zgarish store'ga
+   yoziladi, lekin PUT /api/data (postlar/guruhlar) schedule qilinmaydi —
+   ular serverda yaratiladi/saqlanadi. */
+export function updateLocal(fn: (d: UserData) => void) {
+  fn(data)
+  emit()
 }
 
 let pushTimer: ReturnType<typeof setTimeout> | null = null
@@ -174,8 +191,19 @@ function schedulePush() {
   }, 400)
 }
 
+let pushInFlight = false
+let pushQueued = false
+
 async function pushData(): Promise<void> {
   if (!getToken()) return
+  // PUT /api/data butun holatni (MB'lar) yuboradi — parallel yozuvlar
+  // sekin upload'ni kesib, to'planib ketmasin; o'rtadagi o'zgarishlar
+  // oxirgi bitta push'da yetib boradi (queued).
+  if (pushInFlight) {
+    pushQueued = true
+    return
+  }
+  pushInFlight = true
   try {
     await api('/api/data', {
       method: 'PUT',
@@ -183,6 +211,12 @@ async function pushData(): Promise<void> {
     })
   } catch {
     /* offline — will retry on next change */
+  } finally {
+    pushInFlight = false
+    if (pushQueued) {
+      pushQueued = false
+      void pushData()
+    }
   }
 }
 

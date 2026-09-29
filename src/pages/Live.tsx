@@ -4,7 +4,7 @@ import { Radio, Clapperboard, Play, Eye } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
 import type { Live, LiveOwner } from '../data/store'
 import type { User } from '../data/mock'
-import { useData } from '../data/store'
+import { useData, updateLocal } from '../data/store'
 import { useMe } from '../data/useMe'
 import { useI18n } from '../i18n'
 import { api } from '../api/client'
@@ -106,6 +106,11 @@ export default function Live() {
     setBusy(true)
     try {
       const out = await api<{ live: Live }>('/api/lives', { method: 'POST', body: { title: title.trim() } })
+      // Efirni store'ga darhol qo'shamiz — xona (BroadcastRoom) live'ni
+      // /api/data poll'ini kutmasin (sekin tarmoqda bu 15s+ kutish edi).
+      updateLocal((d) => {
+        d.lives = [out.live, ...d.lives.filter((l) => l.id !== out.live.id)]
+      })
       navigate(`/live/${out.live.id}`)
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))

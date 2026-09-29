@@ -1368,7 +1368,22 @@ export async function handleRequest(method, pathname, query, req, store) {
       if (doc.stories.length !== before) await store.saveDoc(doc)
     }
 
-    return send(200, { posts, stories: storiesData, reels, albums, groups, following, lives, videos })
+    const payload = { posts, stories: storiesData, reels, albums, groups, following, lives, videos }
+
+    /* ETag/304: /api/data MB'larcha og'ir va mijoz uni ~5s da poll qiladi.
+       Har poll'da to'liq body o'rniga brauzer no-cache qoidasi bilan
+       If-None-Match yuboradi — mos kelsa 304 (bajara bits) qaytamiz.
+       ETag payload o'zidan (sha256) hisoblanadi: per-user maydonlar (following,
+       likedByMe) boshqa foydalanuvchida boshqa ETag beradi — mos kelmasa to'liq
+       200, ya'ni boshqa foydalanuvchining keshi hech qachon ochilmaydi. */
+    const body = JSON.stringify(payload)
+    const etag = '"' + crypto.createHash('sha256').update(body).digest('hex').slice(0, 32) + '"'
+    const inm = String(req.headers?.['if-none-match'] ?? req.headers?.get?.('if-none-match') ?? '')
+    const matched = inm
+      .split(',')
+      .some((t) => t.trim() === etag || t.trim() === 'W/' + etag || t.trim() === '*')
+    if (matched) return { status: 304, headers: { ETag: etag, 'Cache-Control': 'private, no-cache' } }
+    return { status: 200, headers: { ETag: etag, 'Cache-Control': 'private, no-cache' }, json: payload }
   }
 
   if (method === 'PUT' && first === 'data' && second === undefined) {
