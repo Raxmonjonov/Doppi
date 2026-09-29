@@ -11,9 +11,13 @@ const emptyDocPromise = Promise.resolve(emptyDoc(Date.now()))
 
 // Primary persistence: Neon PostgreSQL (set DATABASE_URL env var in Netlify).
 // Fallback: Netlify Blobs when DATABASE_URL is not configured.
+// Postgres'ga o'tilganda (DATABASE_URL qo'yilsa) eski Blobs ma'lumotlari
+// avtomatik ko'chiriladi: postgres bo'sh hujjat/media'ni Blobs'dan o'qiydi
+// va bir marta Postgres'ga yozadi (createPostgresStore fallback parametri).
+const blobStore = createBlobsStore(getStore('doppi-data-v1'), () => emptyDocPromise)
 const store = process.env.DATABASE_URL
-  ? createPostgresStore(process.env.DATABASE_URL, () => emptyDocPromise)
-  : createBlobsStore(getStore('doppi-data-v1'), () => emptyDocPromise)
+  ? createPostgresStore(process.env.DATABASE_URL, () => emptyDocPromise, undefined, blobStore)
+  : blobStore
 
 // Fail fast in production instead of silently running with a throwaway key.
 if (process.env.NODE_ENV === 'production') {

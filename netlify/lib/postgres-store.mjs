@@ -1,6 +1,10 @@
 import { neon } from '@neondatabase/serverless'
 
-export function createPostgresStore(databaseUrl, seedProvider, sqlClient) {
+/* `fallback` — kiritilgan EMAS, lazily-migrating holda eski ombor. Agar
+   Netlify'da oldin Blobs store ishlatilgan bo'lsa va endi DATABASE_URL
+   Postgres'ga o'tilsa, postgres bo'sh bo'lganida hujjat/media avtomatik
+   eski Blobs'dan ko'chiriladi (bir marta; so'ng Postgres asosiy ombor bo'ladi). */
+export function createPostgresStore(databaseUrl, seedProvider, sqlClient, fallback = null) {
   const sql = sqlClient ?? neon(databaseUrl)
   const docKey = 'doppi-doc-v1'
 
@@ -16,8 +20,20 @@ export function createPostgresStore(databaseUrl, seedProvider, sqlClient) {
     await ensureTable()
     const rows = await sql`SELECT doc FROM doppi_doc WHERE doc_key = ${docKey}`
     if (!rows || rows.length === 0) {
+      // Migratsiya: eski omborda hujjat bormi? Bo'lsa ko'chirib, Postgres'ga
+      // yozamiz. `ON CONFLICT DO NOTHING` parallel sovuq start'larga xavfsiz:
+      // ikkalasi ham bir xil hujjatni qaytaradi, bitta yozuv yoziladi.
+      if (fallback) {
+        const legacy = await fallback.getDoc()
+        await sql`INSERT INTO doppi_doc (doc_key, doc)
+          VALUES (${docKey}, ${JSON.stringify(legacy)}::jsonb)
+          ON CONFLICT (doc_key) DO NOTHING`
+        return legacy
+      }
       const seed = await seedProvider()
-      await sql`INSERT INTO doppi_doc (doc_key, doc) VALUES (${docKey}, ${JSON.stringify(seed)}::jsonb)`
+      await sql`INSERT INTO doppi_doc (doc_key, doc, updated_at)
+        VALUES (${docKey}, ${JSON.stringify(seed)}::jsonb, now())
+        ON CONFLICT (doc_key) DO NOTHING`
       return seed
     }
     const raw = rows[0].doc
@@ -82,19 +98,33 @@ export function createPostgresStore(databaseUrl, seedProvider, sqlClient) {
   async function getMediaMeta(id) {
     await ensureMediaTable()
     const rows = await sql`SELECT scope, ref_id, owner_id FROM doppi_media WHERE id = ${id}`
-    if (!rows || rows.length === 0) return null
-    const row = rows[0]
-    return {
-      scope: String(row.scope ?? 'public'),
-      refId: String(row.ref_id ?? ''),
-      ownerId: String(row.owner_id ?? ''),
+    if (rows && rows.length > 0) {
+      const row = rows[0]
+      return {
+        scope: String(row.scope ?? 'public'),
+        refId: String(row.ref_id ?? ''),
+        ownerId: String(row.owner_id ?? ''),
+      }
     }
+    // Migratsiya: fayl hali Postgres'ga ko'chmagan bo'lsa eski ombordan o'qiymiz.
+    if (fallback) return fallback.getMediaMeta(id)
+    return null
   }
 
   async function getMedia(id) {
     await ensureMediaTable()
     const rows = await sql`SELECT mime, size, bytes, scope, ref_id, owner_id FROM doppi_media WHERE id = ${id}`
-    if (!rows || rows.length === 0) return null
+    if (!rows || rows.length === 0) {
+      // Migratsiya: eski omborda fayl bo'lsa, o'zi ko'chirilib qaytariladi.
+      if (fallback) {
+        const fb = await fallback.getMedia(id)
+        if (fb) {
+          await putMedia(id, fb.mime, fb.bytes, { scope: fb.scope, refId: fb.refId, ownerId: fb.ownerId })
+        }
+        return fb
+      }
+      return null
+    }
     const row = rows[0]
     const bytes = typeof row.bytes === 'string' ? Buffer.from(row.bytes.replace(/^\\x/, ''), 'hex') : Buffer.from(row.bytes)
     return {
@@ -109,16 +139,39 @@ export function createPostgresStore(databaseUrl, seedProvider, sqlClient) {
   async function listMedia() {
     await ensureMediaTable()
     const rows = await sql`SELECT id FROM doppi_media`
-    return (rows ?? []).map((r) => r.id)
+    const ids = (rows ?? []).map((r) => r.id)
+    if (!fallback) return ids
+    // Migratsiya paytida faqat eski omborda qolgan fayllarni ham ro'yxatga qo'shamiz.
+    const legacy = await fallback.listMedia()
+    const have = new Set(ids)
+    for (const id of legacy) if (!have.has(id)) ids.push(id)
+    return ids
+  }
+
+  async function setMediaMeta(id, meta = {}) {
+    await ensureMediaTable()
+    const scope = String(meta?.scope ?? 'public')
+    const refId = String(meta?.refId ?? '')
+    const ownerId = String(meta?.ownerId ?? '')
+    const rows = await sql`UPDATE doppi_media SET scope = ${scope}, ref_id = ${refId}, owner_id = ${ownerId}
+      WHERE id = ${id} RETURNING id`
+    if ((rows ?? []).length > 0) return true
+    // Hali ko'chmagan fayl chegarasini eski omborda yangilaymiz.
+    if (fallback) return fallback.setMediaMeta(id, meta) !== false
+    return false
   }
 
   async function deleteMedia(ids) {
     if (!ids || ids.length === 0) return 0
     await ensureMediaTable()
+    let removed = 0
     const safe = ids.filter((id) => typeof id === 'string' && !id.includes('..'))
-    if (safe.length === 0) return 0
-    const rows = await sql`DELETE FROM doppi_media WHERE id = ANY(${safe}) RETURNING id`
-    return (rows ?? []).length
+    if (safe.length > 0) {
+      const rows = await sql`DELETE FROM doppi_media WHERE id = ANY(${safe}) RETURNING id`
+      removed += (rows ?? []).length
+    }
+    if (fallback) removed += await fallback.deleteMedia(safe)
+    return removed
   }
 
   return { getDoc, saveDoc, putMedia, setMediaMeta, getMediaMeta, getMedia, listMedia, deleteMedia }
