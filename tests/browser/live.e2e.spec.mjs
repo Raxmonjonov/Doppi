@@ -142,7 +142,8 @@ test('jonli efir: ikki hisob, WebRTC oqim, tugatish va replay', async ({ browser
   await expect(replay.locator('.live-badge.stale-badge')).toBeVisible()
 
   // Tomoshabin "efir tugadi" holatini ko'radi (store sync -> LiveRoom ended tarmog'i)
-  await expect(pageB.locator('.live-room-finished')).toBeVisible({ timeout: 30_000 })
+  // pageB tugatishdan keyingi to'liq /api/data ni kutadi — sekin tarmoqda 15-30s
+  await expect(pageB.locator('.live-room-finished')).toBeVisible({ timeout: 45_000 })
   await expect(pageB.locator('.live-room-finished')).toContainText('yakunlandi')
 
   await ctxA.close()

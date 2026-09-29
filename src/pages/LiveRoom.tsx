@@ -308,6 +308,7 @@ function ViewerRoom({ live }: { live: Live }) {
   const remoteRef = useRef<HTMLVideoElement>(null)
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const pendingIceRef = useRef<RTCIceCandidateInit[]>([])
+  const lastOfferIdRef = useRef(0)
   const sinceRef = useRef(0)
   const [sound, setSound] = useState(false)
   const [ended, setEnded] = useState(false)
@@ -359,9 +360,21 @@ function ViewerRoom({ live }: { live: Live }) {
         for (const s of poll.signals) {
           if (s.id > sinceRef.current) sinceRef.current = s.id
           if (s.kind === 'offer' && s.data && (s.data as { type?: string }).type === 'offer') {
-            // Mavjud pc TURADI — takroriy offerga javob bermaymiz (yangi pc
-            // yaratsak, eskisi yopilib SDP mos kelmay qoladi → video 0).
-            if (pcRef.current) continue
+            // Bir xil offer signalining takroriy delivery'si (kechikib kelgan
+            // javob) — e'tiborsiz: yangi pc yaratsak eskisi yopilib SDP mos
+            // kelmay qoladi → video oqimi uziladi. Yangi offer (boshqa id) —
+            // haqiqiy qayta-urinish: eski pc yopilib yangisi qabul qilinadi.
+            if (s.id === lastOfferIdRef.current) continue
+            lastOfferIdRef.current = s.id
+            const prev = pcRef.current
+            if (prev) {
+              try {
+                prev.close()
+              } catch {
+                /* ignore */
+              }
+              pcRef.current = null
+            }
             const pc = new RTCPeerConnection({ iceServers: STUN })
             pcRef.current = pc
             pc.ontrack = (e) => {

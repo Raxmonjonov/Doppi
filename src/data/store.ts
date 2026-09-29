@@ -159,6 +159,15 @@ export async function pullData(): Promise<void> {
         return
       }
     }
+    // Xatolik: optimistic qo'shilgan live (POST /api/lives)ni javobi undan
+    // OLDIN generatsiya qilingan eski pull yo'qotib yuboradi — xona qayta
+    // mount bo'lib (live topilmadi) WebRTC uziladi. Lokalda 'live' holatida
+    // turib, remote'da yo'q efirlarni saqlaymiz — keyingi to'liq javob
+    // (serverda allaqachon yaratilgandan) o'zini to'g'rilaydi.
+    const pendingLives = data.lives.filter((l) => l.status === 'live' && !remote.lives.some((x) => x.id === l.id))
+    if (pendingLives.length > 0) {
+      remote.lives = [...remote.lives, ...pendingLives].sort((a, b) => b.id - a.id)
+    }
     data = remote
     emit()
   } catch {
