@@ -100,6 +100,24 @@ const run = async () => {
   const kept = (r.json?.posts ?? []).find((p) => p.id === imgPost.id)
   ok('post.images external kept (express, img-src by design)', kept?.images?.[0] === 'https://images.example.net/a.png', `images=${JSON.stringify(kept?.images)}`)
 
+  // 2d) video DELETE media-refs guard: `collectMediaRefs` (netlify) bilan teng —
+  // media boshqa video yoki kontentda ishlatilayotgan ekan, fayl o'chirilmaydi;
+  // oхirgi reference ketgachgina `doppi_media` qatori o'chiriladi.
+  const guardUp = await call('POST', '/api/media', { dataUrl: `data:video/webm;base64,${Buffer.from('guard-video-payload').toString('base64')}` }, tok1)
+  const guardUrl = guardUp.json?.url
+  if (guardUp.status === 201 && guardUrl) {
+    const gv1 = (await call('POST', '/api/videos', { title: 'guard1', src: guardUrl, duration: 1 }, tok1)).json?.video
+    const gv2 = (await call('POST', '/api/videos', { title: 'guard2', src: guardUrl, duration: 1 }, tok1)).json?.video
+    ok('video delete guard: two videos reference same media', !!gv1?.id && !!gv2?.id)
+    const gd1 = await call('DELETE', `/api/videos/${gv1.id}`, undefined, tok1)
+    ok('video delete guard: first delete keeps media (second video refs)', gd1.status === 200 && (await call('GET', guardUrl)).status === 200, `st=${gd1.status}`)
+    const gd2 = await call('DELETE', `/api/videos/${gv2.id}`, undefined, tok1)
+    const after = await call('GET', guardUrl)
+    ok('video delete guard: last ref gone -> media file deleted', gd2.status === 200 && after.status !== 200, `st=${gd2.status}/${after.status}`)
+  } else {
+    ok('video delete guard: media upload failed', false, `st=${guardUp.status}`)
+  }
+
   // 2b) Express media manba himoyasi (haqiqiy server, emas Netlify).
   // Tashqi `https://` manba saqlansa, u `<audio>`/`<img>` ga to'g'ri
   // qo'yiladi va ko'ruvchining IP'si uchinchi tomonga oshkor bo'ladi.

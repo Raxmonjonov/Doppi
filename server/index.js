@@ -2750,10 +2750,20 @@ app.delete('/api/videos/:id', authMiddleware, async (req, res) => {
     if (Number(v.owner_id) !== me.id) return res.status(403).json({ error: 'Faqat egasi o‘chira oladi.' })
     const mid = mediaPathOf(v.src)
     if (mid) {
+      // `collectMediaRefs` (netlify) bilan teng: media biror kontentda
+      // ishlatilayotgan ekan, faylni o'chirmaymiz.
       const ref = await pool.query(
         `SELECT
-          (SELECT COUNT(*)::int FROM videos WHERE id <> $1 AND src LIKE '%' || $2 || '%') +
-          (SELECT COUNT(*)::int FROM lives WHERE video LIKE '%' || $2 || '%') AS refs`,
+          (SELECT COUNT(*)::int FROM users WHERE avatar LIKE '%' || $2 || '%') +
+          (SELECT COUNT(*)::int FROM posts WHERE video LIKE '%' || $2 || '%' OR images::text LIKE '%' || $2 || '%') +
+          (SELECT COUNT(*)::int FROM stories WHERE image LIKE '%' || $2 || '%') +
+          (SELECT COUNT(*)::int FROM reels WHERE image LIKE '%' || $2 || '%') +
+          (SELECT COUNT(*)::int FROM albums WHERE photos::text LIKE '%' || $2 || '%') +
+          (SELECT COUNT(*)::int FROM groups WHERE cover LIKE '%' || $2 || '%') +
+          (SELECT COUNT(*)::int FROM messages WHERE image LIKE '%' || $2 || '%' OR audio LIKE '%' || $2 || '%') +
+          (SELECT COUNT(*)::int FROM group_messages WHERE image LIKE '%' || $2 || '%' OR audio LIKE '%' || $2 || '%') +
+          (SELECT COUNT(*)::int FROM lives WHERE video LIKE '%' || $2 || '%') +
+          (SELECT COUNT(*)::int FROM videos WHERE id <> $1 AND src LIKE '%' || $2 || '%') AS refs`,
         [id, mid],
       )
       if (Number(ref.rows[0]?.refs ?? 0) === 0) {
