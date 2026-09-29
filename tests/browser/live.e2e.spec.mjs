@@ -99,7 +99,8 @@ test('jonli efir: ikki hisob, WebRTC oqim, tugatish va replay', async ({ browser
   await pageA.locator('.live-start-panel .form-input').fill(title)
   await pageA.locator('.live-start-panel button.btn-primary').click()
   // BroadcastRoom (egasi) — URL /live/<id>, kamera ona
-  await expect(pageA).toHaveURL(/\/live\/\d+$/, { timeout: 20_000 })
+  // (funksiya sekinlashishi uchun keng timeout — 90s emas, 180s test byudjeti)
+  await expect(pageA).toHaveURL(/\/live\/\d+$/, { timeout: 45_000 })
   await expect(pageA.locator('.live-room video')).toBeVisible()
   await expect(pageA.locator('.live-room .live-viewers')).toBeVisible()
   await pageA.waitForTimeout(3000) // MediaRecorder chunklar to'planishi
@@ -107,7 +108,8 @@ test('jonli efir: ikki hisob, WebRTC oqim, tugatish va replay', async ({ browser
   // --- Tomoshabin efirni ochadi ---
   await pageB.goto('/live')
   const card = pageB.locator('.live-card-main', { hasText: title })
-  await expect(card.first()).toBeVisible({ timeout: 20_000 })
+  // Tomoshabin birinchi /api/data ni to'liq yuklashi kerak (sekin tarmoqda 15-30s)
+  await expect(card.first()).toBeVisible({ timeout: 45_000 })
   await card.first().click()
   await expect(pageB).toHaveURL(/\/live\/\d+$/)
   await expect(pageB.locator('.live-room video')).toBeVisible()
@@ -135,7 +137,8 @@ test('jonli efir: ikki hisob, WebRTC oqim, tugatish va replay', async ({ browser
   await pageA.locator('.live-room .btn-danger').click()
   await expect(pageA).toHaveURL(/\/videos/, { timeout: 30_000 })
   const replay = pageA.locator('.videos-grid .video-card', { hasText: title }).first()
-  await expect(replay).toBeVisible({ timeout: 30_000 })
+  // Replay /api/data yangi to'liq yuklanishdan keyin ko'rinadi (15-30s sekin tarmoqda)
+  await expect(replay).toBeVisible({ timeout: 45_000 })
   await expect(replay.locator('.live-badge.stale-badge')).toBeVisible()
 
   // Tomoshabin "efir tugadi" holatini ko'radi (store sync -> LiveRoom ended tarmog'i)
