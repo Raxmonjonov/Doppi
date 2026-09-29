@@ -1410,11 +1410,21 @@ export async function handleRequest(method, pathname, query, req, store) {
        likedByMe) boshqa foydalanuvchida boshqa ETag beradi — mos kelmasa to'liq
        200, ya'ni boshqa foydalanuvchining keshi hech qachon ochilmaydi. */
     const body = JSON.stringify(payload)
-    const etag = '"' + crypto.createHash('sha256').update(body).digest('hex').slice(0, 32) + '"'
+    const inner = crypto.createHash('sha256').update(body).digest('hex').slice(0, 32)
+    const etag = '"' + inner + '"'
+    /* Netlify edge siqilgan javobda ETag'ga qo'shimcha qo'shib yuboradi
+       (masalan "…-df") — solishtirishda asosiy 32belgini olamiz. */
+    const tagKey = (t) => {
+      const s = t.trim().replace(/^W\//, '')
+      if (s === '*') return '*'
+      const m = /^"?([0-9a-f]{32})/.exec(s)
+      return m ? m[1] : ''
+    }
     const inm = String(req.headers?.['if-none-match'] ?? req.headers?.get?.('if-none-match') ?? '')
-    const matched = inm
-      .split(',')
-      .some((t) => t.trim() === etag || t.trim() === 'W/' + etag || t.trim() === '*')
+    const matched = inm.split(',').some((t) => {
+      const k = tagKey(t)
+      return k === inner || k === '*'
+    })
     if (matched) return { status: 304, headers: { ETag: etag, 'Cache-Control': 'private, no-cache' } }
     return { status: 200, headers: { ETag: etag, 'Cache-Control': 'private, no-cache' }, json: payload }
   }
