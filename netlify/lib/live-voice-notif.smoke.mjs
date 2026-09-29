@@ -118,6 +118,43 @@ const run = async () => {
     ok('video delete guard: media upload failed', false, `st=${guardUp.status}`)
   }
 
+  // 2e) Jonli efir + uzun video endpointlari (Express parity). test:live bu
+  // yergacha live/videos yo'llarini tekshirmasdi — signal relay, egasini
+  // tekshirish, replay->video konversiyasi va media-refs bilan bog'liq holatlar
+  // shu yerda qamrab olinadi (netlify/lib/test-suite.mjs 9c bilan birga).
+  const liveCreate = await call('POST', '/api/lives', { title: 'Live smoke' }, tok1)
+  const liveId2 = liveCreate.json?.live?.id
+  ok('live create -> 201 live', liveCreate.status === 201 && !!liveId2 && liveCreate.json?.live?.status === 'live')
+  ok('live owner filled', liveCreate.json?.live?.owner?.id === id1)
+  await call('POST', `/api/lives/${liveId2}/signal`, { kind: 'viewer-join', to: 0 }, tok2)
+  const joinOwner = (await call('GET', `/api/lives/${liveId2}/signals?since=0`, undefined, tok1)).json
+  ok('owner sees viewer-join', (joinOwner.signals ?? []).some((x) => x.kind === 'viewer-join' && x.from === id2))
+  const joinViewer = (await call('GET', `/api/lives/${liveId2}/signals?since=0`, undefined, tok2)).json
+  ok("viewer does not see own join (from filter)", !(joinViewer.signals ?? []).some((x) => x.kind === 'viewer-join'))
+  ok('viewers count = 1', joinViewer.viewers === 1, `v=${joinViewer.viewers}`)
+  await call('POST', `/api/lives/${liveId2}/signal`, { kind: 'offer', to: id2, data: { sdp: 'x' } }, tok1)
+  const offerPoll = (await call('GET', `/api/lives/${liveId2}/signals?since=0`, undefined, tok2)).json
+  ok('viewer receives offer (to=me)', (offerPoll.signals ?? []).some((x) => x.kind === 'offer' && x.to === id2))
+  const strangerEnd = await call('POST', `/api/lives/${liveId2}/end`, { video: '', duration: 0 }, tok2)
+  ok('non-owner cannot end live', strangerEnd.status === 403, `st=${strangerEnd.status}`)
+  const replayUp = await call('POST', '/api/media', { dataUrl: `data:video/webm;base64,${Buffer.from('smoke-replay-media').toString('base64')}` }, tok1)
+  const replayUrl = replayUp.json?.url
+  const endLive = await call('POST', `/api/lives/${liveId2}/end`, { video: replayUrl, duration: 6, title: 'Live smoke qayd' }, tok1)
+  ok('live end -> ended + replay video', endLive.status === 200 && endLive.json?.live?.status === 'ended' && endLive.json?.live?.video === replayUrl && !!endLive.json?.video?.src, `st=${endLive.status}`)
+  const liveData = (await call('GET', '/api/data', undefined, tok1)).json
+  const liveEndedRow = (liveData.lives ?? []).find((x) => x.id === liveId2)
+  const replayRow = (liveData.videos ?? []).find((x) => x.liveId === liveId2)
+  ok('live ended row with video', liveEndedRow?.status === 'ended' && liveEndedRow?.video === replayUrl)
+  ok('replay in videos list', !!replayRow && replayRow.type === 'live' && replayRow.title === 'Live smoke qayd')
+  const endPoll = (await call('GET', `/api/lives/${liveId2}/signals?since=0`, undefined, tok1)).json
+  ok('ended live reports status ended', endPoll.status === 'ended')
+  if (replayRow?.id) {
+    const delReplay = await call('DELETE', `/api/videos/${replayRow.id}`, undefined, tok1)
+    ok('replay delete keeps media while live refs it (parity)', delReplay.status === 200 && (await call('GET', replayUrl)).status === 200, `st=${delReplay.status}`)
+  } else {
+    ok('replay delete keeps media while live refs it (parity)', false, 'replay row yo')
+  }
+
   // 2b) Express media manba himoyasi (haqiqiy server, emas Netlify).
   // Tashqi `https://` manba saqlansa, u `<audio>`/`<img>` ga to'g'ri
   // qo'yiladi va ko'ruvchining IP'si uchinchi tomonga oshkor bo'ladi.
