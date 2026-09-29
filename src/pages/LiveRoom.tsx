@@ -124,21 +124,33 @@ function BroadcastRoom({ live }: { live: Live }) {
   useEffect(() => {
     if (!started) return
     let stop = false
+    let inFlight = false
     const loop = async () => {
-      const poll = await fetchSignals(liveIdRef.current, sinceRef.current)
-      if (stop) return
-      setViewers(poll.viewers)
-      for (const s of poll.signals) {
-        if (s.id > sinceRef.current) sinceRef.current = s.id
-        if (s.kind === 'viewer-join') onJoin(s.from)
-        else if (s.kind === 'viewer-leave') onLeave(s.from)
-        else if (s.kind === 'answer' && s.data && (s.data as { type?: string }).type === 'answer') {
-          const pc = pcsRef.current.get(s.from)
-          pc?.setRemoteDescription(s.data as RTCSessionDescriptionInit).catch(() => undefined)
-        } else if (s.kind === 'ice' && s.data) {
-          const pc = pcsRef.current.get(s.from)
-          pc?.addIceCandidate(s.data as RTCIceCandidateInit).catch(() => undefined)
+      // Sekin javobda (Neon + sekin tarmoq) interval parallel so'rovlar
+      // tug'iladi — ular kechikib kelib signallarni takroran qaytaradi.
+      // Bitta oqim: avvalgisi tugamaguncha yangi poll yo'q.
+      if (inFlight) return
+      inFlight = true
+      try {
+        const poll = await fetchSignals(liveIdRef.current, sinceRef.current)
+        if (stop) return
+        setViewers(poll.viewers)
+        for (const s of poll.signals) {
+          if (s.id > sinceRef.current) sinceRef.current = s.id
+          if (s.kind === 'viewer-join') onJoin(s.from)
+          else if (s.kind === 'viewer-leave') onLeave(s.from)
+          else if (s.kind === 'answer' && s.data && (s.data as { type?: string }).type === 'answer') {
+            const pc = pcsRef.current.get(s.from)
+            pc?.setRemoteDescription(s.data as RTCSessionDescriptionInit).catch(() => undefined)
+          } else if (s.kind === 'ice' && s.data) {
+            const pc = pcsRef.current.get(s.from)
+            pc?.addIceCandidate(s.data as RTCIceCandidateInit).catch(() => undefined)
+          }
         }
+      } catch {
+        /* offline — keyingi tiktakda qayta uriniladi */
+      } finally {
+        inFlight = false
       }
     }
     const iv = setInterval(() => void loop(), POLL_MS)
@@ -329,45 +341,60 @@ function ViewerRoom({ live }: { live: Live }) {
 
   useEffect(() => {
     let stop = false
+    let inFlight = false
     const loop = async () => {
-      const poll = await fetchSignals(liveIdRef.current, sinceRef.current)
-      if (stop) return
-      if (poll.status === 'ended') {
-        setEnded(true)
-        clearInterval(iv)
-        return
-      }
-      for (const s of poll.signals) {
-        if (s.id > sinceRef.current) sinceRef.current = s.id
-        if (s.kind === 'offer' && s.data && (s.data as { type?: string }).type === 'offer') {
-          const pc = new RTCPeerConnection({ iceServers: STUN })
-          pcRef.current = pc
-          pc.ontrack = (e) => {
-            setWaiting(false)
-            const el = remoteRef.current
-            if (el) {
-              el.srcObject = e.streams[0] ?? new MediaStream([e.track])
-              el.play().catch(() => undefined)
-            }
-          }
-          pc.onicecandidate = (e) => {
-            if (e.candidate) void pushSignal(liveIdRef.current, 'ice', ownerIdRef.current, e.candidate)
-          }
-          try {
-            await pc.setRemoteDescription(s.data as RTCSessionDescriptionInit)
-            const answer = await pc.createAnswer()
-            await pc.setLocalDescription(answer)
-            await pushSignal(liveIdRef.current, 'answer', ownerIdRef.current, pc.localDescription)
-            pendingIceRef.current.forEach((c) => pc.addIceCandidate(c).catch(() => undefined))
-            pendingIceRef.current = []
-          } catch {
-            /* SDP mos kelmadi — e'lon qilinmaydi, keyingi urinishlarda takrorlanadi */
-          }
-        } else if (s.kind === 'ice') {
-          const pc = pcRef.current
-          if (pc) pc.addIceCandidate(s.data as RTCIceCandidateInit).catch(() => undefined)
-          else pendingIceRef.current.push(s.data as RTCIceCandidateInit)
+      // BroadcastRoom'dagidek bitta oqim — parallel/kechikib kelgan javoblar
+      // signallarni takroran qaytarmasin (takroriy offer yangi pc yaratib,
+      // media oqimini uzib qo'yardi).
+      if (inFlight) return
+      inFlight = true
+      try {
+        const poll = await fetchSignals(liveIdRef.current, sinceRef.current)
+        if (stop) return
+        if (poll.status === 'ended') {
+          setEnded(true)
+          clearInterval(iv)
+          return
         }
+        for (const s of poll.signals) {
+          if (s.id > sinceRef.current) sinceRef.current = s.id
+          if (s.kind === 'offer' && s.data && (s.data as { type?: string }).type === 'offer') {
+            // Mavjud pc TURADI — takroriy offerga javob bermaymiz (yangi pc
+            // yaratsak, eskisi yopilib SDP mos kelmay qoladi → video 0).
+            if (pcRef.current) continue
+            const pc = new RTCPeerConnection({ iceServers: STUN })
+            pcRef.current = pc
+            pc.ontrack = (e) => {
+              setWaiting(false)
+              const el = remoteRef.current
+              if (el) {
+                el.srcObject = e.streams[0] ?? new MediaStream([e.track])
+                el.play().catch(() => undefined)
+              }
+            }
+            pc.onicecandidate = (e) => {
+              if (e.candidate) void pushSignal(liveIdRef.current, 'ice', ownerIdRef.current, e.candidate)
+            }
+            try {
+              await pc.setRemoteDescription(s.data as RTCSessionDescriptionInit)
+              const answer = await pc.createAnswer()
+              await pc.setLocalDescription(answer)
+              await pushSignal(liveIdRef.current, 'answer', ownerIdRef.current, pc.localDescription)
+              pendingIceRef.current.forEach((c) => pc.addIceCandidate(c).catch(() => undefined))
+              pendingIceRef.current = []
+            } catch {
+              /* SDP mos kelmadi — e'lon qilinmaydi, keyingi urinishlarda takrorlanadi */
+            }
+          } else if (s.kind === 'ice') {
+            const pc = pcRef.current
+            if (pc) pc.addIceCandidate(s.data as RTCIceCandidateInit).catch(() => undefined)
+            else pendingIceRef.current.push(s.data as RTCIceCandidateInit)
+          }
+        }
+      } catch {
+        /* offline — keyingi tiktakda qayta uriniladi */
+      } finally {
+        inFlight = false
       }
     }
     const iv = setInterval(() => void loop(), POLL_MS)
