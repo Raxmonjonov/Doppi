@@ -131,14 +131,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
     ;(async () => {
-      try {
-        const { user } = await api<{ user: Account }>('/api/auth/me')
-        setSession(user)
-      } catch {
-        setToken(null)
-      } finally {
-        setReady(true)
+      // Netlify Functions/Blobs vaqti-vaqti bilan interval xatolar (5xx) beradi:
+      // sessiya yo'qolmasligi uchun 401 (majburiy rad) darhol, qolgan xatolarda
+      // bir necha marta qayta urinamiz va shundan keyingina tokenni o'chiramiz.
+      let lastErr: unknown = null
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const { user } = await api<{ user: Account }>('/api/auth/me')
+          setSession(user)
+          lastErr = null
+          break
+        } catch (err) {
+          lastErr = err
+          if ((err as { status?: number })?.status === 401) break
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 800 * (attempt + 1)))
+        }
       }
+      if (lastErr != null) setToken(null)
+      setReady(true)
     })()
   }, [])
 

@@ -5,10 +5,13 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   timeout: 90_000,
-  expect: { timeout: 15_000 },
+  // Prod (netlify) tomonda Blobs/functions vaqti-vaqti bilan interval 5xx beradi;
+  // ular infratuzilma urinishlari — test o'z-o'zidan ikki marta qayta urinadi.
+  retries: 2,
+  expect: { timeout: 30_000 },
   reporter: [['list']],
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL: process.env.E2E_BASE ?? 'http://127.0.0.1:5173',
     launchOptions: {
       args: [
         '--use-fake-device-for-media-stream',

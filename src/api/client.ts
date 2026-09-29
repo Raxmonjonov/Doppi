@@ -59,7 +59,9 @@ export async function api<T>(
   }
 
   if (!res.ok) {
-    throw new Error((data as { error?: string }).error || `Xatolik: ${res.status}`)
+    const err = new Error((data as { error?: string }).error || `Xatolik: ${res.status}`) as Error & { status?: number }
+    err.status = res.status
+    throw err
   }
   return data
 }

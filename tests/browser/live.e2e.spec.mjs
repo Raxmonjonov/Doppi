@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 // Brauzer WebRTC E2E: e'lonchi + tomoshabin (2 ta izolyatsiyalangan context).
 // Talab: 127.0.0.1:4000 da Express server, 127.0.0.1:5173 da vite dev (proxy /api).
 
-const API = 'http://127.0.0.1:4000'
+const API = process.env.E2E_API ?? 'http://127.0.0.1:4000'
 const suffix = Date.now().toString(36).slice(-4)
 const title = `E2E Jonli ${suffix}`
 const A = { username: 'e2eA', password: 'E2e-parol1!', email: 'e2e-a@e2e.dev', name: 'E2E A' }
@@ -56,6 +56,28 @@ test('jonli efir: ikki hisob, WebRTC oqim, tugatish va replay', async ({ browser
   const pageA = await ctxA.newPage()
   const pageB = await ctxB.newPage()
 
+  if (process.env.E2E_DEBUG) {
+    const logSig = (who) => async (res) => {
+      const u = res.url()
+      if (/\/api\/lives\/\d+\/signals/.test(u)) {
+        try {
+          const b = await res.json()
+          console.log(`[E2E-DEBUG:${who}]`, res.status(), JSON.stringify({ sigs: (b.signals ?? []).map((s) => `${s.kind}:${s.from}`), v: b.viewers }))
+        } catch (e) {
+          console.log(`[E2E-DEBUG:${who}]`, res.status(), 'n/a')
+        }
+      } else if (/\/api\/auth\/me/.test(u)) {
+        const b = await res.json().catch(() => ({}))
+        console.log(`[E2E-DEBUG:${who}]`, 'me', res.status(), JSON.stringify(b).slice(0, 200))
+      } else if (/\/api\/data/.test(u)) {
+        const b = await res.text().catch(() => '')
+        console.log(`[E2E-DEBUG:${who}]`, 'data', res.status(), String(b).slice(0, 120))
+      }
+    }
+    pageA.on('response', logSig('A'))
+    pageB.on('response', logSig('B'))
+  }
+
   // --- E'lonchi efir boshlaydi ---
   await pageA.goto('/live')
   await expect(pageA.locator('.live-head .btn').first()).toBeVisible()
@@ -85,6 +107,14 @@ test('jonli efir: ikki hisob, WebRTC oqim, tugatish va replay', async ({ browser
     .poll(
       () => pageB.locator('.live-room video').evaluate((el) => el.videoWidth),
       { timeout: 45_000, intervals: [250, 500, 1000, 2000] },
+    )
+    .toBeGreaterThan(0)
+  // Ovoz oqimi ham kelgan bo'lishi kerak (video+audio translyatsiya)
+  await expect
+    .poll(
+      () =>
+        pageB.locator('.live-room video').evaluate((el) => el.srcObject?.getAudioTracks?.().length ?? 0),
+      { timeout: 30_000 },
     )
     .toBeGreaterThan(0)
 
