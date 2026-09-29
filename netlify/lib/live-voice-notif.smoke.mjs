@@ -132,6 +132,19 @@ const run = async () => {
   const joinViewer = (await call('GET', `/api/lives/${liveId2}/signals?since=0`, undefined, tok2)).json
   ok("viewer does not see own join (from filter)", !(joinViewer.signals ?? []).some((x) => x.kind === 'viewer-join'))
   ok('viewers count = 1', joinViewer.viewers === 1, `v=${joinViewer.viewers}`)
+  // Parallel JOIN'lar lost-update qilmasligi kerak: ikki tomoshabin bir vaqtda
+  // kelsa ham ikkalasi saqlanadi (server signal yozuvida FOR UPDATE transaksiya).
+  const u3 = `liveC${suffix}`
+  const r3 = await call('POST', '/api/auth/register', { name: 'Live C', username: u3, password: 'Livepass1!', email: `${u3}@test.dev` })
+  const tok3 = r3.json?.token
+  const id3 = r3.json?.user?.id
+  await Promise.all([
+    call('POST', `/api/lives/${liveId2}/signal`, { kind: 'viewer-join', to: 0 }, tok2),
+    call('POST', `/api/lives/${liveId2}/signal`, { kind: 'viewer-join', to: 0 }, tok3),
+  ])
+  const afterJoin = (await call('GET', `/api/lives/${liveId2}/signals?since=0`, undefined, tok1)).json
+  const joins = (afterJoin.signals ?? []).filter((x) => x.kind === 'viewer-join')
+  ok('concurrent viewer-joins both persist (no lost update)', afterJoin.viewers === 2 && joins.some((x) => x.from === id2) && joins.some((x) => x.from === id3), `v=${afterJoin.viewers}`)
   await call('POST', `/api/lives/${liveId2}/signal`, { kind: 'offer', to: id2, data: { sdp: 'x' } }, tok1)
   const offerPoll = (await call('GET', `/api/lives/${liveId2}/signals?since=0`, undefined, tok2)).json
   ok('viewer receives offer (to=me)', (offerPoll.signals ?? []).some((x) => x.kind === 'offer' && x.to === id2))

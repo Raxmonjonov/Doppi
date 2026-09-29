@@ -2613,9 +2613,15 @@ app.post('/api/lives/:id/signal', authMiddleware, async (req, res) => {
   const id = Number(req.params.id)
   const kind = String(req.body?.kind ?? '')
   const toInt = Number(req.body?.to ?? 0) || 0
+  const client = await pool.connect()
   try {
-    const liveR = await pool.query(`SELECT status, viewers, signals FROM lives WHERE id = $1 AND status <> 'ended'`, [id])
-    if (liveR.rows.length === 0) return res.status(404).json({ error: 'Jonli efir topilmadi.' })
+    await client.query('BEGIN')
+    const liveR = await client.query(`SELECT status, viewers, signals FROM lives WHERE id = $1 AND status <> 'ended' FOR UPDATE`, [id])
+    if (liveR.rows.length === 0) {
+      await client.query('ROLLBACK')
+      client.release()
+      return res.status(404).json({ error: 'Jonli efir topilmadi.' })
+    }
     const live = liveR.rows[0]
     const signals = Array.isArray(live.signals) ? live.signals : []
     signals.push({ id: Date.now(), from: me.id, to: toInt, kind, data: req.body?.data ?? null })
@@ -2623,9 +2629,13 @@ app.post('/api/lives/:id/signal', authMiddleware, async (req, res) => {
     let viewers = Array.isArray(live.viewers) ? live.viewers : []
     if (kind === 'viewer-join' && !viewers.includes(me.id)) viewers.push(me.id)
     if (kind === 'viewer-leave') viewers = viewers.filter((x) => x !== me.id)
-    await pool.query(`UPDATE lives SET signals = $1::jsonb, viewers = $2::jsonb WHERE id = $3`, [JSON.stringify(kept), JSON.stringify(viewers), id])
+    await client.query(`UPDATE lives SET signals = $1::jsonb, viewers = $2::jsonb WHERE id = $3`, [JSON.stringify(kept), JSON.stringify(viewers), id])
+    await client.query('COMMIT')
+    client.release()
     res.json({ ok: true })
   } catch (e) {
+    await client.query('ROLLBACK').catch(() => undefined)
+    client.release()
     console.error('live signal xatosi:', e.message)
     res.status(500).json({ error: 'Server xatosi.' })
   }

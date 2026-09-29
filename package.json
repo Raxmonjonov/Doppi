@@ -13,7 +13,8 @@
     "test:pg-store": "node netlify/lib/postgres-store.test.mjs",
     "test:delivery": "node netlify/lib/delivery.test.mjs",
     "test:all": "npm run test:netlify && npm run test:blobs && npm run test:pg-store && npm run test:delivery",
-    "test:live": "node netlify/lib/live-voice-notif.smoke.mjs"
+    "test:live": "node netlify/lib/live-voice-notif.smoke.mjs",
+    "test:browser": "playwright test"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
@@ -25,6 +26,7 @@
     "web-push": "^3.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
