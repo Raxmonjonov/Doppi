@@ -10,12 +10,25 @@ const A = { username: 'e2eA', password: 'E2e-parol1!', email: 'e2e-a@e2e.dev', n
 const B = { username: 'e2eB', password: 'E2e-parol1!', email: 'e2e-b@e2e.dev', name: 'E2E B' }
 
 async function jreq(path, method, body, token) {
-  const r = await fetch(`${API}${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  return { status: r.status, json: await r.json().catch(() => ({})) }
+  // Netlify edge o'z-o'zidan intervalgacha tarmoq uzilishlari beradi.
+  // Faqat FETCH darajasidagi (bog'lanish) xatolar qayta uriniladi — request
+  // serverga yetib bormagani uchun dublikat xavfsiz; HTTP xatolar (5xx)
+  // qayta urinilMAYDI (ular haqiqiy server javobi).
+  let lastErr
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await fetch(`${API}${path}`, {
+        method,
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      })
+      return { status: r.status, json: await r.json().catch(() => ({})) }
+    } catch (e) {
+      lastErr = e
+      await new Promise((r) => setTimeout(r, 1500 * (i + 1)))
+    }
+  }
+  throw lastErr
 }
 
 // Hisob bor bo'lsa login, yo'q bo'lsa register (register IP-limiti tufayli bajariladi bir marta).
