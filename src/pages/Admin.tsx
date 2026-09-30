@@ -185,8 +185,20 @@ function AdminStats({ t, onLogout }: { t: (k: string, p?: Record<string, string 
 
   useEffect(() => {
     load()
-    const id = setInterval(load, 15000)
-    return () => clearInterval(id)
+    // Yashirin tabda dashboard so'rovi pauza (compute suspend uchun);
+    // qaytganda visibilitychange darhol yangilaydi.
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      load()
+    }, 15000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') load()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVis)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
