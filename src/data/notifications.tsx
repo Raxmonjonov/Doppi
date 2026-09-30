@@ -227,14 +227,18 @@ export function NotificationsProvider({ children, enabled }: { children: ReactNo
     }
   }, [announce, soundOn])
 
-  /* Tab yashiringan bo'lsa ham poll davom etadi — aks holda brauzer
-     bildirishnomasi hech qachon chiqmaydi. Faqat tab ko'rinib turgan
-     paytdan foydalanuvchi e'tiborini buzmaslik uchun tovush o'chiriladi
-     (announce o'zi `document.hasFocus()` bilan tekshiradi). */
+  /* Yashirin tabda poll pauzalanadi — 4slik doimiy so'rov server compute'ini
+     uxlatmaydi (suspend uchun ≥5 daqiqa so'rovsiz kerak). Yashirin paytda
+     yetkazish Web Push orqali davom etadi (public/sw.js `push` →
+     showNotification — sahifa yopiq bo'lsa ham ishlaydi). Tab qaytganda
+     visibilitychange/focus allaqachon darhol refresh chaqiradi. */
   useEffect(() => {
     if (!enabled) return
     void refresh()
-    const timer = window.setInterval(() => void refresh(), POLL_MS)
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      void refresh()
+    }, POLL_MS)
     const onFocus = () => void refresh()
     window.addEventListener('focus', onFocus)
     const onVisibility = () => void refresh()

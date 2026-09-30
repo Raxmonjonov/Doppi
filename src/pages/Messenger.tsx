@@ -284,10 +284,20 @@ export function Messenger() {
       })
     }
     void fetchThreads()
-    const iv = setInterval(fetchThreads, 5000)
+    // Yashirin tabda suhbatlar ro'yxatini so'ramaymiz (server compute'i
+    // doimiy so'rov bilan uxlay olmaydi); tab qaytganda darhol to'ldiramiz.
+    const iv = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      void fetchThreads()
+    }, 5000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void fetchThreads()
+    }
+    document.addEventListener('visibilitychange', onVis)
     return () => {
       alive = false
       clearInterval(iv)
+      document.removeEventListener('visibilitychange', onVis)
     }
   }, [me.id])
 
@@ -296,6 +306,11 @@ export function Messenger() {
     let bootstrapped = false
     let inFlight = false
     const pollRings = async () => {
+      // Yashirin tabda qo'ng'iroq signallarini so'ramaymiz — yetkazish
+      // Web Push (sw.js `requireInteraction` bilan) orqali bo'ladi;
+      // cursor (`since`) saqlanib qolgani uchun tab qaytganda backlog
+      // darhol ko'riladi.
+      if (document.visibilityState !== 'visible') return
       if (inFlight) return
       inFlight = true
       try {
@@ -330,10 +345,15 @@ export function Messenger() {
     }
     void pollRings()
     const iv = setInterval(pollRings, 4000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void pollRings()
+    }
+    document.addEventListener('visibilitychange', onVis)
     return () => {
       alive = false
       inFlight = false
       clearInterval(iv)
+      document.removeEventListener('visibilitychange', onVis)
     }
   }, [me.id])
 

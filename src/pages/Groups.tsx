@@ -98,8 +98,18 @@ export function Groups() {
 
   useEffect(() => {
     void load()
-    const iv = setInterval(() => void load(), 8000)
-    return () => clearInterval(iv)
+    const iv = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      void load()
+    }, 8000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void load()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      clearInterval(iv)
+      document.removeEventListener('visibilitychange', onVis)
+    }
   }, [load])
 
   const openGroup = openGroupId != null ? groups.find((g) => g.id === openGroupId) ?? null : null
@@ -362,6 +372,10 @@ function GroupDetail({
     let bootstrapped = false
     let inFlight = false
     const iv = setInterval(async () => {
+      // Yashirin tabda guruh/xabar/qo'ng'iroq signallarini so'ramaymiz
+      // (compute suspend uchun); yetkazish push orqali, backlog cursor
+      // saqlanadi. Tab qaytganda loadGroup + navbatdagi 4s tick to'ldiradi.
+      if (document.visibilityState !== 'visible') return
       void loadGroupRef.current()
       if (inFlight) return
       inFlight = true
@@ -389,10 +403,15 @@ function GroupDetail({
       }
       if (!alive) return
     }, 4000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void loadGroupRef.current()
+    }
+    document.addEventListener('visibilitychange', onVis)
     return () => {
       alive = false
       inFlight = false
       clearInterval(iv)
+      document.removeEventListener('visibilitychange', onVis)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group.id])

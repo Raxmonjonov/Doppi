@@ -233,6 +233,10 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 
 function sendPing() {
   if (!getToken()) return
+  // Yashirin tabda presence yubormaymiz: brauzer fon tabidan 30sda bir
+  // kelgan yagona so'rov server compute'ini uxlatishga (≥5 daqiqa
+  // so'rovsiz tufayli suspend) yo'l qo'ymasdi.
+  if (document.visibilityState !== 'visible') return
   void api('/api/ping', { method: 'POST' }).catch(() => {
     /* offline — ignore */
   })
@@ -242,8 +246,19 @@ export function startSync() {
   if (pollTimer) return
   void pullData()
   pollTimer = setInterval(() => {
+    // Yashirin tabda /api/data so'rovini o'tkazib yuboramiz — shu vaqtning
+    // o'zida (5s) server hech qachon suspend bo'lolmasdi. Qaytganda
+    // visibilitychange darhol yangilaydi; yashirin paytda push xabari
+    // service worker orqali yetadi.
+    if (document.visibilityState !== 'visible') return
     void pullData()
   }, 5000)
   sendPing()
   setInterval(sendPing, 30000)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      void pullData()
+      sendPing()
+    }
+  })
 }
