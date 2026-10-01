@@ -43,6 +43,9 @@ certbot/
 # Local Netlify folder
 .netlify
 
+# Wrangler lokal kesh/holat
+.wrangler
+
 test-results/
 playwright-report/
 

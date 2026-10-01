@@ -724,6 +724,23 @@ export async function runSuite(store, label) {
     `status=${nlForgot.status} debugCode=${nlForgot.json.debugCode}`,
   )
 
+  // Cloudflare Worker: NETLIFY belgisi yo'q — CF_WORKER=1 isServerlessLike ichida.
+  const cfUn = 'nfcf' + Date.now().toString(36).slice(-4)
+  await register(cfUn, PW1, 'Cf Worker Test')
+  const prevCf = process.env.CF_WORKER
+  process.env.CF_WORKER = '1'
+  const cfForgot = await call('POST', '/api/auth/forgot', { username: cfUn })
+  if (prevCf === undefined) delete process.env.CF_WORKER
+  else process.env.CF_WORKER = prevCf
+  ok(
+    'serverless prod (CF_WORKER) forgot does not echo code',
+    cfForgot.status === 200 && cfForgot.json.ok === true && !cfForgot.json.debugCode,
+    `status=${cfForgot.status} debugCode=${cfForgot.json.debugCode}`,
+  )
+  // Bu test ham IP bo'yicha forgot limitidan foydalanadi — keyingi 9c blok
+  // uchun chcheqlar tozalanishi shart (aks holda refix forgot 429 bo'ladi).
+  resetRateLimits()
+
   // 9c) parol tiklash: noto'g'ri kod, eski parol, yangi parol, sessiya bekor bo'lishi
   const forgot = await call('POST', '/api/auth/forgot', { username: 'nftest1' })
   ok('forgot returns ok', forgot.status === 200 && forgot.json.ok === true, `status=${forgot.status}`)

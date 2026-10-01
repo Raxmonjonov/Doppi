@@ -112,7 +112,9 @@ export function isServerlessLike() {
       process.env.NETLIFY ||
       process.env.AWS_LAMBDA_FUNCTION_NAME ||
       process.env.VERCEL ||
-      process.env.NETLIFY_LOCAL,
+      process.env.NETLIFY_LOCAL ||
+      // Cloudflare Worker (wrangler.jsonc vars'dan `CF_WORKER=1`)
+      process.env.CF_WORKER,
   )
 }
 export function isProdLike() {
