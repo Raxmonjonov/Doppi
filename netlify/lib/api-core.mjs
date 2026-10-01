@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import webpushDefault from 'web-push'
-import { sendMail, resetCodeMessage, appUrl } from './delivery.mjs'
+import { sendMail, resetCodeMessage, appUrl, mailMode } from './delivery.mjs'
 import {
   hashPassword,
   verifyPassword,
@@ -982,13 +982,20 @@ export async function handleRequest(method, pathname, query, req, store) {
     const un = user ? user.username.toLowerCase() : idf
     const previous = (doc.resetCodes ?? []).find((r) => r.username === un)
     // mavjudligini oshkor qilmaymiz — javob har doim bir xal
-    if (!user) return send(200, { ok: true, sent: true })
+    if (!user) {
+      console.log('[forgot] qadam: foydalanuvchi topilmadi (javob: ok)')
+      return send(200, { ok: true, sent: true })
+    }
     // Hisob bo'yicha limit: bitta hisobga so'rov yuborish (pochta bombasi)
     const acct = rateLimit(`forgotAcct:${un}`, RATE_LIMITS.forgotAccount)
-    if (acct) return send(200, { ok: true, sent: true })
+    if (acct) {
+      console.log('[forgot] qadam: hisob limiti (javob: ok)')
+      return send(200, { ok: true, sent: true })
+    }
     // yaqinda yuborilgan bo'lsa, qayta yuborilmaydi (pochta bombasi himoyasi)
     if (previous && previous.expiresAt > Date.now() && Date.now() - Number(previous.sentAt ?? 0) < RESET_RESEND_COOLDOWN) {
       // eski kod saqlanib qoladi va hech qanday yangi kod yuborilmaydi
+      console.log('[forgot] qadam: cooldown/throttled (kod yuborilmadi)')
       return send(200, { ok: true, sent: true, throttled: true })
     }
     // har foydalanuvchi uchun faqat bitta faol kod
@@ -1006,7 +1013,10 @@ export async function handleRequest(method, pathname, query, req, store) {
     await store.saveDoc(doc)
     // yetkazish hech qachon javobni o'zgartirmaydi
     const mail = resetCodeMessage({ code, username: user.username, url: resetUrl(user.username), minutes: 10 })
+    console.log(`[forgot] qadam: yuborish mode=${mailMode()}`)
     const sent = await sendMail({ to: user.email, ...mail })
+    // Kuzatuv (INFO): muvaffaqiyat ham ko'rinadi — faqat holat, kod emas
+    console.log(`[forgot] yuborish natijasi: provider=${sent.provider} ok=${sent.ok}${sent.error ? ` error=${sent.error}` : ''}`)
     if (!sent.ok) console.error(`[parol tiklash] ${user.username}: yetkazilmadi (${sent.provider}: ${sent.error ?? 'noma\'lum'})`)
     return send(200, resetCodeEcho() ? { ok: true, sent: true, debugCode: code, via: sent.provider } : { ok: true, sent: true })
   }
