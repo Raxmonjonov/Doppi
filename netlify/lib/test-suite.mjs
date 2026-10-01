@@ -707,6 +707,23 @@ export async function runSuite(store, label) {
   ok('non-limited write (ping) still works', unblocked.status !== 429, `status=${unblocked.status}`)
   resetRateLimits()
 
+  // Serverless prod (Netlify): NODE_ENV `production` EMAS — eski faqat-NODE_ENV
+  // tekshiruvi forgot kodini javobga qaytarib qo'ygandi (ATO: istalgan odam
+  // `/forgot` + `/reset` bilan boshqa hisobni egallab olardi). isProdLike()
+  // serverless muhitni ham qamrab oladi.
+  const nlUn = 'nflnl' + Date.now().toString(36).slice(-4)
+  await register(nlUn, PW1, 'Nflnl Test')
+  const prevNetlify = process.env.NETLIFY
+  process.env.NETLIFY = 'true'
+  const nlForgot = await call('POST', '/api/auth/forgot', { username: nlUn })
+  if (prevNetlify === undefined) delete process.env.NETLIFY
+  else process.env.NETLIFY = prevNetlify
+  ok(
+    'serverless prod (NETLIFY) forgot does not echo code',
+    nlForgot.status === 200 && nlForgot.json.ok === true && !nlForgot.json.debugCode,
+    `status=${nlForgot.status} debugCode=${nlForgot.json.debugCode}`,
+  )
+
   // 9c) parol tiklash: noto'g'ri kod, eski parol, yangi parol, sessiya bekor bo'lishi
   const forgot = await call('POST', '/api/auth/forgot', { username: 'nftest1' })
   ok('forgot returns ok', forgot.status === 200 && forgot.json.ok === true, `status=${forgot.status}`)
@@ -870,6 +887,12 @@ export async function runSuite(store, label) {
   ok('legacy raw sessions blocked in production', sessionMatches({ token: 'raw-legacy-token' }, 'raw-legacy-token') === false)
   process.env.NODE_ENV = 'test'
   ok('legacy raw sessions allowed outside production with flag', sessionMatches({ token: 'raw-legacy-token' }, 'raw-legacy-token') === true)
+  // Netlify serverless: NODE_ENV=test bo'lsa ham prod hisoblanadi
+  const prevNetlifyL = process.env.NETLIFY
+  process.env.NETLIFY = 'true'
+  ok('legacy raw sessions blocked in serverless (NETLIFY)', sessionMatches({ token: 'raw-legacy-token' }, 'raw-legacy-token') === false)
+  if (prevNetlifyL === undefined) delete process.env.NETLIFY
+  else process.env.NETLIFY = prevNetlifyL
   if (prevLegacy === undefined) delete process.env.ALLOW_LEGACY_SESSIONS
   else process.env.ALLOW_LEGACY_SESSIONS = prevLegacy
   if (prevNodeEnv === undefined) delete process.env.NODE_ENV

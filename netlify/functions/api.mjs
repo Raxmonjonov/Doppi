@@ -2,7 +2,7 @@ import { getStore } from '@netlify/blobs'
 import { emptyDoc, handleRequest } from '../lib/api-core.mjs'
 import { createPostgresStore } from '../lib/postgres-store.mjs'
 import { createBlobsStore } from '../lib/blobs-store.mjs'
-import { securityHeaders, serverSecret } from '../lib/security.mjs'
+import { securityHeaders, serverSecret, isProdLike } from '../lib/security.mjs'
 
 // Start with an EMPTY store: users self-register on first login (no demo accounts preloaded).
 // To seed demo data instead: import { loadSeedDoc } from './seed-loader.mjs' and
@@ -20,7 +20,9 @@ const store = process.env.DATABASE_URL
   : blobStore
 
 // Fail fast in production instead of silently running with a throwaway key.
-if (process.env.NODE_ENV === 'production') {
+// NODE_ENV Netlify'da `production` emas — isProdLike() serverless muhitni ham
+// qamrab oladi, aks holda bu pre-flight tekshiruv hech qachon ishga tushmasdi.
+if (isProdLike()) {
   try {
     serverSecret()
   } catch (e) {

@@ -100,13 +100,25 @@ let ephemeralSecret = null
    `401` qaytadi. Ya'ni sayt ishlaydi, lekin HECH KIM biror sayfadan o'ta
    olmaydi — foydalanuvchi har safar "chiqib ketyapti" deb o'ylaydi.
    Shuning uchun serverless muhitni ham aniqlaymiz. */
-const SERVERLESS = Boolean(
-  process.env.NETLIFY === 'true' ||
-    process.env.NETLIFY ||
-    process.env.AWS_LAMBDA_FUNCTION_NAME ||
-    process.env.VERCEL ||
-    process.env.NETLIFY_LOCAL,
-)
+/* Prod muhitini aniqlash — DINAMIK (har chaqiruvda), chunki testlar
+   `process.env.NETLIFY`/`NODE_ENV` ni vaqtincha o'zgartirib sinab ko'rishadi.
+   Faqat `NODE_ENV === 'production'` ga tayanish xavfli: Netlify funksiyalarida
+   NODE_ENV umuman `production` bo'lmaydi (yuqori izoh) — buning oqibati
+   `resetCodeEcho` kabi "faqat dev" tekshiruvlari production'da faol bo'lib
+   qoladi (parol tiklash kodini javobda qaytarish = hisob o'g'irlash). */
+export function isServerlessLike() {
+  return Boolean(
+    process.env.NETLIFY === 'true' ||
+      process.env.NETLIFY ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.VERCEL ||
+      process.env.NETLIFY_LOCAL,
+  )
+}
+export function isProdLike() {
+  return process.env.NODE_ENV === 'production' || isServerlessLike()
+}
+const SERVERLESS = isServerlessLike()
 const IS_PROD = process.env.NODE_ENV === 'production' || SERVERLESS
 
 export function serverSecret() {
@@ -155,7 +167,7 @@ export function sessionMatches(row, token) {
      doimiy vaqtli. */
   if (
     String(process.env.ALLOW_LEGACY_SESSIONS ?? '') === '1' &&
-    process.env.NODE_ENV !== 'production' &&
+    !isProdLike() &&
     constantTimeEqual(stored, String(token))
   ) {
     return true

@@ -22,6 +22,7 @@ import {
   resetRateLimits,
   normalizeIdentity,
   sanitizeAvatar,
+  isProdLike,
 } from './security.mjs'
 
 export { RATE_LIMITS, rateLimit, resetRateLimits, passwordProblem, MIN_PASSWORD_LENGTH }
@@ -562,9 +563,14 @@ function uaLabel(req) {
 }
 
 /* Yetkazib berish kanali hali ulanmagan: kod server logiga yoziladi.
-   Ishlab chiqarishda (NODE_ENV=production) kod javobda qaytarilmaydi. */
+   Ishlab chiqarishda kod javobda QAYTARILMAYDI — aks holda istalgan
+   odam `/api/auth/forgot` bilan o'ziga kod olib, `/api/auth/reset` orqali
+   boshqa hisobni egallab olardi (ATO).
+   ESHTIKLIK: faqat `NODE_ENV` tekshirilsa Netlify funksiyasida (u hech
+   qachon `production` bo'lmaydi) echo doim faol qolardi — shuning uchun
+   serverless muhitni ham hisobga oluvchi `isProdLike()` ishlatiladi. */
 function resetCodeEcho() {
-  return process.env.NODE_ENV !== 'production' && process.env.RESET_CODE_ECHO !== '0'
+  return !isProdLike() && process.env.RESET_CODE_ECHO !== '0'
 }
 
 /* Kodni kiritish sahifasining to'liq manzili (agar APP_URL berilgan bo'lsa).
@@ -1096,7 +1102,7 @@ export async function handleRequest(method, pathname, query, req, store) {
   const ADMIN_CONFIGURED = ADMIN_USER.length > 0 && ADMIN_PASS.length >= 12
   const ADMIN_SESSION_TTL = 12 * 60 * 60 * 1000 // 12 soat
 
-  if (process.env.NODE_ENV === 'production' && !ADMIN_CONFIGURED) {
+  if (isProdLike() && !ADMIN_CONFIGURED) {
     console.error(
       '[xavfsizlik] ADMIN_USERNAME va ADMIN_PASSWORD (kamida 12 belgi) ' +
         'belgilanmagan — admin panel o‘chirilgan holda qoladi.',

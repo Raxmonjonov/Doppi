@@ -1,4 +1,5 @@
 import { emptyDoc } from './api-core.mjs'
+import { isProdLike } from './security.mjs'
 
 /* Seed fayli avval `netlify/lib/seed.json` dan `JSON.parse` qilib avtomatik
    yuklanardi — ya'ni `git`ga tushgan fayldan kelgan haqiqiy foydalanuvchilar
@@ -9,7 +10,7 @@ import { emptyDoc } from './api-core.mjs'
 export async function loadSeedDoc() {
   if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') return emptyDoc()
   if (String(process.env.ALLOW_SEED ?? '') !== '1') return emptyDoc()
-  if (String(process.env.NODE_ENV ?? '') === 'production') {
+  if (isProdLike()) {
     console.error('[xavfsizlik] Production muhitida seed yuklanmaydi (ALLOW_SEED=1 ham yetarli emas).')
     return emptyDoc()
   }
