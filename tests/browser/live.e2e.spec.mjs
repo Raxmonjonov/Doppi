@@ -46,19 +46,46 @@ async function seedToken(context, token) {
   await context.addInitScript((t) => localStorage.setItem('doppi-token-v1', t), token)
 }
 
+// afterAll uchun holat: test muvaffaqiyatli boshlansa ham, xato ham
+// qolgan efir/video qoldiqlari o'chirilsin (prod'da yig'ilib ketmasligi uchun).
+const state = { tokA: null, meId: null }
+
+test.afterAll(async () => {
+  if (!state.tokA) return
+  try {
+    const d = await jreq('/api/data', 'GET', undefined, state.tokA)
+    for (const l of d.json?.lives ?? []) {
+      if (l.owner?.id !== state.meId) continue
+      if (l.status === 'live') await jreq(`/api/lives/${l.id}/end`, 'POST', { video: '', duration: 0, title: l.title }, state.tokA)
+      await jreq(`/api/lives/${l.id}`, 'DELETE', undefined, state.tokA)
+    }
+    for (const v of d.json?.videos ?? []) {
+      if (v.owner?.id === state.meId) await jreq(`/api/videos/${v.id}`, 'DELETE', undefined, state.tokA)
+    }
+  } catch (e) {
+    console.log('[E2E cleanup]', e?.message ?? e)
+  }
+})
+
 test('jonli efir: ikki hisob, WebRTC oqim, tugatish va replay', async ({ browser }) => {
   const me = await ensureUser(A)
   const tokA = me.token
   const meId = me.id
   const tokB = (await ensureUser(B)).token
+  state.tokA = tokA
+  state.meId = meId
 
-  // Oldingi muvaffaqiyatsiz run'lar qoldirgan 'live' holatdagi efirlarni yopamiz
-  // (faqat o'zimiznikilarni), aks holda Live sahifasida eski kartalar qoladi.
+  // Oldingi muvaffaqiyatsiz run'lar qoldirgan efir/video qoldiqlarini
+  // tozalaymiz (faqat o'zimiznikini): avval tugatamiz, keyin o'chiramiz.
   const dataAll = await jreq('/api/data', 'GET', undefined, tokA)
   for (const l of dataAll.json.lives ?? []) {
-    if (l.status === 'live' && meId && l.owner?.id === meId) {
-      await jreq(`/api/lives/${l.id}/end`, 'POST', { video: '', duration: 0, title: l.title }, tokA)
+    if (l.owner?.id === meId) {
+      if (l.status === 'live') await jreq(`/api/lives/${l.id}/end`, 'POST', { video: '', duration: 0, title: l.title }, tokA)
+      await jreq(`/api/lives/${l.id}`, 'DELETE', undefined, tokA)
     }
+  }
+  for (const v of dataAll.json.videos ?? []) {
+    if (v.owner?.id === meId) await jreq(`/api/videos/${v.id}`, 'DELETE', undefined, tokA)
   }
 
   const ctxA = await browser.newContext()

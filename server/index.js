@@ -2763,6 +2763,51 @@ app.post('/api/lives/:id/end', authMiddleware, async (req, res) => {
   }
 })
 
+// Efiri o'chirish (faqat egasi) — efir qatori, replay videosi va
+// ulangan (boshqa joyda ishlatilmagan) media ham ketadi. E2E o'zini
+// tozalash yo'li: test tugagach qolgan efir/video qoldiqlarini tozalaydi.
+app.delete('/api/lives/:id', authMiddleware, async (req, res) => {
+  const me = req.user
+  const id = Number(req.params.id)
+  try {
+    const rows = await pool.query(`SELECT * FROM lives WHERE id = $1`, [id])
+    if (rows.rows.length === 0) return res.status(404).json({ error: 'Jonli efir topilmadi.' })
+    const live = rows.rows[0]
+    if (Number(live.owner_id) !== me.id) return res.status(403).json({ error: 'Faqat egasi o‘chira oladi.' })
+    const replays = await pool.query(`SELECT src FROM videos WHERE live_id = $1`, [id])
+    await pool.query(`DELETE FROM videos WHERE live_id = $1`, [id])
+    await pool.query(`DELETE FROM lives WHERE id = $1`, [id])
+    const srcs = [live.video, ...replays.rows.map((r) => r.src)].filter((s) => s)
+    for (const src of srcs) {
+      const mid = mediaPathOf(src)
+      if (!mid) continue
+      // `collectMediaRefs` (netlify) bilan teng: efir+replay o'chirilgach
+      // media boshqa kontentda ishlatilayotgan bo'lsa faylni saqlaymiz.
+      const ref = await pool.query(
+        `SELECT
+          (SELECT COUNT(*)::int FROM users WHERE avatar LIKE '%' || $1 || '%') +
+          (SELECT COUNT(*)::int FROM posts WHERE video LIKE '%' || $1 || '%' OR images::text LIKE '%' || $1 || '%') +
+          (SELECT COUNT(*)::int FROM stories WHERE image LIKE '%' || $1 || '%') +
+          (SELECT COUNT(*)::int FROM reels WHERE image LIKE '%' || $1 || '%' OR sound LIKE '%' || $1 || '%') +
+          (SELECT COUNT(*)::int FROM albums WHERE photos::text LIKE '%' || $1 || '%') +
+          (SELECT COUNT(*)::int FROM groups WHERE cover LIKE '%' || $1 || '%') +
+          (SELECT COUNT(*)::int FROM messages WHERE image LIKE '%' || $1 || '%' OR audio LIKE '%' || $1 || '%') +
+          (SELECT COUNT(*)::int FROM group_messages WHERE image LIKE '%' || $1 || '%' OR audio LIKE '%' || $1 || '%') +
+          (SELECT COUNT(*)::int FROM lives WHERE video LIKE '%' || $1 || '%') +
+          (SELECT COUNT(*)::int FROM videos WHERE src LIKE '%' || $1 || '%') AS refs`,
+        [mid],
+      )
+      if (Number(ref.rows[0]?.refs ?? 0) === 0) {
+        await pool.query(`DELETE FROM doppi_media WHERE id = $1`, [mid]).catch(() => {})
+      }
+    }
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('live delete xatosi:', e.message)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
 // Uzun video ro'yxatga olish: avval /api/media ga yuklanadi, so'ng src+title
 app.post('/api/videos', authMiddleware, async (req, res) => {
   const me = req.user

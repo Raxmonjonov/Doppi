@@ -2260,6 +2260,33 @@ export async function handleRequest(method, pathname, query, req, store) {
     return send(200, { ok: true, live: liveView(live, doc), video: videoRes })
   }
 
+  // Efiri o'chirish (faqat egasi) — efir qatori, replay videosi va
+  // ulangan (boshqa joyda ishlatilmagan) media ham ketadi. E2E o'zini
+  // tozalash yo'li: test tugagach qolgan efir/video qoldiqlarini tozalaydi.
+  if (method === 'DELETE' && first === 'lives' && second && third === undefined) {
+    const me = auth(doc, bearer)
+    if (!me) return send(401, { error: 'Avtorizatsiya talab qilinadi.' })
+    const id = Number(second)
+    const idx = doc.lives.findIndex((x) => x.id === id)
+    if (idx < 0) return send(404, { error: 'Jonli efir topilmadi.' })
+    if (doc.lives[idx].ownerId !== me.id) return send(403, { error: 'Faqat egasi o‘chira oladi.' })
+    const removed = doc.lives.splice(idx, 1)[0]
+    const removedReplays = doc.videos.filter((v) => v.liveId === removed.id)
+    doc.videos = doc.videos.filter((v) => v.liveId !== removed.id)
+    const mids = new Set()
+    for (const src of [removed.video ?? '', ...removedReplays.map((v) => v.src ?? '')]) {
+      const mid = mediaPathOf(src)
+      if (mid) mids.add(mid)
+    }
+    if (typeof store.deleteMedia === 'function' && mids.size) {
+      const refs = collectMediaRefs(doc)
+      const del = [...mids].filter((m) => !refs.has(m))
+      if (del.length) await store.deleteMedia(del).catch(() => {})
+    }
+    await store.saveDoc(doc)
+    return send(200, { ok: true })
+  }
+
   /* ---------- Uzun videolar ---------- */
 
   // Uzun video ro'yxatga olish: avval /api/media ga yuklang, so'ng bu

@@ -911,6 +911,24 @@ export async function runSuite(store, label) {
   const liveAfter = (await call('GET', '/api/data', undefined, tok1b)).json.lives ?? []
   ok('ended live has status ended', liveAfter.some((l) => Number(l.id) === liveId && l.status === 'ended'))
 
+  // 9d) Efiri egasi o'chiradi — E2E o'zini tozalash yo'li:
+  // efir qatori + replay video yozuvi birga ketadi.
+  if (noReplayLive) {
+    r = await call('DELETE', `/api/lives/${noReplayLive}`, undefined, tokB)
+    ok('delete live by non-owner -> 403', r.status === 403, `status=${r.status}`)
+  }
+  r = await call('DELETE', `/api/lives/${liveId}`, undefined, tok1b)
+  ok('delete live (with replay) by owner -> 200', r.status === 200, `status=${r.status}`)
+  const delCheck = (await call('GET', '/api/data', undefined, tok1b)).json
+  ok('deleted live no longer listed', !(delCheck.lives ?? []).some((l) => Number(l.id) === liveId), `lives=${(delCheck.lives ?? []).length}`)
+  ok('live replay video removed with live', !(delCheck.videos ?? []).some((v) => Number(v.liveId) === liveId), `videos=${(delCheck.videos ?? []).length}`)
+  r = await call('DELETE', `/api/lives/${liveId}`, undefined, tok1b)
+  ok('delete live twice -> 404', r.status === 404, `status=${r.status}`)
+  if (noReplayLive) {
+    r = await call('DELETE', `/api/lives/${noReplayLive}`, undefined, tok1b)
+    ok('delete replay-less live -> 200', r.status === 200, `status=${r.status}`)
+  }
+
   // 10) BUZILGAN/ESKI HUJJAT: massivli maydonlar yo'q bo'lsa ham ishlaydi
   // Ishlab chiqarishdagi 500 ning asosiy sababi shu edi — Netlify Blobs'dagi
   // eski `db` da `sessions` massivi yo'q edi, shuning uchun
