@@ -174,5 +174,61 @@ export function createPostgresStore(databaseUrl, seedProvider, sqlClient, fallba
     return removed
   }
 
-  return { getDoc, saveDoc, putMedia, setMediaMeta, getMediaMeta, getMedia, listMedia, deleteMedia }
+  /* ---------- Jonli efir signallari (alohida qator) ----------
+     Doc ichida signals saqlash parallel yo'zuvlarda read-modify-write
+     race'iga uchraydi (12 ta parallel signal dan 11 tishi yo'qotilgan edi:
+     WebRTC answer signal yo'qolib, media oqimi ulanmasdi). Shu jadvalda
+     INSERT ... ON CONFLICT DO UPDATE atomik append — qator kilofi
+     parallel yozuvlarni navbatma-navbat joylashtiradi (yechilgan).
+     id = mikrosekund (monotonik; 600+ elementda oxirgi 500 ni kesish
+     ham id kamaytirmaydi, shuning uchun `since` kursori uzilmaydi). */
+  async function ensureLiveSigTable() {
+    await sql`CREATE TABLE IF NOT EXISTS doppi_live_sig (
+      live_id bigint PRIMARY KEY,
+      signals jsonb NOT NULL DEFAULT '[]'::jsonb,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`
+  }
+
+  async function appendLiveSignal(liveId, sig) {
+    await ensureLiveSigTable()
+    const from = Number(sig.from) || 0
+    const to = Number(sig.to) || 0
+    const kind = String(sig.kind ?? '')
+    const dataJson = JSON.stringify(sig.data ?? null)
+    const rows = await sql`
+      INSERT INTO doppi_live_sig (live_id, signals)
+      VALUES (${Number(liveId)}, jsonb_build_array(jsonb_build_object(
+        'id', (EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::bigint,
+        'from', ${from}::bigint, 'to', ${to}::bigint,
+        'kind', ${kind}::text, 'data', ${dataJson}::jsonb
+      )))
+      ON CONFLICT (live_id) DO UPDATE SET
+        signals = CASE
+          WHEN jsonb_array_length(doppi_live_sig.signals || EXCLUDED.signals) > 600
+          THEN (SELECT jsonb_agg(el ORDER BY (el->>'id')::bigint)
+                  FROM (SELECT j.el FROM jsonb_array_elements(doppi_live_sig.signals || EXCLUDED.signals) j(el)
+                        ORDER BY (j.el->>'id')::bigint DESC LIMIT 500) t(el))
+          ELSE doppi_live_sig.signals || EXCLUDED.signals
+        END,
+        updated_at = now()
+      RETURNING (signals -> (jsonb_array_length(signals) - 1) ->> 'id')::bigint AS id`
+    return rows && rows.length ? Number(rows[0].id) : 0
+  }
+
+  async function getLiveSignals(liveId) {
+    await ensureLiveSigTable()
+    const rows = await sql`SELECT signals FROM doppi_live_sig WHERE live_id = ${Number(liveId)}`
+    if (!rows || rows.length === 0) return []
+    const raw = rows[0].signals
+    const arr = typeof raw === 'string' ? JSON.parse(raw) : raw
+    return Array.isArray(arr) ? arr : []
+  }
+
+  async function deleteLiveSignals(liveId) {
+    await ensureLiveSigTable()
+    await sql`DELETE FROM doppi_live_sig WHERE live_id = ${Number(liveId)}`
+  }
+
+  return { getDoc, saveDoc, putMedia, setMediaMeta, getMediaMeta, getMedia, listMedia, deleteMedia, appendLiveSignal, getLiveSignals, deleteLiveSignals }
 }

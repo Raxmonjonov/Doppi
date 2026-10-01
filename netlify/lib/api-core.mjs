@@ -2330,6 +2330,20 @@ export async function handleRequest(method, pathname, query, req, store) {
     const body = await readBody(req)
     const kind = String(body.kind ?? '')
     const toInt = Number(body.to ?? 0) || 0
+    // Tomoshabinlar ro'yxati doc'da (kam yozuv), signallar esa postgresa
+    // atomik append (doc RMW race'ini chetlab o'tadi).
+    if (typeof store.appendLiveSignal === 'function') {
+      const newId = await store.appendLiveSignal(id, { from: me.id, to: toInt, kind, data: body.data ?? null })
+      if (kind === 'viewer-join') {
+        live.viewers = live.viewers ?? []
+        if (!live.viewers.includes(me.id)) live.viewers.push(me.id)
+        await store.saveDoc(doc)
+      } else if (kind === 'viewer-leave') {
+        live.viewers = (live.viewers ?? []).filter((x) => x !== me.id)
+        await store.saveDoc(doc)
+      }
+      return send(200, { signal: { id: newId, from: me.id, kind } })
+    }
     const signal = { id: Date.now(), from: me.id, to: toInt, kind, data: body.data ?? null }
     live.signals = live.signals ?? []
     live.signals.push(signal)
@@ -2353,7 +2367,13 @@ export async function handleRequest(method, pathname, query, req, store) {
     const live = doc.lives.find((x) => x.id === id)
     if (!live) return send(404, { error: 'Jonli efir topilmadi.' })
     const since = Number(query.since ?? 0)
-    const signals = (live.signals ?? [])
+    // Transition: eski signal hali doc'da bo'lishi mumkin — ikkala manbadan
+    let signalList = live.signals ?? []
+    if (typeof store.getLiveSignals === 'function') {
+      const rowSignals = await store.getLiveSignals(id)
+      if (rowSignals.length) signalList = signalList.concat(rowSignals)
+    }
+    const signals = signalList
       .filter((s) => s.id > since && s.from !== me.id && (s.to === 0 || s.to === me.id))
       .sort((a, b) => a.id - b.id)
     return send(200, { signals, status: live.status, viewers: (live.viewers ?? []).length })
@@ -2418,6 +2438,9 @@ export async function handleRequest(method, pathname, query, req, store) {
       const refs = collectMediaRefs(doc)
       const del = [...mids].filter((m) => !refs.has(m))
       if (del.length) await store.deleteMedia(del).catch(() => {})
+    }
+    if (typeof store.deleteLiveSignals === 'function') {
+      await store.deleteLiveSignals(removed.id).catch(() => {})
     }
     await store.saveDoc(doc)
     return send(200, { ok: true })
