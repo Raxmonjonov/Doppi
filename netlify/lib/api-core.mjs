@@ -1151,6 +1151,126 @@ export async function handleRequest(method, pathname, query, req, store) {
     return send(200, { ok: true })
   }
 
+  /* ---------- Admin: foydalanuvchi boshqaruvi ---------- */
+
+  // Ro'yxat (faqat admin): qo'llab-quvvatlash va tozalash uchun.
+  if (method === 'GET' && first === 'admin' && second === 'users' && third === undefined) {
+    if (!adminAuth(doc, bearer)) return send(401, { error: 'Admin kirishi talab qilinadi.' })
+    const users = [...(doc.users ?? [])]
+      .sort((a, b) => new Date(b.lastLoginAt ?? b.createdAt ?? 0) - new Date(a.lastLoginAt ?? a.createdAt ?? 0))
+      .map((u) => ({
+        id: u.id,
+        username: u.username,
+        name: u.name,
+        email: u.email,
+        avatar: u.avatar ?? '',
+        createdAt: u.createdAt ?? '',
+        lastLoginAt: u.lastLoginAt ?? '',
+      }))
+    return send(200, { users })
+  }
+
+  // Parolni o'zgartirish (faqat admin) — email provayder talab qilinmaydi
+  // (prod'da mail sozlanmagan). Eski sessiyalar bekor qilinadi.
+  if (method === 'POST' && first === 'admin' && second === 'users' && third && _fourth === 'password') {
+    if (!adminAuth(doc, bearer)) return send(401, { error: 'Admin kirishi talab qilinadi.' })
+    const u = (doc.users ?? []).find((x) => Number(x.id) === Number(third))
+    if (!u) return send(404, { error: 'Foydalanuvchi topilmadi.' })
+    const body = await readBody(req)
+    const pw = String(body.password ?? '')
+    const problem = passwordProblem(pw, { username: u.username, email: u.email })
+    if (problem) return send(400, { error: problem })
+    const { salt, hash } = await hashPassword(pw)
+    u.salt = salt
+    u.hash = hash
+    doc.sessions = (doc.sessions ?? []).filter((s) => Number(s.userId) !== Number(u.id))
+    await store.saveDoc(doc)
+    return send(200, { ok: true })
+  }
+
+  // Foydalanuvchini o'chirish (faqat admin) — kontenti, sessiyalari va
+  // ulangan mediasi kaskadlanadi. Admin panel va tozalash uchun:
+  // oldin bu yo'l yo'q edi, tozalash uchun to'g'ridan-to'g'ri DB'ga
+  // kirishga to'g'ri kelgan edi.
+  if (method === 'DELETE' && first === 'admin' && second === 'users' && third && !_fourth) {
+    if (!adminAuth(doc, bearer)) return send(401, { error: 'Admin kirishi talab qilinadi.' })
+    const id = Number(third)
+    const victim = (doc.users ?? []).find((x) => Number(x.id) === id)
+    if (!victim) return send(404, { error: 'Foydalanuvchi topilmadi.' })
+
+    const isMe = (x) => Number(x) === id
+    const removed = []
+    const grab = (key, pred) => {
+      const keep = []
+      for (const x of doc[key] ?? []) (pred(x) ? removed : keep).push(x)
+      if (doc[key]) doc[key] = keep
+    }
+
+    grab('users', (x) => isMe(x.id))
+    grab('sessions', (x) => isMe(x.userId))
+    grab('lives', (x) => isMe(x.ownerId))
+    grab('videos', (x) => isMe(x.ownerId))
+    grab('posts', (x) => isMe(x.authorId))
+    grab('stories', (x) => isMe(x.authorId))
+    grab('reels', (x) => isMe(x.authorId))
+    grab('follows', (x) => isMe(x.followerId) || isMe(x.followeeId))
+    grab('postLikes', (x) => isMe(x.userId))
+    grab('reelLikes', (x) => isMe(x.userId))
+    grab('albumLikes', (x) => isMe(x.userId))
+    grab('postShares', (x) => isMe(x.userId))
+    grab('reelShares', (x) => isMe(x.userId))
+    grab('postComments', (x) => isMe(x.authorId))
+    grab('reelComments', (x) => isMe(x.authorId))
+    grab('storyViews', (x) => isMe(x.userId))
+    grab('sealShields', (x) => isMe(x.userId))
+    grab('pushSubscriptions', (x) => isMe(x.userId))
+    grab('groupMessages', (x) => isMe(x.senderId))
+    grab('notifications', (x) => isMe(x.userId) || isMe(x.actor))
+    grab('callSignals', (x) => isMe(x.from) || isMe(x.to))
+    grab('threadCallSignals', (x) => isMe(x.from) || isMe(x.to))
+    grab('resetCodes', (x) => String(x.username ?? '').toLowerCase() === String(victim.username ?? '').toLowerCase())
+
+    // Suhbat: a'zo bo'lsa butun thread va xabarlari ketadi
+    const threadIds = new Set()
+    for (const t of doc.threads ?? []) if (isMe(t.memberA) || isMe(t.memberB)) threadIds.add(Number(t.id))
+    grab('threads', (x) => threadIds.has(Number(x.id)))
+    grab('messages', (x) => threadIds.has(Number(x.threadId)) || isMe(x.senderId))
+
+    // Guruh: egasi o'chsa guruh ham ketadi; qolgan guruhlardan a'zolik
+    // olib tashlanadi; o'chirilgan guruhlarning xabarlari ham ketadi.
+    const ownedGroups = new Set()
+    for (const g of doc.groups ?? []) if (isMe(g.createdBy)) ownedGroups.add(Number(g.id))
+    grab('groups', (x) => ownedGroups.has(Number(x.id)) || isMe(x.createdBy))
+    grab('groupMessages', (x) => ownedGroups.has(Number(x.groupId)))
+    for (const g of doc.groups ?? []) {
+      if (Array.isArray(g.memberIds)) g.memberIds = g.memberIds.filter((m) => !isMe(m))
+      if (Array.isArray(g.members)) g.members = g.members.filter((m) => !isMe(Number(m?.id ?? m)))
+    }
+
+    // O'chirilgan obyektlardagi media (rasm/video/avatar) endi
+    // referentsiz — faqat boshqa joyda ishlatilmaganlari o'chiriladi.
+    const mids = new Set()
+    const collectMedia = (node) => {
+      if (typeof node === 'string') {
+        const m = mediaPathOf(node)
+        if (m) mids.add(m)
+      } else if (Array.isArray(node)) {
+        for (const x of node) collectMedia(x)
+      } else if (node && typeof node === 'object') {
+        for (const x of Object.values(node)) collectMedia(x)
+      }
+    }
+    for (const x of removed) collectMedia(x)
+    if (typeof store.deleteMedia === 'function' && mids.size) {
+      const refs = collectMediaRefs(doc)
+      const del = [...mids].filter((m) => !refs.has(m))
+      if (del.length) await store.deleteMedia(del).catch(() => {})
+    }
+
+    await store.saveDoc(doc)
+    return send(200, { ok: true, username: victim.username })
+  }
+
   /* ---------- Presence ---------- */
 
   // Client heartbeat: keeps the session "online". Called every ~15s while the app is open.

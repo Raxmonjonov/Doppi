@@ -1122,6 +1122,128 @@ app.post('/api/admin/logout', async (req, res) => {
   res.json({ ok: true })
 })
 
+/* Admin guard: dashboard/gc uslubida lekin 401 + bir xil xabar bilan
+   (api-core'dagi foydalanuvchi boshqaruvi bilan bir xil shrift uchun). */
+function adminGuard(req, res) {
+  const token = adminBearer(req)
+  const ref = token ? tokenRef(token) : ''
+  if (!token || !adminTokens.has(ref) || Date.now() - adminTokens.get(ref) > ADMIN_SESSION_TTL) {
+    if (ref) adminTokens.delete(ref)
+    res.status(401).json({ error: 'Admin kirishi talab qilinadi.' })
+    return false
+  }
+  adminTokens.set(ref, Date.now())
+  return true
+}
+
+// Ro'yxat (faqat admin) — api-core GET /api/admin/users bilan bir xil shakl.
+app.get('/api/admin/users', async (req, res) => {
+  if (!adminGuard(req, res)) return
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, username, email, avatar, created_at, last_login_at FROM users
+       ORDER BY COALESCE(NULLIF(last_login_at, ''), created_at) DESC`,
+    )
+    res.json({
+      users: rows.map((u) => ({
+        id: Number(u.id),
+        username: u.username,
+        name: u.name,
+        email: u.email,
+        avatar: u.avatar || '',
+        createdAt: u.created_at || '',
+        lastLoginAt: u.last_login_at || '',
+      })),
+    })
+  } catch (e) {
+    console.error('admin users list xatosi:', e.message)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+// Parolni o'zgartirish (faqat admin) — email provayder talab qilinmaydi.
+app.post('/api/admin/users/:id/password', async (req, res) => {
+  if (!adminGuard(req, res)) return
+  const id = Number(req.params.id)
+  try {
+    const uR = await pool.query('SELECT id, username, email FROM users WHERE id = $1', [id])
+    if (uR.rows.length === 0) return res.status(404).json({ error: 'Foydalanuvchi topilmadi.' })
+    const u = uR.rows[0]
+    const pw = String(req.body?.password ?? '')
+    const problem = passwordProblem(pw, { username: u.username, email: u.email })
+    if (problem) return res.status(400).json({ error: problem })
+    const { salt, hash } = await hashPassword(pw)
+    await pool.query('UPDATE users SET salt = $1, hash = $2, password_changed_at = now() WHERE id = $3', [salt, hash, id])
+    // Eski sessiyalar bekor qilinadi — yangi parol bilan qayta kirish shart
+    await pool.query('DELETE FROM sessions WHERE user_id = $1', [id])
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('admin password reset xatosi:', e.message)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
+// Foydalanuvchini o'chirish (faqat admin) — kaskad: sxemadagi ON DELETE
+// CASCADE (posts/videos/lives/threads/sessions/likes/...) + qo'lda
+// tozalanadigan referencesiz qatorlar + egasining mediasi (ref-check bilan).
+app.delete('/api/admin/users/:id', async (req, res) => {
+  if (!adminGuard(req, res)) return
+  const id = Number(req.params.id)
+  try {
+    const uR = await pool.query('SELECT id, username FROM users WHERE id = $1', [id])
+    if (uR.rows.length === 0) return res.status(404).json({ error: 'Foydalanuvchi topilmadi.' })
+    const username = uR.rows[0].username
+
+    // owner_id SET NULL bo'ladi (doppi_media FK) — avval egasining
+    // media idlarini yig'amiz.
+    const ownedMedia = await pool.query('SELECT id FROM doppi_media WHERE owner_id = $1', [id])
+
+    // CASCADE bermaydigan referenslar:
+    await pool.query('DELETE FROM notifications WHERE user_id = $1 OR actor_id = $1', [id])
+    await pool.query('DELETE FROM thread_call_signals WHERE recipient_id = $1', [id])
+    await pool.query('DELETE FROM group_call_signals WHERE recipient_id = $1', [id])
+    await pool.query('DELETE FROM password_resets WHERE lower(username) = lower($1)', [username])
+
+    await pool.query('DELETE FROM users WHERE id = $1', [id])
+
+    // Egasining mediasi: hozircha boshqa kontentda ishlatilayotganlari
+    // saqlanadi (media/gc bilan bir xil referens aniqlash).
+    const { rows: refRows } = await pool.query(
+      `SELECT DISTINCT (regexp_matches(txt, '/api/media/([A-Za-z0-9][A-Za-z0-9._-]*)', 'g'))[1] AS id
+       FROM (
+         SELECT images::text AS txt FROM posts
+         UNION ALL SELECT video::text FROM posts
+         UNION ALL SELECT image::text FROM stories
+         UNION ALL SELECT image::text FROM reels
+         UNION ALL SELECT sound::text FROM reels
+         UNION ALL SELECT photos::text FROM albums
+         UNION ALL SELECT cover::text FROM "groups"
+         UNION ALL SELECT avatar::text FROM users
+         UNION ALL SELECT actor_avatar::text FROM notifications
+         UNION ALL SELECT image::text FROM messages
+         UNION ALL SELECT audio::text FROM messages
+         UNION ALL SELECT image::text FROM group_messages
+         UNION ALL SELECT audio::text FROM group_messages
+         UNION ALL SELECT video::text FROM lives
+         UNION ALL SELECT src::text FROM videos
+       ) s
+       WHERE txt LIKE '%/api/media/%'`,
+    )
+    const used = new Set(refRows.map((r) => r.id).filter(Boolean))
+    let mediaRemoved = 0
+    for (const row of ownedMedia.rows) {
+      if (!used.has(row.id)) {
+        await pool.query('DELETE FROM doppi_media WHERE id = $1', [row.id])
+        mediaRemoved++
+      }
+    }
+    res.json({ ok: true, username, mediaRemoved })
+  } catch (e) {
+    console.error('admin user delete xatosi:', e.message)
+    res.status(500).json({ error: 'Server xatosi.' })
+  }
+})
+
 app.get('/api/dashboard', async (req, res) => {
   const token = adminBearer(req)
   const ref = token ? tokenRef(token) : ''

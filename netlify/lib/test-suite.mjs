@@ -480,6 +480,67 @@ export async function runSuite(store, label) {
     ok('referenced media survives gc', afterKept.status === 200 && !!afterKept.binary, `status=${afterKept.status}`)
   }
 
+  // 8d) admin: foydalanuvchi boshqaruvi — ro'yxat, parol tiklash (mailsiz),
+  // kaskadli o'chirish (kontent + sessiyalar + media). Oldin bu yo'l yo'q
+  // edi: prod tozalashga to'g'ridan-to'g'ri DB kirishi kerak bo'lardi.
+  r = await call('GET', '/api/admin/users', undefined, adminTok)
+  const adminList = r.json?.users ?? []
+  ok('admin users list -> 200', r.status === 200 && adminList.length > 0, `status=${r.status} n=${adminList.length}`)
+  ok('admin users list hides secrets', adminList.every((u) => !('hash' in u) && !('salt' in u)))
+  r = await call('GET', '/api/admin/users', undefined, tok2)
+  ok('users list needs admin -> 401', r.status === 401, `status=${r.status}`)
+
+  const junkName = 'admjunk' + (Date.now() % 100000)
+  r = await call('POST', '/api/auth/register', {
+    name: 'AdmJunk',
+    username: junkName,
+    email: junkName + '@t.dev',
+    password: 'Junkparol1!',
+  })
+  const junkTok = r.json?.token
+  const junkId = r.json?.user?.id
+  ok('throwaway user registered', !!junkTok && !!junkId, `status=${r.status}`)
+  if (junkTok && junkId) {
+    r = await call('POST', '/api/media', { dataUrl: `data:image/png;base64,${pngBase64}` }, junkTok)
+    const junkMediaUrl = r.json?.url
+    r = await call(
+      'PUT',
+      '/api/data',
+      { posts: [{ id: Date.now(), time: 't', text: 'junk-adm', images: [junkMediaUrl] }], stories: [], reels: [], albums: [], groups: [] },
+      junkTok,
+    )
+    ok('junk post synced', r.status === 200, `status=${r.status}`)
+
+    r = await call('POST', `/api/admin/users/${junkId}/password`, { password: 'x' }, adminTok)
+    ok('admin reset rejects weak password -> 400', r.status === 400, `status=${r.status}`)
+    r = await call('POST', `/api/admin/users/${junkId}/password`, { password: 'YangiParol1!' }, adminTok)
+    ok('admin password reset -> 200', r.status === 200, `status=${r.status}`)
+    r = await call('POST', '/api/auth/login', { username: junkName, password: 'Junkparol1!' })
+    ok('old password rejected after reset', r.status === 401, `status=${r.status}`)
+    r = await call('POST', '/api/auth/login', { username: junkName, password: 'YangiParol1!' })
+    ok('new password works after reset', r.status === 200 && !!r.json?.token, `status=${r.status}`)
+
+    r = await call('DELETE', `/api/admin/users/${junkId}`, undefined, tok2)
+    ok('user delete needs admin -> 401', r.status === 401, `status=${r.status}`)
+    r = await call('DELETE', `/api/admin/users/${junkId}`, undefined, adminTok)
+    ok('admin deletes user -> 200', r.status === 200, `status=${r.status}`)
+    r = await call('POST', '/api/auth/login', { username: junkName, password: 'YangiParol1!' })
+    ok('deleted user cannot login -> 401', r.status === 401, `status=${r.status}`)
+    const listAfter = (await call('GET', '/api/admin/users', undefined, adminTok)).json?.users ?? []
+    ok('deleted user gone from list', !listAfter.some((u) => u.username === junkName), `n=${listAfter.length}`)
+    const dataAfter = (await call('GET', '/api/data', undefined, tok2)).json
+    ok('deleted user post gone', !(dataAfter.posts ?? []).some((p) => p.text === 'junk-adm'))
+    if (junkMediaUrl) {
+      const mid = junkMediaUrl.split('/api/media/')[1]?.split('?')[0]
+      const mediaAfter = await call('GET', `/api/media/${mid}`, undefined, tok2)
+      ok('deleted user media gone -> 404', mediaAfter.status === 404, `status=${mediaAfter.status}`)
+    }
+    r = await call('DELETE', `/api/admin/users/${junkId + 987654321}`, undefined, adminTok)
+    ok('delete unknown user -> 404', r.status === 404, `status=${r.status}`)
+    r = await call('POST', `/api/admin/users/${junkId + 987654321}/password`, { password: 'YangiParol1!' }, adminTok)
+    ok('reset unknown user -> 404', r.status === 404, `status=${r.status}`)
+  }
+
   // 8c) eski data: URL larni haqiqiy faylga ko'chirish
   const legacyPost = {
     id: pid + 7,

@@ -17,6 +17,7 @@ import {
   LogOut,
   AlertCircle,
   ShieldCheck,
+  KeyRound,
 } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
 import { api } from '../api/client'
@@ -62,6 +63,16 @@ interface DashboardData {
   lastLogout: (UserBrief & { at: number }) | null
   lastOnline: UserBrief[]
   recentUsers: RecentUser[]
+}
+
+interface AdminUserRow {
+  id: number
+  username: string
+  name: string
+  email: string
+  avatar: string
+  createdAt: string
+  lastLoginAt: string
 }
 
 function shortDate(iso: string): string {
@@ -240,6 +251,76 @@ function AdminStats({ t, onLogout }: { t: (k: string, p?: Record<string, string 
     }
   }
 
+  /* ---- Foydalanuvchilar boshqaruvi (api-core/Express GET admin/users) ---- */
+  const [usersOpen, setUsersOpen] = useState(false)
+  const [users, setUsers] = useState<AdminUserRow[] | null>(null)
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [userQ, setUserQ] = useState('')
+  const [resetFor, setResetFor] = useState<number | null>(null)
+  const [newPw, setNewPw] = useState('')
+  const [userBusy, setUserBusy] = useState(false)
+  const [userNote, setUserNote] = useState<string | null>(null)
+
+  const loadUsers = async () => {
+    setUsersLoading(true)
+    setUserNote(null)
+    try {
+      const adminToken = localStorage.getItem(SESSION_KEY)
+      const r = await api<{ users: AdminUserRow[] }>('/api/admin/users', { token: adminToken })
+      setUsers(r.users)
+    } catch (e) {
+      setUserNote(e instanceof Error ? e.message : 'Xatolik')
+    } finally {
+      setUsersLoading(false)
+    }
+  }
+
+  const toggleUsers = () => {
+    const open = !usersOpen
+    setUsersOpen(open)
+    if (open && users === null) void loadUsers()
+  }
+
+  const doResetPw = async (id: number) => {
+    setUserBusy(true)
+    setUserNote(null)
+    try {
+      const adminToken = localStorage.getItem(SESSION_KEY)
+      await api<{ ok: boolean }>(`/api/admin/users/${id}/password`, { method: 'POST', body: { password: newPw }, token: adminToken })
+      setUserNote(t('admin.passwordResetDone'))
+      setResetFor(null)
+      setNewPw('')
+    } catch (e) {
+      setUserNote(e instanceof Error ? e.message : 'Xatolik')
+    } finally {
+      setUserBusy(false)
+    }
+  }
+
+  const doDeleteUser = async (u: AdminUserRow) => {
+    if (!window.confirm(t('admin.deleteConfirm', { username: u.username }))) return
+    setUserBusy(true)
+    setUserNote(null)
+    try {
+      const adminToken = localStorage.getItem(SESSION_KEY)
+      await api<{ ok: boolean }>(`/api/admin/users/${u.id}`, { method: 'DELETE', token: adminToken })
+      setUserNote(t('admin.userDeleted', { username: u.username }))
+      setUsers((prev) => prev?.filter((x) => x.id !== u.id) ?? null)
+      setResetFor(null)
+      load() // dashboard jami sonlarini yangilash
+    } catch (e) {
+      setUserNote(e instanceof Error ? e.message : 'Xatolik')
+    } finally {
+      setUserBusy(false)
+    }
+  }
+
+  const filteredUsers = (users ?? []).filter((u) => {
+    const q = userQ.trim().toLowerCase()
+    if (!q) return true
+    return `${u.username} ${u.name} ${u.email}`.toLowerCase().includes(q)
+  })
+
   return (
     <div className="fade-in dash-page">
       <div className="dash-head">
@@ -408,6 +489,96 @@ function AdminStats({ t, onLogout }: { t: (k: string, p?: Record<string, string 
                 <div className="dash-empty">{t('dashboard.recentUsersEmpty')}</div>
               )}
             </div>
+          </div>
+
+          <div className="card dash-card dash-card-full" style={{ marginTop: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <h4 className="dash-card-title" style={{ marginTop: 0 }}>
+                  {t('admin.usersTitle')}
+                </h4>
+                <p className="page-sub" style={{ margin: 0 }}>
+                  {t('admin.usersSub')}
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input className="form-input" style={{ maxWidth: 200 }} data-testid="admin-user-search" placeholder={t('admin.userSearch')} value={userQ} onChange={(e) => setUserQ(e.target.value)} disabled={!usersOpen} />
+                <button type="button" className="btn btn-outline btn-sm" data-testid="admin-users-toggle" onClick={toggleUsers}>
+                  {usersOpen ? '−' : '+'} {t('admin.usersShow')}
+                </button>
+                {usersOpen && (
+                  <button type="button" className="btn btn-outline btn-sm" onClick={() => void loadUsers()} disabled={usersLoading}>
+                    <RefreshCw size={15} className={usersLoading ? 'spin' : ''} />
+                  </button>
+                )}
+              </div>
+            </div>
+            {userNote && <div className="upload-error">{userNote}</div>}
+            {usersOpen &&
+              (users === null || usersLoading ? (
+                <div className="dash-empty">{t('app.loading')}</div>
+              ) : filteredUsers.length === 0 ? (
+                <div className="dash-empty">{t('admin.noUsers')}</div>
+              ) : (
+                <div className="dash-online-list" style={{ marginTop: 10 }}>
+                  {filteredUsers.map((u) => (
+                    <div key={u.id} className="dash-user-row" data-testid={`admin-user-${u.username}`} style={{ borderTop: '1px solid rgba(127,127,127,.15)', paddingTop: 10 }}>
+                      <Avatar user={{ id: u.id, name: u.name, username: u.username, avatar: u.avatar, online: false }} size={36} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="dash-user-name">{u.name}</div>
+                        <div className="dash-user-sub">
+                          @{u.username} · {u.email} · {u.createdAt ? shortDate(u.createdAt) : ''}
+                        </div>
+                        {resetFor === u.id && (
+                          <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                            <input
+                              className="form-input"
+                              type="password"
+                              style={{ maxWidth: 200 }}
+                              placeholder={t('admin.newPassword')}
+                              value={newPw}
+                              onChange={(e) => setNewPw(e.target.value)}
+                              disabled={userBusy}
+                              autoFocus
+                            />
+                            <button type="button" className="btn btn-primary btn-sm" onClick={() => void doResetPw(u.id)} disabled={userBusy || newPw.trim().length < 8}>
+                              {t('admin.save')}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-sm"
+                              onClick={() => {
+                                setResetFor(null)
+                                setNewPw('')
+                              }}
+                              disabled={userBusy}
+                            >
+                              {t('admin.cancel')}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm"
+                          title={t('admin.resetPassword')}
+                          disabled={userBusy}
+                          onClick={() => {
+                            setResetFor(resetFor === u.id ? null : u.id)
+                            setNewPw('')
+                          }}
+                        >
+                          <KeyRound size={15} />
+                        </button>
+                        <button type="button" className="btn btn-outline btn-sm" title={t('admin.deleteUser')} disabled={userBusy} onClick={() => void doDeleteUser(u)}>
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
           </div>
         </>
       )}
