@@ -39,6 +39,12 @@ export async function runSuite(store, label) {
 
   console.log(`\n=== ${label} ===`)
 
+  // 0) health: auth'siz, hujjatni yuklamaydi, faqat ombor bilan aloqani tekshiradi
+  const hr = await call('GET', '/api/health')
+  ok('GET /api/health -> 200 {ok:true} (auth\'siz)', hr.status === 200 && hr.json?.ok === true, `status=${hr.status}`)
+  const hr405 = await call('POST', '/api/health')
+  ok('POST /api/health -> 404 (faqat GET)', hr405.status === 404, `status=${hr405.status}`)
+
   // 1) register + login
   let r = await register('nftest1', PW1, 'Net Test')
   ok('register returns token', !!r.json.token, `status=${r.status}`)

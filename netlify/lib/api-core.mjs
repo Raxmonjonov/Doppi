@@ -23,6 +23,7 @@ import {
   normalizeIdentity,
   sanitizeAvatar,
   isProdLike,
+  serverSecret,
 } from './security.mjs'
 
 export { RATE_LIMITS, rateLimit, resetRateLimits, passwordProblem, MIN_PASSWORD_LENGTH }
@@ -847,6 +848,26 @@ export async function handleRequest(method, pathname, query, req, store) {
   const segs = pathname.split('/').filter(Boolean)
   const api = segs.length >= 1 && segs[0] === 'api' ? segs.slice(1) : segs
   const [first, second, third, _fourth] = api
+
+  /* ---------- Health (server/index.js dagi /api/health bilan bir xil) ----------
+
+     Auth'siz, hujjatni o'qimaydi (faqat ombor bilan aloqani tekshiradi).
+     Netlify'da funksiya ishlayapti-yo'qligini tekshirishning eng tez yo'li:
+       curl -s https://<sayt>.netlify.app/api/health   -> {"ok":true}
+     Agar bu yerda HTML kelib qolsa — /api/* rewrite yoki funksiya o'zida
+     muammo (deploy root / function log'ga qarang). */
+  if (method === 'GET' && first === 'health' && second === undefined) {
+    try {
+      // SESSION_SECRET production'da majburiy: uni ham shu yerda tekshiramiz,
+      // aks holda sayt "ochiladi" lekin har bir so'rov 500 bo'ladi (README §trap).
+      serverSecret()
+      if (typeof store.ping === 'function') await store.ping()
+      else await store.getDoc()
+      return { status: 200, json: { ok: true } }
+    } catch {
+      return { status: 503, json: { error: 'Unavailable.' } }
+    }
+  }
 
   /* ---------- Media (binary) — doc hujjatini yuklamaydi ---------- */
 

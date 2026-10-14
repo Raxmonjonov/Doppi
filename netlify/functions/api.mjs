@@ -14,10 +14,36 @@ const emptyDocPromise = Promise.resolve(emptyDoc(Date.now()))
 // Postgres'ga o'tilganda (DATABASE_URL qo'yilsa) eski Blobs ma'lumotlari
 // avtomatik ko'chiriladi: postgres bo'sh hujjat/media'ni Blobs'dan o'qiydi
 // va bir marta Postgres'ga yozadi (createPostgresStore fallback parametri).
-const blobStore = createBlobsStore(getStore('doppi-data-v1'), () => emptyDocPromise)
-const store = process.env.DATABASE_URL
-  ? createPostgresStore(process.env.DATABASE_URL, () => emptyDocPromise, undefined, blobStore)
-  : blobStore
+//
+// Ombor module yuklanishida EMAS, birinchi so'rovda yaratiladi (lazy).
+// Aks holda noto'g'ri DATABASE_URL yoki Blobs muhiti (siteID/token yetishmasa)
+// modulni yuklanish vaqtida sindiradi: Netlify bunday funksiyani HTML xato
+// sahifasi bilan yopadi va mijozda "Backend server ulanishi yo'q" chiqadi.
+// Endi har qanday konfiguratsiya xatosi JSON ko'rinishida qaytadi.
+let storePromise = null
+function resolveStore() {
+  if (storePromise) return storePromise
+  storePromise = (async () => {
+    let blobStore = null
+    try {
+      blobStore = createBlobsStore(getStore('doppi-data-v1'), () => emptyDocPromise)
+    } catch (e) {
+      console.error('[ombor] Netlify Blobs omborini ochib bolmadi:', e.message)
+    }
+    if (process.env.DATABASE_URL) {
+      try {
+        return createPostgresStore(process.env.DATABASE_URL, () => emptyDocPromise, undefined, blobStore)
+      } catch (e) {
+        console.error('[ombor] DATABASE_URL bilan ombor yaratilmadi:', e.message)
+        if (blobStore) return blobStore
+        throw e
+      }
+    }
+    if (blobStore) return blobStore
+    throw new Error('Saqlash ombori sozlanmagan: DATABASE_URL belgilanmagan va Netlify Blobs mavjud emas.')
+  })()
+  return storePromise
+}
 
 // Fail fast in production instead of silently running with a throwaway key.
 // NODE_ENV Netlify'da `production` emas — isProdLike() serverless muhitni ham
@@ -43,7 +69,7 @@ export default async (req) => {
 
   let res
   try {
-    res = await handleRequest(req.method || 'GET', pathname, query, req, store)
+    res = await handleRequest(req.method || 'GET', pathname, query, req, await resolveStore())
   } catch (e) {
     // Stack trace mijozga uzatilmaydi (manzil/xatolik yo'lini oshkor qilmaslik uchun)
     console.error('[api] kutilmagan xato:', e)

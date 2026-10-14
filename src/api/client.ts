@@ -42,11 +42,18 @@ export async function api<T>(
   if (token) headers.Authorization = `Bearer ${token}`
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: options.method ?? 'GET',
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  })
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method: options.method ?? 'GET',
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    })
+  } catch {
+    // Ulanish o'zi yo'q (tarmoq/CORS/noto'g'ri API manzili) — xom TypeError
+    // o'rniga bir xil lokalizatsiya qilingan xabar ko'rsatiladi.
+    throw new Error(tr('api.backendUnreachable'))
+  }
 
   const text = await res.text()
   // 304 brauzer keshida yutilib 200 bo'lib ko'rinadi; JS ga yetib kelgan
@@ -57,11 +64,17 @@ export async function api<T>(
   }
   let data: T & { error?: string } = {} as T & { error?: string }
   if (text) {
-    // Netlify kabi statik hostda API mavjud bo'lmasa /api -> index.html qaytishi mumkin:
-    if (!res.ok && text.trimStart().startsWith('<!')) {
+    // API'dan HTML kelishi hech qachon norma emas: Netlify statik
+    // fallback (200 + index.html), funksiya ishlamayotgani yoki HTML xato
+    // sahifasi (404/500). Barcha holatda — aniq bitta xabar.
+    if (text.trimStart().startsWith('<!')) {
       throw new Error(tr('api.backendUnreachable'))
     }
-    data = JSON.parse(text) as T & { error?: string }
+    try {
+      data = JSON.parse(text) as T & { error?: string }
+    } catch {
+      throw new Error(tr('api.backendUnreachable'))
+    }
   }
 
   if (!res.ok) {
